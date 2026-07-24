@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""run_phase3.py — Phase 3 全自动探测编排器
+"""run_phase4.py — Phase 4 全自动探测编排器
 
 自动串联三步流程：
   1. read_excel.py --extract-urls → module_urls.json
@@ -36,7 +36,7 @@ from _pages_writer import generate_pages_yaml_from_discovery as _generate_pages_
 def run_cmd(cmd, label):
     """Run a subprocess command, return True on success."""
     print(f"\n{'='*60}")
-    print(f"[Phase 3] {label}")
+    print(f"[Phase 4] {label}")
     print(f"{'='*60}")
     print(f"  CMD: {' '.join(cmd)}")
     try:
@@ -115,7 +115,7 @@ def _merge_discovery_files(probe_dir, slug):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Phase 3 全自动探测编排器 — 串联 URL 提取 + 探测 + pages 生成'
+        description='Phase 4 全自动探测编排器 — 串联 URL 提取 + 探测 + pages 生成'
     )
     parser.add_argument('--excel', required=True,
                         help='Excel 测试用例文件路径')
@@ -183,7 +183,7 @@ def main():
     # module_urls.json 格式: {cn_name: {"urls": [...]}} — key 是中文名
     # v2: 从 discovery JSON 的 cn_name 字段构建映射（不再调用 build_module_map.py）
     print(f"\n{'='*60}")
-    print(f"[Phase 3] Step 1.5: 构建模块名映射 (cn_name → slug)")
+    print(f"[Phase 4] Step 1.5: 构建模块名映射 (cn_name → slug)")
     print(f"{'='*60}")
 
     cn_to_slug = _build_module_map(probe_dir)
@@ -214,7 +214,7 @@ def main():
             sys.exit(1)
         module_urls = matched
 
-    print(f"\n[Phase 3] 共 {len(module_urls)} 个模块待探测:")
+    print(f"\n[Phase 4] 共 {len(module_urls)} 个模块待探测:")
     for cn_name, data in module_urls.items():
         slug = cn_to_slug.get(cn_name, cn_name)
         print(f"  {slug} ({cn_name}): {len(data['urls'])} URLs")
@@ -242,7 +242,7 @@ def main():
             }
     else:
         # --skip-discover: 从已有 discovery JSON 加载
-        print("\n[Phase 3] --skip-discover: 使用已有 discovery JSON")
+        print("\n[Phase 4] --skip-discover: 使用已有 discovery JSON")
         for cn_name, data in module_urls.items():
             slug = cn_to_slug.get(cn_name, cn_name)
             output_path = os.path.join(probe_dir, f'discovery_{slug}.json')
@@ -276,7 +276,7 @@ def main():
             out_yaml = os.path.join(out_pages_dir, 'elements.yaml')
 
             print(f"\n{'='*60}")
-            print(f"[Phase 3] Step 3: 生成 pages for {slug}")
+            print(f"[Phase 4] Step 3: 生成 pages for {slug}")
             print(f"{'='*60}")
             try:
                 _generate_pages_yaml(
@@ -289,11 +289,11 @@ def main():
             except Exception as e:
                 print(f"[ERROR] {slug}: pages 生成失败 — {e}", file=sys.stderr)
     else:
-        print("\n[Phase 3] --skip-generate: 跳过 pages YAML 生成")
+        print("\n[Phase 4] --skip-generate: 跳过 pages YAML 生成")
 
     # ── Step 4: 汇总报告 ──
     print(f"\n{'='*60}")
-    print(f"[Phase 3] 汇总报告")
+    print(f"[Phase 4] 汇总报告")
     print(f"{'='*60}")
 
     total_ok = 0

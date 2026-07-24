@@ -81,7 +81,7 @@ case 中所有 locator 引用 `pages/`（`${group.field}`），所有 value 引�
 |------|---------|------|
 | pages + cases + data | `generate_from_excel.py`（v2 统一编排，direct import） | 分别手动调用旧工具 |
 | pages YAML | `_pages_writer.py`（由编排工具内部调用） | 手动抄写 locator |
-| pages 验证 | `verify_locators.py`（Phase 3f 强制运行） | 跳过验证 |
+| pages 验证 | `verify_locators.py`（Phase 6 强制运行） | 跳过验证 |
 | pages option locator | `_pages_writer.py`（自动生成） | 手写选项 XPath |
 | case YAML | `_case_generator.py`（由编排工具内部调用）或严格按模板手写 | 自由编排步骤 |
 
@@ -89,14 +89,14 @@ case 中所有 locator 引用 `pages/`（`${group.field}`），所有 value 引�
 
 **⑥ 阶段门禁强制 — 验证器自动检查前置阶段**
 
-`validate_05` 运行时自动检查 Phase 3/3f/3.5 的执行证据（`_phase_registry.py`）。
+`validate_08` 运行时自动检查 Phase 4/6/3 的执行证据（`_phase_registry.py`）。
 如果前置阶段未执行，输出 `PREREQUISITE` error 并阻断。
 不可绕过（无 `--skip-prerequisites` 参数）。
 
 检查项：
-- `_probe/discovery_*.json` ≥1 个 或 `_probe/probe_*.json` ≥1 个（Phase 3）
-- `_probe/verify_result.json` 存在 或 `_probe/probe_supplement*.json` 存在（Phase 3f）
-- `lib/module_keywords.py` 存在（Phase 3.5，仅当 `_knowledge/` 非空时）
+- `_probe/discovery_*.json` ≥1 个 或 `_probe/probe_*.json` ≥1 个（Phase 4）
+- `_probe/verify_result.json` 存在 或 `_probe/probe_supplement*.json` 存在（Phase 6）
+- `lib/module_keywords.py` 存在（Phase 3，仅当 `_knowledge/` 非空时）
 
 ---
 
@@ -106,15 +106,16 @@ case 中所有 locator 引用 `pages/`（`${group.field}`），所有 value 引�
 
 | 阶段 | 规则文件 | 验证器 |
 |------|---------|--------|
-| Phase 0 配置确认 | `rules/01_rule_config_confirmation.md` | `validators/validate_01_config.py [--runtime-check]` |
-| Phase 0.5 Excel 预检（Excel 时必询问） | — | `tools/validate_excel.py`（L1/L2 自动修复 + L3 解析能力验证） |
-| Phase 1 脚手架生成 | `rules/02_rule_scaffold_generation.md` | `validators/validate_02_scaffold.py` |
-| Phase 3 全自动探测 | `rules/04_rule_element_probing.md` | `validators/validate_04_probe.py` |
-| Phase 3f 运行时定位器验证（🚨强制） | — | `tools/verify_locators.py`（KB+discovery 验证+回写） |
-| Phase 3.5 模块关键字编译 | — | `tools/compile_module_keywords.py` + `validators/validate_03_5_keywords.py` |
-| Phase 4 脚本生成 | `rules/05_rule_script_generation.md` | `validators/validate_05_scripts.py` |
-| Phase 5 报告生成 | `rules/06_rule_report_generation.md` | `validators/validate_06_report.py` |
-| Phase 6 运行验证 | `rules/07_rule_execution_validation.md` | `validators/validate_07_execution.py` |
+| Phase 0 配置确认 | `rules/00_rule_config.md` | `validators/validate_00_config.py [--runtime-check]` |
+| Phase 1 Excel 预检（Excel 时必询问） | — | `tools/validate_excel.py`（L1/L2 自动修复 + L3 解析能力验证） |
+| Phase 2 脚手架生成 | `rules/02_rule_scaffold.md` | `validators/validate_02_scaffold.py` |
+| Phase 3 模块关键字编译 | — | `tools/compile_module_keywords.py` + `validators/validate_03_keywords.py` |
+| Phase 4 全自动探测 | `rules/04_rule_probe.md` | `validators/validate_04_probe.py` |
+| Phase 5 脚本生成（pages+cases+data） | `rules/08_rule_scripts.md` | `validators/validate_08_scripts.py` |
+| Phase 6 运行时定位器验证（🚨强制） | — | `tools/verify_locators.py`（KB+discovery 验证+回写） |
+| Phase 7 测试套件生成 | — | `tools/generate_suites.py` |
+| Phase 8 报告生成 | `rules/09_rule_report.md` | `validators/validate_09_report.py` |
+| Phase 9 运行验证 | `rules/09_rule_execution.md` | `validators/validate_09_execution.py` |
 
 **每个阶段完成后必须运行对应验证器，error > 0 时必须修复后才能进入下一阶段。**
 
@@ -141,9 +142,9 @@ playwright install chromium
 ├── _probe/                   # harvest/probe 探测结果（自动生成，已 gitignore）
 ├── files/                    # 运行时截图、日志、下载（自动生成，已 gitignore）
 └── report/                   # HTML 测试报告（自动生成，已 gitignore）
-    ├── generate_report/      # 脚本生成报告 (Phase 5)
-    ├── run_report/           # 运行报告 (Phase 6)
-    └── issues_report/        # 问题分析报告 (Phase 5+6 联合)
+    ├── generate_report/      # 脚本生成报告 (Phase 8)
+    ├── run_report/           # 运行报告 (Phase 9)
+    └── issues_report/        # 问题分析报告 (Phase 8+9 联合)
 ```
 
 四层目录的模块名必须一致（R4.1），case 文件名必须含序号前缀（R4.5）。
@@ -189,21 +190,21 @@ playwright install chromium
 
 ```bash
 # 静态检查（配置格式）
-python .claude/skills/generate-ui-test/validators/validate_01_config.py {config_file}
+python .claude/skills/generate-ui-test/validators/validate_00_config.py {config_file}
 
 # 运行时检查（认证有效性 + UI 框架检测，cookie 认证时必执行）
-python .claude/skills/generate-ui-test/validators/validate_01_config.py {config_file} --runtime-check
+python .claude/skills/generate-ui-test/validators/validate_00_config.py {config_file} --runtime-check
 ```
 
 | 结果 | 处理方式 |
 |------|---------|
-| 0 errors | 进入 Phase 0.5 或 Phase 1 |
+| 0 errors | 进入 Phase 1 或 Phase 2 |
 | R0.6 error（认证无效） | 提示用户重新提供 Cookie，不进入后续阶段 |
 | >0 errors | 修复后重新验证 |
 
 运行时检查输出 `_probe/auth_check.json`，包含 `auth_valid`（认证是否有效）和 `ui_framework`（检测到的 UI 框架，为未来多框架支持预留）。
 
-### Phase 0.5: Excel 用例预检（可选）
+### Phase 1: Excel 用例预检（可选）
 
 > **仅当输入来源为 Excel 时执行。** 此阶段对 Excel 用例进行三层验证：L1 格式清洗、L2 语义修复、L3 解析能力验证（确保每个步骤能被 `parse_step()` 分类）。
 
@@ -216,7 +217,7 @@ python .claude/skills/generate-ui-test/validators/validate_01_config.py {config_
 > - **执行预检**（推荐）：自动修复 L1/L2 问题 + L3 解析验证（不通过则阻断）
 > - **跳过预检**：直接使用原始 Excel 文件
 
-如果用户选择跳过，直接进入 Phase 1，后续流程使用原始 Excel 文件。
+如果用户选择跳过，直接进入 Phase 2，后续流程使用原始 Excel 文件。
 
 **执行步骤**：
 
@@ -284,9 +285,9 @@ Excel 预检通过，L1/L2 自动修复了 N 处问题：
 | 预检 L3 阻断 (exit 1) | 用户修改后重跑 |
 | L3 AI 审查有问题 | 用户修正后的文件 |
 
-> **重要**：后续 Phase 4 中 `generate_from_excel.py` 的输入文件必须使用此阶段确定的文件路径。validate_excel.py 的终端输出会明确打印"后续流程使用: {路径}"。
+> **重要**：后续 Phase 5 中 `generate_from_excel.py` 的输入文件必须使用此阶段确定的 Excel 文件路径。validate_excel.py 的终端输出会明确打印"后续流程使用: {路径}"。
 
-### Phase 1: 脚手架生成
+### Phase 2: 脚手架生成
 
 读取 `templates/` 目录下所有 `.tpl` 文件，用 Phase 0 确认的值填充模板变量：
 
@@ -357,7 +358,7 @@ setup_step:
 python .claude/skills/generate-ui-test/validators/validate_02_scaffold.py {project_name}
 ```
 
-### Phase 3: 全自动广撒网探测
+### Phase 4: 全自动广撒网探测
 
 > **此阶段替代旧 probe_element.py 管线。** 使用 `discover_page.py` 自动扫描所有交互元素，无需手动编排 `--element` 参数。
 
@@ -396,7 +397,7 @@ python .claude/skills/generate-ui-test/tools/discover_page.py "{url}" \
 
 #### 3c. 生成 pages YAML
 
-> **注意**：Phase 3c 和 4a 已合并为 `generate_from_excel.py` 统一编排工具。以下步骤由编排工具自动执行，通常不需要手动运行。
+> **注意**：Phase 4c 和 5a 已合并为 `generate_from_excel.py` 统一编排工具。以下步骤由编排工具自动执行，通常不需要手动运行。
 
 ```bash
 # 由 generate_from_excel.py 自动调用（v2: direct import _pages_writer）。
@@ -425,13 +426,13 @@ python .claude/skills/generate-ui-test/validators/validate_04_probe.py {project_
 
 | 结果 | 处理方式 |
 |------|---------|
-| 0 errors | 进入 Phase 4a |
+| 0 errors | 进入 Phase 5a |
 | >0 errors | 修复定位器后重新探测 |
 | warnings only | 人工确认，不阻塞 |
 
-### Phase 3f: 运行时定位器验证（🚨 强制，不可跳过）
+### Phase 6: 运行时定位器验证（🚨 强制，不可跳过）
 
-> **此阶段在 Phase 4a (cases/data 生成) 之后执行。** 使用 `verify_locators.py` 在真实浏览器中验证所有定位器。
+> **此阶段在 Phase 5a (cases/data 生成) 之后执行。** 使用 `verify_locators.py` 在真实浏览器中验证所有定位器。
 
 ```bash
 python .claude/skills/generate-ui-test/tools/verify_locators.py {project_name} \
@@ -442,7 +443,7 @@ python .claude/skills/generate-ui-test/tools/verify_locators.py {project_name} \
 
 **验证逻辑（三阶段优先级）**：
 1. **KB locator 优先**：知识库模板生成的 XPath，在浏览器中验证 count==1
-2. **discovery 已验证 locator**：Phase 3 探测时已验证的 locator
+2. **discovery 已验证 locator**：Phase 4 探测时已验证的 locator
 3. **KB fallback**：以上都失败时使用 KB 兜底模板，标记 `[UNVERIFIED]`
 
 **容器兜底规则**：
@@ -456,18 +457,18 @@ python .claude/skills/generate-ui-test/tools/verify_locators.py {project_name} \
 
 **执行顺序（强制）**：
 ```
-Phase 3   discover_page.py → discovery_{module}.json
-Phase 4   generate_from_excel.py → pages YAML + cases YAML + data YAML（v2 统一编排）
+Phase 4   discover_page.py → discovery_{module}.json
+Phase 5   generate_from_excel.py → pages YAML + cases YAML + data YAML（v2 统一编排）
           （内部 direct import: _element_resolver + _case_generator + _pages_writer）
-Phase 3f  verify_locators.py（运行时验证 + 回写）→ 更新 pages YAML
+Phase 6   verify_locators.py（运行时验证 + 回写）→ 更新 pages YAML
           validate_04（复检）
-Phase 3.5 compile_module_keywords.py → validate_03_5
-Phase 4b  generate_suites.py → suites
-Phase 5   validate_05_scripts.py
-Phase 5+6 generate_issues_report.py
+Phase 3   compile_module_keywords.py → validate_03
+Phase 7   generate_suites.py → suites
+Phase 5   validate_08_scripts.py
+Phase 8+9 generate_issues_report.py
 ```
 
-### Phase 3.5: 模块关键字编译（L3）
+### Phase 3: 模块关键字编译（L3）
 
 将 `_knowledge/{module}.yaml` 中的 workflow 定义编译为 Python 复合关键字，输出至 `lib/module_keywords.py`。
 
@@ -509,7 +510,7 @@ python .claude/skills/generate-ui-test/tools/compile_module_keywords.py {project
 
 **验证**（🚨 强制门禁，_knowledge/ 有 workflows 时必须通过）：
 ```bash
-python .claude/skills/generate-ui-test/validators/validate_03_5_keywords.py {project_name}
+python .claude/skills/generate-ui-test/validators/validate_03_keywords.py {project_name}
 ```
 
 | 结果 | 处理方式 |
@@ -519,7 +520,7 @@ python .claude/skills/generate-ui-test/validators/validate_03_5_keywords.py {pro
 | R3.5.7 error | workflow 未编译，重新运行编译工具 |
 | _knowledge/ 为空 | 自动跳过（退出 0） |
 
-### Phase 4: 脚本生成
+### Phase 5: 脚本生成
 
 #### 4.1 pages → `pages/{module}/{page}.yaml`
 
@@ -568,7 +569,7 @@ generate_pages_yaml_from_discovery(
 - 每个 el-select 的选项 XPath 必须定义在 pages 中
 - 通用 XPath（success_text、loading_mask 等）定义于 `common_elements` 组
 
-**生成后自检**：每个定位器是否来自 probe？容器内元素是否加了作用域前缀？运行 `validate_05_scripts.py` 确认 R4.11 无 error。
+**生成后自检**：每个定位器是否来自 probe？容器内元素是否加了作用域前缀？运行 `validate_08_scripts.py` 确认 R4.11 无 error。
 
 #### 4.2 data → `data/{module}/{data}.yaml`
 
@@ -683,7 +684,7 @@ from _case_generator import CaseGenerator, generate_case_file
 | 选择操作触发 API 联动 | `wait_for_element(目标元素, timeout: 10000)` |
 | 点击删除后 | `wait_for_time(1000)` + `click_element(${confirm_dialog.confirm_btn})` |
 
-**生成后逐条自检**（与 validate_05_scripts.py 自动检查对应）：
+**生成后逐条自检**（与 validate_08_scripts.py 自动检查对应）：
 - [ ] 所有 keyword 在注册清单中（R4.13）
 - [ ] 无 execute_script 做元素点击/输入（R4.10）
 - [ ] 链式选择器用 `>>` 不用空格（R4.15）
@@ -739,20 +740,20 @@ python .claude/skills/generate-ui-test/tools/generate_suites.py {project_name} -
 **验证（强制门禁）**：
 
 ```bash
-python .claude/skills/generate-ui-test/validators/validate_05_scripts.py {project_name}
+python .claude/skills/generate-ui-test/validators/validate_08_scripts.py {project_name}
 ```
 
 | 结果 | 处理方式 |
 |------|---------|
-| 0 errors | 进入 Phase 5 |
+| 0 errors | 进入 Phase 8 |
 | >0 errors | **必须修复所有 error 后才能进入下一阶段** |
 | warnings only | 人工确认，不阻塞 |
 
 **此步骤不可跳过。** 覆盖 14 条跨文件规则：R4.1, R4.3, R4.7, R4.20, R4.31, R4.31s, R4.33, R4.37, R4.41, R4.42, R4.43, PREREQUISITE, SUITE_REF, EXCEL_COMPLETE。单文件检查已前置到生成工具自检层。
 
-**⚠️ 任何 case/pages/data/suites 文件变更后，必须重新运行 Phase 5 报告生成。**
+**⚠️ 任何 case/pages/data/suites 文件变更后，必须重新运行 Phase 8 报告生成。**
 
-### Phase 5: 报告生成
+### Phase 8: 报告生成
 
 ```bash
 python .claude/skills/generate-ui-test/tools/generate_report.py {project_name}
@@ -763,7 +764,7 @@ python .claude/skills/generate-ui-test/tools/generate_report.py {project_name}
 **验证**：
 
 ```bash
-python .claude/skills/generate-ui-test/validators/validate_06_report.py {project_name}
+python .claude/skills/generate-ui-test/validators/validate_09_report.py {project_name}
 ```
 
 检查项：
@@ -774,9 +775,9 @@ python .claude/skills/generate-ui-test/validators/validate_06_report.py {project
 - R5.5 失败步骤备注含文件路径
 - R5.6 实际数据/实际定位器列变量解析完整
 
-### Phase 6: 运行验证
+### Phase 9: 运行验证
 
-> ⚠️ **Phase 6 不再自动阻断。** 运行失败记录在 HTML 联合报告中。
+> ⚠️ **Phase 9 不再自动阻断。** 运行失败记录在 HTML 联合报告中。
 > 如果报告中存在"运行时失败"项，必须人工排查后才能视为通过。
 
 ```bash
@@ -800,7 +801,7 @@ cd {project_name} && python run.py 2>&1 | tee ui_log.txt
 **验证**（纯分析，始终 exit 0）：
 
 ```bash
-python .claude/skills/generate-ui-test/validators/validate_07_execution.py {project_name}
+python .claude/skills/generate-ui-test/validators/validate_09_execution.py {project_name}
 ```
 
 **HTML 联合问题报告**：
@@ -810,9 +811,9 @@ python .claude/skills/generate-ui-test/tools/generate_issues_report.py {project_
 ```
 
 报告整合三类问题源：
-- Phase 4a 自检层修复日志（`_probe/repair_log.json`）
-- Phase 5 跨文件检查问题（`_probe/phase5_violations.json`）
-- Phase 6 运行时失败 + 累积学习记录（`_probe/learn_log.json`）
+- Phase 5a 自检层修复日志（`_probe/repair_log.json`）
+- Phase 8 跨文件检查问题（`_probe/phase5_violations.json`）
+- Phase 9 运行时失败 + 累积学习记录（`_probe/learn_log.json`）
 
 输出至 `{project}/report/issues_report/issues_YYYYMMDD_HHMMSS.html`（单文件，内嵌 CSS）。
 
@@ -835,13 +836,13 @@ python .claude/skills/generate-ui-test/tools/generate_issues_report.py {project_
 
 | 阶段 | 验证器命令 | 覆盖规则 | 门禁 |
 |------|-----------|---------|------|
-| Phase 0 | `validate_01_config.py {config} [--runtime-check]` | R0.1-R0.6 | error=阻断 |
-| Phase 1 | `validate_02_scaffold.py {project}` | R1.1-R1.3, R1.5 | error=阻断 |
-| Phase 3 | `validate_04_probe.py {project}` | R3.1,R3.3,R3.4,R3.6,R3.10 | error=阻断 |
-| Phase 3f | `verify_locators.py {project} --cookie "..." --url "..." --discovery ...` | KB+discovery验证+回写pages YAML | **🚨 强制**，cases生成后运行一次 |
-| Phase 3.5 | `validate_03_5_keywords.py {project}` | R3.5.1-R3.5.7 | error=阻断（_knowledge/ 为空时自动跳过） |
-| Phase 4 | `validate_05_scripts.py {project}` | R4.1,R4.3,R4.7,R4.20,R4.31,R4.31s,R4.33,R4.37,R4.41-R4.43,PREREQUISITE,SUITE_REF,EXCEL_COMPLETE | error=阻断（仅 14 项跨文件检查） |
-| Phase 4（自检层）| _case_generator.py 内置自检（SelfCheckLayer） | R4.2,R4.4,R4.6,R4.9,R4.13,R4.14,R4.21,R4.22 等 | 代码自修复 + remaining 记录 |
-| Phase 5 | `validate_06_report.py {project}` | R5.1-R5.6 | warn=提示 |
-| Phase 5+6 | `generate_issues_report.py {project}` | HTML 联合报告 | 纯分析产出 |
-| Phase 6 | `validate_07_execution.py {project}` | R6.1-R6.4 | 纯分析，始终 exit 0 |
+| Phase 0 | `validate_00_config.py {config} [--runtime-check]` | R0.1-R0.6 | error=阻断 |
+| Phase 2 | `validate_02_scaffold.py {project}` | R1.1-R1.3, R1.5 | error=阻断 |
+| Phase 3 | `validate_03_keywords.py {project}` | R3.5.1-R3.5.7 | error=阻断（_knowledge/ 为空时自动跳过） |
+| Phase 4 | `validate_04_probe.py {project}` | R3.1,R3.3,R3.4,R3.6,R3.10 | error=阻断 |
+| Phase 5 | `validate_08_scripts.py {project}` | R4.1,R4.3,R4.7,R4.20,R4.31,R4.31s,R4.33,R4.37,R4.41-R4.43,PREREQUISITE,SUITE_REF,EXCEL_COMPLETE | error=阻断（仅 14 项跨文件检查） |
+| Phase 5（自检层）| _case_generator.py 内置自检（SelfCheckLayer） | R4.2,R4.4,R4.6,R4.9,R4.13,R4.14,R4.21,R4.22 等 | 代码自修复 + remaining 记录 |
+| Phase 6 | `verify_locators.py {project} --cookie "..." --url "..." --discovery ...` | KB+discovery验证+回写pages YAML | **🚨 强制**，cases生成后运行一次 |
+| Phase 8 | `validate_09_report.py {project}` | R5.1-R5.6 | warn=提示 |
+| Phase 8+9 | `generate_issues_report.py {project}` | HTML 联合报告 | 纯分析产出 |
+| Phase 9 | `validate_09_execution.py {project}` | R6.1-R6.4 | 纯分析，始终 exit 0 |

@@ -114,7 +114,7 @@ def group_cases_by_module(excel_data, module_map_str, discovery_dir):
             print(f"[FATAL] 无法匹配模块: '{cn}'")
             print(f"  discovery JSON 中的 cn_name: {list(cn_to_slug.keys())}")
             print(f"  可能原因: discover_page.py 未写入 cn_name 字段")
-            print(f"  解决: 重新运行 Phase 3 探测，或使用 --module-map \"{cn}=<slug>\"")
+            print(f"  解决: 重新运行 Phase 4 探测，或使用 --module-map \"{cn}=<slug>\"")
             sys.exit(1)
         mapping[cn] = slug
 

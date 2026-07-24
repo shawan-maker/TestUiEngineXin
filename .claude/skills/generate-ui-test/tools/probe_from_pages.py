@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-probe_from_pages.py — 从 pages/cases YAML 反向补全探测覆盖（Phase 3f）v2
+probe_from_pages.py — 从 pages/cases YAML 反向补全探测覆盖（Phase 6）v2
 
 核心作用：确保所有 pages YAML 和 cases 中的定位器都经过 probe 验证。
 当 AI 手动添加/编辑 pages YAML 或在 case 中硬编码 locator 时，
@@ -885,11 +885,11 @@ def find_trigger(group_name: str, module: str, pages_data: dict,
 # ===========================================================================
 # 批次构建
 # ===========================================================================
-# Phase 3 待探测项消费
+# Phase 4 待探测项消费
 # ===========================================================================
 
 def _load_pending_detail_links(probe_dir: str) -> list:
-    """加载 Phase 3 (_case_generator.py) 输出的 detail-link 待探测项
+    """加载 Phase 4 (_case_generator.py) 输出的 detail-link 待探测项
 
     文件位置: _probe/pending_detail_links.json
     格式: [{group, field, label, type, case_id}, ...]
@@ -901,7 +901,7 @@ def _load_pending_detail_links(probe_dir: str) -> list:
         with open(pending_file, 'r', encoding='utf-8') as f:
             items = json.load(f)
         if isinstance(items, list):
-            print(f"[INFO] 加载 Phase 3 detail-link 待探测项: {len(items)} 项 ({pending_file})")
+            print(f"[INFO] 加载 Phase 4 detail-link 待探测项: {len(items)} 项 ({pending_file})")
             return items
     except (json.JSONDecodeError, OSError) as e:
         print(f"[WARN] 无法加载 pending_detail_links.json: {e}", file=sys.stderr)
@@ -918,10 +918,10 @@ def build_batches(uncovered_by_group: dict, config: dict,
     """
     batches = []
 
-    # ── 消费 Phase 3 (_case_generator.py) 的 detail-link 待探测项 ──
+    # ── 消费 Phase 4 (_case_generator.py) 的 detail-link 待探测项 ──
     # 确保这些字段即使不在 probe_db 中也会被探测（走 --element 知识库遍历）
     pending_links = _load_pending_detail_links(probe_dir)
-    pending_labels = {}  # field -> label（从 Phase 3 传入的中文标签）
+    pending_labels = {}  # field -> label（从 Phase 4 传入的中文标签）
     for item in pending_links:
         group = item.get('group', '')
         field = item.get('field', '')
@@ -1585,7 +1585,7 @@ def diagnose_unverified_containers(results: list) -> list:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='从 pages/cases YAML 反向补全探测覆盖（Phase 3f）v2')
+        description='从 pages/cases YAML 反向补全探测覆盖（Phase 6）v2')
     parser.add_argument('project_dir', help='项目根目录')
     parser.add_argument('--cookie', help='覆盖 config.yaml 中的 cookie')
     parser.add_argument('--url', help='覆盖 config.yaml 中的 target_url')
@@ -1603,7 +1603,7 @@ def main():
         sys.exit(2)
 
     print(f"{'='*60}")
-    print(f"Phase 3f: 探测覆盖补全 v2（按 group 批次）")
+    print(f"Phase 6: 探测覆盖补全 v2（按 group 批次）")
     print(f"项目: {project_dir}")
     print(f"{'='*60}")
 

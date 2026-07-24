@@ -1,4 +1,4 @@
-# Phase 4: 脚本生成规则
+# Phase 5: 脚本生成规则
 
 ## R4.0 嵌套变量引用（引擎已支持，建议谨慎使用）
 
@@ -124,7 +124,7 @@ Cookie 和 localStorage 认证信息统一在 `config.yaml` 中维护，suite �
 
 ---
 
-## 跨阶段通用规则（由 validate_05_scripts.py 检查）
+## 跨阶段通用规则（由 validate_08_scripts.py 检查）
 
 以下规则不限于 Phase 4 生成阶段，适用于所有 pages/cases/suites YAML 文件。
 
@@ -625,7 +625,7 @@ confirm_btn: "xpath=//div[contains(@class,'el-dialog')]//button[contains(.,'确'
 confirm_btn: "xpath=//*[contains(text(),'确定')]"
 ```
 
-**校验器**：`validate_05_scripts.py` 的 R4.36 自动检测：
+**校验器**：`validate_08_scripts.py` 的 R4.36 自动检测：
 - 按钮字段使用 `contains(text(),'...')` → **error**（必须转模式 1）
 - 按钮字段使用 `//button[contains(.,'完整文本')]` 且文本 > 1 字 → **warning**（建议拆字）
 - 生成工具 `generate_pages_from_probe.py` 自动转换按钮定位器为拆字模式
@@ -698,5 +698,5 @@ id: case-02
 
 **禁止**：不确定时默认使用 `el-dialog`。必须通过上述方法确认。
 
-**校验器**：`validate_05_scripts.py` 的 R4.38 自动检测同 group 内 drawer/dialog 混用 → **warning**（先后弹出不同容器属正常，同一容器元素应统一）。
+**校验器**：`validate_08_scripts.py` 的 R4.38 自动检测同 group 内 drawer/dialog 混用 → **warning**（先后弹出不同容器属正常，同一容器元素应统一）。
 

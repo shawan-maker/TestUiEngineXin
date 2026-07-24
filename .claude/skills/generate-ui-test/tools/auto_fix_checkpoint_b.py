@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Checkpoint B 自愈工具 — 语义一致性自动修复
 
-自动修复 validate_05 --stage final 报告的部分问题：
+自动修复 validate_08 --stage final 报告的部分问题：
 - R4.7: case_refs 排序（按依赖层级排序）
 - R4.20: case 步骤顺序与 Excel 不一致（标记建议，不自动修复）
 
@@ -32,16 +32,16 @@ from _tier_utils import get_case_tier as _get_case_tier, ORDER_TIERS
 
 def load_violations(project_dir: str) -> List[Dict]:
     """Load violations from Phase 5 JSON output."""
-    json_path = os.path.join(project_dir, '_probe', 'phase5_violations.json')
+    json_path = os.path.join(project_dir, '_probe', 'phase8_violations.json')
     if not os.path.exists(json_path):
         print(f"[ERROR] 未找到 violations JSON: {json_path}")
-        print("        请先运行: python validators/validate_05_scripts.py {project_dir} --stage final")
+        print("        请先运行: python validators/validate_08_scripts.py {project_dir} --stage final")
         sys.exit(1)
 
     with open(json_path, encoding='utf-8') as f:
         data = json.load(f)
 
-    # JSON 可能是 list 或 dict（取决于 validate_05 版本）
+    # JSON 可能是 list 或 dict（取决于 validate_08 版本）
     if isinstance(data, list):
         return data
     return data.get('violations', [])
@@ -138,7 +138,7 @@ def main():
     # 建议重新验证
     if total_fixed > 0:
         print("\n[建议] 重新运行验证:")
-        print(f"  python validators/validate_05_scripts.py {project_dir} --stage final")
+        print(f"  python validators/validate_08_scripts.py {project_dir} --stage final")
 
     sys.exit(0 if total_fixed > 0 else 1)
 

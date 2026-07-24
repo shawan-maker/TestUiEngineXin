@@ -1,4 +1,4 @@
-"""Phase 1 脚手架生成验证器
+"""Phase 2 脚手架生成验证器
 
 验证内容：
 1. 目录结构正确（R1.1）
@@ -116,7 +116,7 @@ if __name__ == '__main__':
     errors, warnings, info = validate_scaffold(project_dir)
 
     print("=" * 60)
-    print(f"Phase 1 Scaffold Validation - {project_dir}")
+    print(f"Phase 2 Scaffold Validation - {project_dir}")
     print("=" * 60)
 
     for msg in info:

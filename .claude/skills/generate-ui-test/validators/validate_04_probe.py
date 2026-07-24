@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Phase 3: 元素探测验证器 (validate_04_probe.py)
+Phase 4: 元素探测验证器 (validate_04_probe.py)
 
 校验内容：
   R3.1 定位器全部来自知识库
@@ -205,7 +205,7 @@ def load_probe_results(probe_dir: str) -> Dict[str, dict]:
         except Exception:
             pass
 
-    # 2. discovery_*.json（Phase 3 广撒网，v1.1 新增）
+    # 2. discovery_*.json（Phase 4 广撒网，v1.1 新增）
     for dj in glob.glob(os.path.join(probe_dir, 'discovery_*.json')):
         try:
             with open(dj, encoding='utf-8') as fh:
@@ -218,7 +218,7 @@ def load_probe_results(probe_dir: str) -> Dict[str, dict]:
         except Exception:
             continue
 
-    # 3. verify_result.json（Phase 3f 回写结果，v1.1 新增）
+    # 3. verify_result.json（Phase 6 回写结果，v1.1 新增）
     vr_path = os.path.join(probe_dir, 'verify_result.json')
     if os.path.isfile(vr_path):
         try:
@@ -457,7 +457,7 @@ def check_r3_coverage(cases_dir: str, probe_dir: str, project_dir: str,
     R3.10: case 中每个 locator（含 L3 关键字内部）都必须有 probe 记录。
     KB 回退：字段不在 probe_db 但在 pages YAML（含 _fallback）中有定义 → warning。
     common_elements 组的通用定位器（loading_mask, success_text 等）免检。
-    pending_fields: v1.1 F1 — 值为 xpath=[待确认] 的字段降级为 warning（→ Phase 3f 填补）。
+    pending_fields: v1.1 F1 — 值为 xpath=[待确认] 的字段降级为 warning（→ Phase 6 填补）。
     """
     # common_elements 组的字段不需要探测（通用断言/等待定位器）
     _COMMON_GROUPS = {'common_elements', 'common', 'common_data'}
@@ -621,7 +621,7 @@ def check_r3_coverage(cases_dir: str, probe_dir: str, project_dir: str,
                         })
 
     # R3.10: 未覆盖 → error（阻断 Phase 4）
-    # v1.1 F1: 待确认字段降级为 warning（→ Phase 3f 填补）
+    # v1.1 F1: 待确认字段降级为 warning（→ Phase 6 填补）
     pending_count = 0
     for item in uncovered_list:
         var = item['var']
@@ -630,7 +630,7 @@ def check_r3_coverage(cases_dir: str, probe_dir: str, project_dir: str,
             pending_count += 1
             warnings.append(
                 f"[R3.10] {item['file']}#{item['step']}: "
-                f"定位器 {var} 引用了待确认定位器 → Phase 3f 填补"
+                f"定位器 {var} 引用了待确认定位器 → Phase 6 填补"
             )
         else:
             errors.append(
@@ -878,7 +878,7 @@ def check_r3_14_discovery_integrity(probe_dir: str) -> Tuple[List[str], List[str
             if total == 0:
                 errors.append(
                     f"[R3.14] {os.path.basename(dj)}: 元素总数为 0，"
-                    f"探测可能失败，请重新运行 Phase 3"
+                    f"探测可能失败，请重新运行 Phase 4"
                 )
             else:
                 info.append(
@@ -897,7 +897,7 @@ def check_r3_14_discovery_integrity(probe_dir: str) -> Tuple[List[str], List[str
 # ============================================================================
 
 def validate_probe(project_dir: str) -> Tuple[List[str], List[str], List[str]]:
-    """Phase 3 主校验入口"""
+    """Phase 4 主校验入口"""
     pages_dir = os.path.join(project_dir, 'pages')
     cases_dir = os.path.join(project_dir, 'cases')
     probe_dir = os.path.join(project_dir, '_probe')
@@ -965,7 +965,7 @@ def main():
         sys.stderr.reconfigure(encoding='utf-8')
 
     parser = argparse.ArgumentParser(
-        description="UIEngine Phase 3 元素探测验证器"
+        description="UIEngine Phase 4 元素探测验证器"
     )
     parser.add_argument(
         'project_dir',
@@ -981,7 +981,7 @@ def main():
     errors, warnings, info = validate_probe(project_dir)
 
     print("=" * 70)
-    print(f"UIEngine Probe Validation Report (Phase 3)")
+    print(f"UIEngine Probe Validation Report (Phase 4)")
     print(f"Project: {os.path.basename(project_dir)}")
     print("=" * 70)
 

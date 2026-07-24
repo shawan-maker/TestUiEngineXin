@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Phase 5: 跨文件脚本验证器 (validate_05_scripts.py)
+Phase 8: 跨文件脚本验证器 (validate_08_scripts.py)
 
 精简版：仅保留必须跨文件检查的 14 个规则。
 单文件检查已前置到生成工具自检层（_case_generator.py / _pages_writer.py）。
@@ -22,7 +22,7 @@ Phase 5: 跨文件脚本验证器 (validate_05_scripts.py)
   EXCEL_COMPLETE Excel 用例转换完整性
 
 用法:
-    python validate_05_scripts.py <project_dir>
+    python validate_08_scripts.py <project_dir>
 
 退出码: 0 = 全部通过, 1 = 有 error 级别违规
 """
@@ -954,7 +954,7 @@ def check_r4_43(filepath: str, data: dict, lines: List[str], ctx: dict) -> List[
     豁免 common_elements、detail_page_elements 和 companion 字段。
 
     这是"缺失元素必须回退探测"的硬关卡：
-    未探测的核心字段 → ERROR → 阻断 Phase 4 → 必须回到 Phase 3f 补探。
+    未探测的核心字段 → ERROR → 阻断 Phase 5 → 必须回到 Phase 6 补探。
     """
     violations = []
     rp = rel_path(filepath, ctx['project_dir'])
@@ -1030,7 +1030,7 @@ def check_r4_43(filepath: str, data: dict, lines: List[str], ctx: dict) -> List[
                             f"probe_with_knowledge 验证"
                         ),
                         suggestion=(
-                            f"运行 Phase 3f 补探：\n"
+                            f"运行 Phase 6 补探：\n"
                             f"  python tools/probe_from_pages.py "
                             f"{{project_dir}} --cookie \"...\" --url \"...\"\n"
                             f"或手动探测：\n"
@@ -1161,7 +1161,7 @@ def format_report(violations: List[Violation], project_dir: str) -> str:
     if not violations:
         return (
             "======================================================================\n"
-            f"UIEngine Cross-File Validation Report (Phase 5)\n"
+            f"UIEngine Cross-File Validation Report (Phase 8)\n"
             f"Project: {os.path.basename(project_dir)}\n"
             "======================================================================\n"
             "\n"
@@ -1179,7 +1179,7 @@ def format_report(violations: List[Violation], project_dir: str) -> str:
 
     lines = [
         "======================================================================",
-        "UIEngine Cross-File Validation Report (Phase 5)",
+        "UIEngine Cross-File Validation Report (Phase 8)",
         f"Project: {os.path.basename(project_dir)}",
         "======================================================================",
         "",
@@ -1223,8 +1223,8 @@ def format_report(violations: List[Violation], project_dir: str) -> str:
 # JSON 导出（供 generate_issues_report.py 消费）
 # ============================================================================
 
-def _export_phase5_json(project_dir: str, violations: List[Violation]):
-    """导出 Phase 5 violations 到 JSON（供 HTML 联合报告消费）"""
+def _export_phase8_json(project_dir: str, violations: List[Violation]):
+    """导出 Phase 8 violations 到 JSON（供 HTML 联合报告消费）"""
     data = [
         {
             'file': v.file, 'line': v.line, 'rule': v.rule,
@@ -1233,7 +1233,7 @@ def _export_phase5_json(project_dir: str, violations: List[Violation]):
         }
         for v in violations
     ]
-    output_path = os.path.join(project_dir, '_probe', 'phase5_violations.json')
+    output_path = os.path.join(project_dir, '_probe', 'phase8_violations.json')
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -1250,7 +1250,7 @@ def main():
         sys.stderr.reconfigure(encoding='utf-8')
 
     parser = argparse.ArgumentParser(
-        description="UIEngine Phase 5 跨文件脚本验证器"
+        description="UIEngine Phase 8 跨文件脚本验证器"
     )
     parser.add_argument(
         'project_dir',
@@ -1287,7 +1287,7 @@ def main():
     if _sys_path not in sys.path:
         sys.path.insert(0, _sys_path)
     from tools._phase_registry import check_prerequisite_phases
-    prereq_violations = check_prerequisite_phases(project_dir, 'validate_05')
+    prereq_violations = check_prerequisite_phases(project_dir, 'validate_08')
     all_violations: List[Violation] = list(prereq_violations)
 
     # 加载 L3 模块关键字（保留供上下文使用）
@@ -1353,9 +1353,9 @@ def main():
     # NO data checks (moved upstream)
 
     # ── Stage-based filtering ──
-    # EARLY rules: 结构一致性（不依赖 Phase 3f 结果）
+    # EARLY rules: 结构一致性（不依赖 Phase 6 结果）
     EARLY_RULES = {'R4.1', 'R4.31', 'R4.31s', 'R4.37', 'PREREQUISITE'}
-    # FINAL rules: 语义一致性（依赖 Phase 3f 结果）
+    # FINAL rules: 语义一致性（依赖 Phase 6 结果）
     FINAL_RULES = {'R4.3', 'R4.7', 'R4.20', 'R4.33', 'R4.41', 'R4.42', 'R4.43',
                    'SUITE_REF', 'EXCEL_COMPLETE', 'PREREQUISITE'}
 
@@ -1370,7 +1370,7 @@ def main():
     print(report)
 
     # 导出 JSON 供 HTML 联合报告消费
-    _export_phase5_json(project_dir, all_violations)
+    _export_phase8_json(project_dir, all_violations)
 
     # 退出码
     has_errors = any(v.severity == 'error' for v in all_violations)

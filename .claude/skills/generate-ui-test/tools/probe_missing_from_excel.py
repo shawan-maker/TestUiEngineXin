@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-probe_missing_from_excel.py - Phase 3g: Excel 字段发现 + 补探
+probe_missing_from_excel.py - Phase 4g: Excel 字段发现 + 补探
 
 从 Excel 用例步骤推断 pages YAML 中应该存在但缺失的元素字段，
 对缺失字段调用 probe_element.py 补探并写入 pages YAML。
@@ -337,7 +337,7 @@ def load_label_map(pages_dir: str) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Phase 3g: 从 Excel 发现 pages YAML 缺失字段并补探')
+        description='Phase 4g: 从 Excel 发现 pages YAML 缺失字段并补探')
     parser.add_argument('project_dir', help='项目根目录')
     parser.add_argument('--excel', required=True,
                         help='read_excel.py 输出的 JSON 文件')
@@ -358,7 +358,7 @@ def main():
         sys.exit(2)
 
     print(f"{'='*60}")
-    print(f"Phase 3g: Excel 字段发现 + 补探")
+    print(f"Phase 4g: Excel 字段发现 + 补探")
     print(f"项目: {project_dir}")
     print(f"Excel: {args.excel}")
     print(f"{'='*60}")

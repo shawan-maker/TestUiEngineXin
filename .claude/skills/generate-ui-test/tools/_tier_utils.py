@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """共享工具函数：Case 排序层级
 
-提供 case ID 的排序层级计算功能，用于 validate_05 和 auto_fix 工具。
+提供 case ID 的排序层级计算功能，用于 validate_08 和 auto_fix 工具。
 """
 
 import re

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Phase 4b: 自动生成 suite YAML 文件
+Phase 7: 自动生成 suite YAML 文件
 
 从 cases/ 目录扫描所有 case ID，按依赖顺序生成 suite YAML。
 消除 AI 手写 suite 的不稳定性（P-06/D5 缺口修复）。

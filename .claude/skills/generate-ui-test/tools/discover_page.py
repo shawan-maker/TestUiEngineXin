@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""discover_page.py — Phase 3 广撒网探测工具
+"""discover_page.py — Phase 4 广撒网探测工具
 
 自动发现列表页所有交互元素（按钮、输入框、下拉框等），遍历点击每个按钮，
 检测容器类型，记录容器内元素，生成 discovery_{module}.json。
@@ -992,7 +992,7 @@ def _generate_locators_for_elements(page, elements, container_type=None):
                 verified = False
             elem['locator'] = xpath
             elem['verified'] = verified
-            elem['tab_id_attribute'] = 'aria-controls'  # for Phase 3f tab-scoped
+            elem['tab_id_attribute'] = 'aria-controls'  # for Phase 6 tab-scoped
             try:
                 elem['count'] = page.locator(f"xpath={xpath}").count()
             except Exception:
@@ -1806,7 +1806,7 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Phase 3 广撒网探测 — 自动发现页面所有交互元素'
+        description='Phase 4 广撒网探测 — 自动发现页面所有交互元素'
     )
     parser.add_argument('url', nargs='?', default=None,
                         help='列表页 URL（可选，--module-urls 时自动忽略）')

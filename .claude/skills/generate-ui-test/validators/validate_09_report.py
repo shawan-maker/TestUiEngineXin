@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Phase 5: 报告生成验证器 (validate_06_report.py)
+Phase 9: 报告生成验证器 (validate_09_report.py)
 
 校验 generate_report.py 生成的报告是否符合 R5.x 规范：
   R5.1 报告路径正确 (report/generate_report/generation_report.html)
@@ -11,7 +11,7 @@ Phase 5: 报告生成验证器 (validate_06_report.py)
   R5.6 实际数据/实际定位器列变量解析完整 (不含未解析的 ${group.field})
 
 用法:
-    python validate_06_report.py <project_dir>
+    python validate_09_report.py <project_dir>
 
 退出码: 0 = 全部通过, 1 = 有 error 级别违规
 """
@@ -337,7 +337,7 @@ def check_r5_6_resolved_columns(report_path: str) -> Tuple[List[str], List[str],
 # ============================================================================
 
 def validate_report(project_dir: str) -> Tuple[List[str], List[str], List[str]]:
-    """Phase 5 主校验入口"""
+    """Phase 9 主校验入口"""
     all_errors = []
     all_warnings = []
     all_info = []
@@ -396,7 +396,7 @@ def main():
         sys.stderr.reconfigure(encoding='utf-8')
 
     parser = argparse.ArgumentParser(
-        description="UIEngine Phase 5 报告生成验证器")
+        description="UIEngine Phase 9 报告生成验证器")
     parser.add_argument('project_dir', help="项目根目录路径")
     args = parser.parse_args()
 
@@ -408,7 +408,7 @@ def main():
     errors, warnings, info = validate_report(project_dir)
 
     print("=" * 70)
-    print("UIEngine Report Validation Report (Phase 5)")
+    print("UIEngine Report Validation Report (Phase 9)")
     print(f"Project: {os.path.basename(project_dir)}")
     print("=" * 70)
 

@@ -62,5 +62,5 @@ auth:
 配置完成后，运行验证器检查：
 
 ```bash
-python .claude/skills/generate-ui-test/validators/validate_01_config.py config.yaml
+python .claude/skills/generate-ui-test/validators/validate_00_config.py config.yaml
 ```

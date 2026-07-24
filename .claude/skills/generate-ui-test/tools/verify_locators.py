@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""verify_locators.py — Phase 3f 运行时验证工具
+"""verify_locators.py — Phase 6 运行时验证工具
 
 按 case 步骤顺序在真实浏览器中执行，验证所有 locator（KB + discovery），
 自动检测容器类型，注入隐藏过滤，回写 pages YAML。
@@ -106,7 +106,7 @@ NO_VERIFY_KEYWORDS = {
 # L3 keywords that need expansion (P2-3)
 L3_KEYWORDS = {'l3_call'}
 
-# Fill values for Phase 3f probing (avoid data conflicts)
+# Fill values for Phase 6 probing (avoid data conflicts)
 PROBE_FILL_VALUES = {
     'input': PROBE_ISOLATION_PREFIX + '测试',
     'textarea': PROBE_ISOLATION_PREFIX + '测试文本',
@@ -791,7 +791,7 @@ def _smart_wait_after_action(page, wait_dom_stable=True):
         _wait_for_dom_stable(page, timeout_ms=3000)
 
 
-# Plan D: 容器等待增强 — 参考 Phase 3 的 wait_for_stable() 逻辑
+# Plan D: 容器等待增强 — 参考 Phase 4 的 wait_for_stable() 逻辑
 _SKIP_CONTAINER_WAIT_LABELS = {
     '确定', '确认', '取消', '删除', '移除', '关闭', '返回', '保存', '提交',
     '搜索', '查询', '刷新', '导出', '下载', '批量', '更多', '重置', '清空',
@@ -1107,8 +1107,8 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 pass
         return None, None, False, False
 
-    # Skip assertions (Phase 6 responsibility)
-    # BUG-4b: added except_element_count (assertion keyword with locator, not for Phase 3f)
+    # Skip assertions (Phase 9 responsibility)
+    # BUG-4b: added except_element_count (assertion keyword with locator, not for Phase 6)
     if keyword in ('except_to_be_visible', 'except_to_have_text',
                    'except_to_have_value', 'except_element_count'):
         return None, None, False, False
@@ -1237,7 +1237,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
     #   3. 非空且长度合理
     #
     # Fix-6: 始终将原始 locator 加入候选池尾部作为安全网（去掉 candidates==0 条件）
-    # 原因：即使 KB 产生了候选（可能用错误 label 生成），原始 locator 来自 Phase 4a
+    # 原因：即使 KB 产生了候选（可能用错误 label 生成），原始 locator 来自 Phase 5
     #       的 _track_field，基于 Excel 单元格值构建，比 KB 候选更可靠。
     # 不影响 KB 优先级：原始 locator 在候选尾部，KB/discovery 候选优先验证。
     if (not locator.startswith('${')       # guard 1: 非未解析变量
@@ -1281,7 +1281,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             _alt_types.append('input-generic')
         # Source: button → table-action-button fallback
         # 仅遍历结构泛化的按钮 KB（所有 pattern 含 {label}，不会假阳性）。
-        # download-button / search-button 属于特殊场景，由 Phase 4a 类型推断
+        # download-button / search-button 属于特殊场景，由 Phase 5 类型推断
         # 根据 Excel 描述关键词（导出/下载/搜索/查询）直接匹配，不参与 R4 遍历。
         elif elem_type == 'button':
             if 'table-action-button' not in _alt_types:
@@ -1340,7 +1340,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                     print(f"    [KB-FALLBACK] '{desc}' → {fb.get('strategy', 'unknown')}")
 
         # Scheme 4: 跨类型 fallback — input-generic 失败时尝试 textarea-generic
-        # 解决 Phase 4a 将 textarea 字段误标为 _input 后缀的场景 D
+        # 解决 Phase 5 将 textarea 字段误标为 _input 后缀的场景 D
         if not verified_locator and label and elem_type == 'input-generic':
             _CROSS_TYPE_ALIASES = ['textarea-generic']
             for _cross_type in _CROSS_TYPE_ALIASES:
@@ -1415,7 +1415,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                         verified_locator = _fb_result
                         print(f"    [FALLBACK] '{desc}' → first-candidate with {_fb_prefix} prefix (M11)")
 
-        # Fix-6: 仅当 discovery 已验证时保留 Phase 4a 原始 locator
+        # Fix-6: 仅当 discovery 已验证时保留 Phase 5 原始 locator
         # 设计意图（三层优先级）：
         #   1. KB 验证成功 → 使用 KB locator（主验证路径）
         #   2. KB 失败 + discovery 已验证 → 保留原始值（discovery 已验证的同值候选已尝试）
@@ -1431,7 +1431,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                                    if not _orig_xpath.startswith('xpath=')
                                    else _orig_xpath)
                 # 防御性：count>1 时自动 [1] 收窄（与 M11/R5 兜底路径一致）
-                # 场景：discovery 已验证 count=1，但 Phase 3f 验证时因表格异步
+                # 场景：discovery 已验证 count=1，但 Phase 6 验证时因表格异步
                 # 加载等原因 count>1，运行时可能仍多匹配
                 _preserved_narrowed = _verify_count_or_first(page, _preserved_locator)
                 if _preserved_narrowed:
@@ -1439,25 +1439,25 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                     is_best_guess = True
                     _p_note = ('已 [1] 收窄' if _preserved_narrowed != _preserved_locator
                                else 'count=1')
-                    print(f"    [PRESERVED] '{desc}' → 保留 Phase 4a 原始 locator "
+                    print(f"    [PRESERVED] '{desc}' → 保留 Phase 5 原始 locator "
                           f"(discovery verified, {_p_note})")
                 else:
-                    # count==0：加 [1] 防御 Phase 6 strict mode
-                    # 场景：验证时元素不可见（count=0），Phase 6 运行时前序步骤执行后元素出现
+                    # count==0：加 [1] 防御 Phase 9 strict mode
+                    # 场景：验证时元素不可见（count=0），Phase 9 运行时前序步骤执行后元素出现
                     # 但可能出现多个匹配（如表格行按钮），[1] 防止 strict mode violation
                     _raw = (_preserved_locator.replace('xpath=', '', 1)
                             if _preserved_locator.startswith('xpath=')
                             else _preserved_locator)
                     verified_locator = f"xpath=({_raw})[1]"
                     is_best_guess = True
-                    print(f"    [PRESERVED] '{desc}' → 保留 Phase 4a 原始 locator "
+                    print(f"    [PRESERVED] '{desc}' → 保留 Phase 5 原始 locator "
                           f"(discovery verified, count=0, [1] 防御)")
 
         if not verified_locator:
             # ── R5: KB locator 兜底回写（规则 6 修复）──
             # 即使 count=0，也用 KB locator 回写（比 [待确认] 更有价值）
             # 理由：KB locator 结构正确，count=0 通常因为容器未打开，
-            #       Phase 6 运行时前序步骤正确执行后大概率能命中。
+            #       Phase 9 运行时前序步骤正确执行后大概率能命中。
             _bg_locator = None
             _bg_source = None
 
@@ -1494,7 +1494,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             if _bg_locator:
                 # 防御性：count>1 时自动 [1] 收窄（与 M11 兜底路径一致）
                 # 场景：表格异步加载未完成时 count=0，加载完 count>1（行按钮等）
-                # 若不做 [1] 收窄，Phase 6 运行时 strict mode violation
+                # 若不做 [1] 收窄，Phase 9 运行时 strict mode violation
                 _bg_narrowed = _verify_count_or_first(page, _bg_locator)
                 if _bg_narrowed:
                     # count==1 或 count>1 已收窄 → 使用收窄后的 locator
@@ -1502,8 +1502,8 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                     _bg_note = ('已 [1] 收窄' if _bg_narrowed != _bg_locator
                                 else 'count=1')
                 else:
-                    # count==0：加 [1] 防御 Phase 6 strict mode（与 Fix-6 对齐）
-                    # 场景：验证时元素不可见，Phase 6 运行时可能出现多个匹配
+                    # count==0：加 [1] 防御 Phase 9 strict mode（与 Fix-6 对齐）
+                    # 场景：验证时元素不可见，Phase 9 运行时可能出现多个匹配
                     _raw = (_bg_locator.replace('xpath=', '', 1)
                             if _bg_locator.startswith('xpath=')
                             else _bg_locator)
@@ -1525,7 +1525,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
     # Execute the step
     try:
         # click_select_option: 引擎内部处理 el-select 全流程，
-        # Phase 3f 只需验证触发器 locator 存在 + 点击展开
+        # Phase 6 只需验证触发器 locator 存在 + 点击展开
         if keyword == 'click_select_option':
             page.locator(verified_locator).click(timeout=5000)  # 方案 B: 严格模式
             # 验证下拉面板出现（证明触发器有效）
@@ -1640,7 +1640,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 except Exception as e:
                     print(f"    [WARN] iframe fill 异常: {str(e)[:80]}，尝试标准 fill")
             # Perf: 对 el-select 触发器（readonly input 或 div），快速检测并跳过 fill
-            # 避免 5 秒超时浪费（Phase 3f 目标是验证 locator，不是测试 fill 功能）
+            # 避免 5 秒超时浪费（Phase 6 目标是验证 locator，不是测试 fill 功能）
             try:
                 el = page.locator(verified_locator).first
                 tag = el.evaluate("e => e.tagName.toLowerCase()")
@@ -1753,8 +1753,8 @@ def _store_verified_locator(v_loc, v_ct, step, pages_dict, verified_locators,
         new_has_container = any(m in v_xpath for m in CONTAINER_MARKERS)
         if orig_has_container and not new_has_container:
             # 方案B: 禁止 DOWNGRADED 覆盖 — 原始有容器前缀但验证后没有，保留原始版本
-            # 根因：容器检测时序问题导致 Phase 3f 验证时 count==1（dialog 未完全渲染），
-            # 但 Phase 6 运行时 dialog 已完全打开，count==2 → strict mode violation
+            # 根因：容器检测时序问题导致 Phase 6 验证时 count==1（dialog 未完全渲染），
+            # 但 Phase 9 运行时 dialog 已完全打开，count==2 → strict mode violation
             print(f"    [PRESERVED-SCOPED] '{ref}' — 原始 locator 有容器前缀，"
                   f"验证后没有，保留原始版本，不降级")
             return
@@ -2183,7 +2183,7 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                     cond_locator = step.get('params', {}).get('locator', '')
                     if cond_locator:
                         cond_locator = resolve_locator(step.get('params', {}), pages_dict)
-                        # Fix A: 使用 wait_for 等待元素可见（与 Phase 6 引擎行为一致）
+                        # Fix A: 使用 wait_for 等待元素可见（与 Phase 9 引擎行为一致）
                         cond_timeout = step.get('params', {}).get('timeout', 5000)
                         if isinstance(cond_timeout, (int, float)):
                             cond_timeout = int(cond_timeout)
@@ -2762,7 +2762,7 @@ def _run_supplement_probe(project_dir, cookie, url, gap_fields):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Phase 3f 运行时验证 — 按 case 流程执行，验证所有 locator'
+        description='Phase 6 运行时验证 — 按 case 流程执行，验证所有 locator'
     )
     parser.add_argument('project_dir', help='项目根目录')
     parser.add_argument('--cookie', required=True, help='Cookie 字符串')
@@ -2796,7 +2796,7 @@ def main():
         print(f"[Dry-run] {len(pages)} page groups loaded")
         sys.exit(0)
 
-    # M20: 自动消费 pending_detail_links.json（Phase 4a 输出）
+    # M20: 自动消费 pending_detail_links.json（Phase 5 输出）
     _consume_pending_detail_links(args.project_dir, args.cookie, args.url,
                                    args.local_storage)
 
@@ -2808,7 +2808,7 @@ def main():
 
         # Phase 2: Gap Scan + Auto-Supplement (when --auto-supplement is enabled)
         if args.auto_supplement:
-            print("\n[Phase 3f] Gap Scan + Auto-Supplement")
+            print("\n[Phase 6] Gap Scan + Auto-Supplement")
             case_refs = _extract_case_refs(args.project_dir)
             print(f"  Case 引用: {len(case_refs)} group.field")
 

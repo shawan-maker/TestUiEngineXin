@@ -3,7 +3,7 @@
 
 被多个工具共同导入，确保常量定义唯一：
   - _case_generator.py (_FIELD_RE, label_map, CaseGenerator)
-  - validate_05_scripts.py (R4.58 字段命名校验)
+  - validate_08_scripts.py (R4.58 字段命名校验)
   - probe_element.py (容器前缀)
   - step_patterns.py (未来扩展)
   - _pages_writer.py (label_to_key 共享)

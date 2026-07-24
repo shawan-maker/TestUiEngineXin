@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""validate_excel.py — Excel 测试用例预检工具 (Phase 0.5)
+"""validate_excel.py — Excel 测试用例预检工具 (Phase 1)
 
 L1 规则（23条）: 全自动修复 [v3: +R23-R29, R31-R34, R36, RQ]
 L2 规则（7条）: 自动修复 + 标记待确认
@@ -1103,7 +1103,7 @@ class ExcelValidator:
 
             # Pattern 4: 点击XX跳转/打开/展开/查看/切换/筛选/搜索 → 点击"XX"跳转...
             # 必须在 Pattern 2 之前运行，否则 Pattern 2 贪心匹配把 "里程碑跳转" 整体当作 target
-            # 解决 Phase 3f label 提取失败: 无引号 → label='' → KB/discovery/fallback 全部跳过
+            # 解决 Phase 6 label 提取失败: 无引号 → label='' → KB/discovery/fallback 全部跳过
             if content == original:
                 m = re.match(
                     r'^(点击)([一-鿿A-Za-z0-9]{2,8})'
@@ -1874,7 +1874,7 @@ h1 {{ color: #1a1a2e; border-bottom: 3px solid #e94560; padding-bottom: 12px; }}
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Excel 测试用例预检工具 (Phase 0.5)')
+        description='Excel 测试用例预检工具 (Phase 1)')
     parser.add_argument('input', help='输入 Excel 文件路径')
     parser.add_argument('--output', '-o', help='修正版输出路径 (默认: 输入文件名-修正版.xlsx)')
     parser.add_argument('--report', '-r', help='HTML 报告路径 (默认: excel_validation_report.html)')

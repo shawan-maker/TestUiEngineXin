@@ -1,13 +1,12 @@
 # 代码生成强制规则（39 条）[已归档]
 
-> **⚠️ 本文件已归档。规则已拆分为 `rules/` 目录下 7 个阶段文件：**
-> - `rules/01_rule_config_confirmation.md` (Phase 0)
-> - `rules/02_rule_scaffold_generation.md` (Phase 1)
-> - `rules/03_rule_page_structure_detection.md` (Phase 2)
-> - `rules/04_rule_element_probing.md` (Phase 3)
-> - `rules/05_rule_script_generation.md` (Phase 4)
-> - `rules/06_rule_report_generation.md` (Phase 5)
-> - `rules/07_rule_execution_validation.md` (Phase 6)
+> **⚠️ 本文件已归档。规则已拆分为 `rules/` 目录下 6 个阶段文件：**
+> - `rules/00_rule_config.md` (Phase 0)
+> - `rules/02_rule_scaffold.md` (Phase 2)
+> - `rules/04_rule_probe.md` (Phase 4)
+> - `rules/08_rule_scripts.md` (Phase 8)
+> - `rules/09_rule_report.md` (Phase 9)
+> - `rules/09_rule_execution.md` (Phase 9)
 >
 > 本文件保留仅供参考对照，新规则以 `rules/` 为准。
 
@@ -344,7 +343,7 @@ case 中出现的**每一个** locator（包括 L3 关键字内部的）都必�
 6. `suites/**/*.yaml` 中 `setup_step` 的 locator 引用
 7. 去重后生成最终探测清单
 
-**工具保证**：`probe_from_pages.py`（Phase 3f）自动执行覆盖检查，未覆盖的元素自动补探测。
+**工具保证**：`probe_from_pages.py`（Phase 6）自动执行覆盖检查，未覆盖的元素自动补探测。
 
 **验证器**：`validate_04_probe.py` 检查每个 locator 在 `_probe/*.json` 中有对应记录，无记录 → error（阻断 Phase 4）。
 
@@ -1090,7 +1089,7 @@ Playwright 的 `Page.evaluate()` 将脚本作为**表达式**求值，**不允�
 | 规则 10b.3 | 规则 17 | 多步操作完整性 | 合并到探测失败记录 |
 | 规则 10b.4 | 规则 17 | 唯一值优先 | 合并到探测失败记录 |
 | 规则 10b.5 | 规则 17 | 探测失败记录 | 合并到探测失败记录 |
-| 规则 10c | — | 生成报告 | 移至 `rules/06_rule_report_generation.md` |
+| 规则 10c | — | 生成报告 | 移至 `rules/09_rule_report.md` |
 | 规则 11 | 规则 13 | 表格列索引 | 不变 |
 | 规则 12 | 规则 14 | el-select 双向面板 | 不变 |
 | 规则 12b | 规则 14 | el-select 双向面板 | 合并入规则 14 |

@@ -1,4 +1,4 @@
-"""L3 模块复合关键字编译器（Phase 3.5）
+"""L3 模块复合关键字编译器（Phase 3）
 
 从 _knowledge/*.yaml 中的 workflow 定义编译为 Python 模块，
 输出至 lib/module_keywords.py。
@@ -171,7 +171,7 @@ _COMPILER_KEYWORDS = {
     'log',
 }
 
-# 引擎 L0/L1 关键字（从 validate_03_5 同步 — 用于 R3.5.3 校验）
+# 引擎 L0/L1 关键字（从 validate_03 同步 — 用于 R3.5.3 校验）
 _ENGINE_KEYWORDS = {
     'open_url', 'refresh', 'go_back', 'go_forward', 'scroll_to_height',
     'scroll_to_element', 'execute_script', 'save_page_img', 'download_file',

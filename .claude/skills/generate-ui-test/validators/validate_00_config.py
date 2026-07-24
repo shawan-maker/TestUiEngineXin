@@ -10,8 +10,8 @@
 7. 运行时认证验证 + UI 框架检测（R0.6，--runtime-check）
 
 用法：
-    python validate_01_config.py <config_file>
-    python validate_01_config.py <config_file> --runtime-check
+    python validate_00_config.py <config_file>
+    python validate_00_config.py <config_file> --runtime-check
 """
 import sys
 import os
@@ -90,11 +90,11 @@ def validate_discovery_files(project_dir):
     """R0.7: 验证 discovery JSON 文件存在性"""
     probe_dir = os.path.join(project_dir, '_probe')
     if not os.path.exists(probe_dir):
-        return False, "_probe 目录不存在，请先运行 Phase 3 探测"
+        return False, "_probe 目录不存在，请先运行 Phase 4 探测"
 
     discovery_files = glob.glob(os.path.join(probe_dir, 'discovery_*.json'))
     if not discovery_files:
-        return False, "未找到 discovery_*.json 文件，请先运行 Phase 3 探测"
+        return False, "未找到 discovery_*.json 文件，请先运行 Phase 4 探测"
 
     return True, f"OK ({len(discovery_files)} 个 discovery 文件)"
 
@@ -124,11 +124,11 @@ def validate_config(config_file):
         errors.append(f"[R0.2] 认证方式: {msg}")
 
     # R0.7 discovery 文件存在性（v1.1 新增，WARNING 不阻断）
-    # 注意：discovery 文件在 Phase 3 生成，Phase 0 时尚不存在，故降级为 warning
+    # 注意：discovery 文件在 Phase 4 生成，Phase 0 时尚不存在，故降级为 warning
     project_dir = os.path.dirname(config_file)
     ok, msg = validate_discovery_files(project_dir)
     if not ok:
-        warnings.append(f"[R0.7] discovery 文件: {msg}（将在 Phase 3 生成）")
+        warnings.append(f"[R0.7] discovery 文件: {msg}（将在 Phase 4 生成）")
 
     # R0.3 Cookie 格式
     cookie = config.get('cookie', '')

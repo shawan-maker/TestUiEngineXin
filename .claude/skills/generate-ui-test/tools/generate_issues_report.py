@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-Phase 5/6 联合问题报告生成器 (generate_issues_report.py)
+Phase 8/9 联合问题报告生成器 (generate_issues_report.py)
 
 整合三类问题源，生成单文件 HTML 报告（内嵌 CSS，可独立打开）：
-  1. Phase 4a 自检层：_case_generator.py 的 repair_log + remaining
-  2. Phase 5 跨文件：validate_05_scripts.py 的 violations
-  3. Phase 6 运行时：auto_learn_keywords 的 failure_patterns + 运行失败
+  1. Phase 5 自检层：_case_generator.py 的 repair_log + remaining
+  2. Phase 8 跨文件：validate_08_scripts.py 的 violations
+  3. Phase 9 运行时：auto_learn_keywords 的 failure_patterns + 运行失败
 
 数据来源：
-  - {project}/_probe/repair_log.json        ← Phase 4a 自检层
-  - validate_05 命令行 JSON 输出            ← Phase 5（--json 模式）
-  - {project}/_probe/learn_log.json         ← Phase 6 auto_learn
-  - {project}/files/logs/*.log              ← Phase 6 运行日志（可选）
+  - {project}/_probe/repair_log.json        ← Phase 5 自检层
+  - validate_08 命令行 JSON 输出            ← Phase 8（--json 模式）
+  - {project}/_probe/learn_log.json         ← Phase 9 auto_learn
+  - {project}/files/logs/*.log              ← Phase 9 运行日志（可选）
 
 用法:
     # 从已有数据源生成报告
@@ -20,7 +20,7 @@ Phase 5/6 联合问题报告生成器 (generate_issues_report.py)
     # 显式指定数据源
     python generate_issues_report.py {project_dir} \\
         --repair-log {project}/_probe/repair_log.json \\
-        --phase5-json {project}/_probe/phase5_violations.json \\
+        --phase8-json {project}/_probe/phase8_violations.json \\
         --learn-log {project}/_probe/learn_log.json
 
 输出:
@@ -58,7 +58,7 @@ def load_json(path):
 
 
 def load_repair_log(project_dir):
-    """加载 Phase 4a 自检层修复日志"""
+    """加载 Phase 5 自检层修复日志"""
     path = os.path.join(project_dir, '_probe', 'repair_log.json')
     data = load_json(path)
     if not data:
@@ -66,23 +66,23 @@ def load_repair_log(project_dir):
     return data
 
 
-def load_phase5_violations(project_dir, explicit_path=None):
-    """加载 Phase 5 violations
+def load_phase8_violations(project_dir, explicit_path=None):
+    """加载 Phase 8 violations
 
-    优先使用 --phase5-json 显式路径；
-    否则查找 {project}/_probe/phase5_violations.json
+    优先使用 --phase8-json 显式路径；
+    否则查找 {project}/_probe/phase8_violations.json
     """
     if explicit_path:
         data = load_json(explicit_path)
         return data if data else []
 
-    path = os.path.join(project_dir, '_probe', 'phase5_violations.json')
+    path = os.path.join(project_dir, '_probe', 'phase8_violations.json')
     data = load_json(path)
     return data if data else []
 
 
 def load_learn_log(project_dir):
-    """加载 Phase 6 自学习日志"""
+    """加载 Phase 9 自学习日志"""
     path = os.path.join(project_dir, '_probe', 'learn_log.json')
     data = load_json(path)
     if not data:
@@ -90,9 +90,9 @@ def load_learn_log(project_dir):
     return data
 
 
-def load_phase6_analysis(project_dir):
-    """加载 Phase 6 结构化分析结果（validate_07 导出）"""
-    path = os.path.join(project_dir, '_probe', 'phase6_analysis.json')
+def load_phase9_analysis(project_dir):
+    """加载 Phase 9 结构化分析结果（validate_09 导出）"""
+    path = os.path.join(project_dir, '_probe', 'phase9_analysis.json')
     return load_json(path) or {}
 
 
@@ -203,12 +203,12 @@ def _esc(text):
             .replace('"', '&quot;'))
 
 
-def render_summary(repair_data, phase5_violations, runtime_failures, learn_log):
+def render_summary(repair_data, phase8_violations, runtime_failures, learn_log):
     """渲染概览统计"""
     repairs = repair_data.get('repairs', [])
     remaining = repair_data.get('remaining', [])
-    p5_errors = [v for v in phase5_violations if v.get('severity') == 'error']
-    p5_warnings = [v for v in phase5_violations if v.get('severity') == 'warning']
+    p8_errors = [v for v in phase8_violations if v.get('severity') == 'error']
+    p8_warnings = [v for v in phase8_violations if v.get('severity') == 'warning']
     fail_patterns = learn_log.get('failure_patterns', [])
     review_needed = learn_log.get('manual_review_needed', [])
 
@@ -218,10 +218,10 @@ def render_summary(repair_data, phase5_violations, runtime_failures, learn_log):
         <div class="stat-grid">
             <div class="stat-card">
                 <div class="stat-num ok">{len(repairs)}</div>
-                <div class="stat-label">Phase 4a 自修复</div>
+                <div class="stat-label">Phase 5 自修复</div>
             </div>
             <div class="stat-card">
-                <div class="stat-num warning">{len(remaining) + len(p5_errors)}</div>
+                <div class="stat-num warning">{len(remaining) + len(p8_errors)}</div>
                 <div class="stat-label">待人工处理</div>
             </div>
             <div class="stat-card">
@@ -237,19 +237,19 @@ def render_summary(repair_data, phase5_violations, runtime_failures, learn_log):
         <table style="margin-top: 16px;">
             <tr><th>来源</th><th>自修复</th><th>待人工</th><th>运行时失败</th></tr>
             <tr>
-                <td>Phase 4a 自检</td>
+                <td>Phase 5 自检</td>
                 <td class="ok">{len(repairs)}</td>
                 <td class="warning">{len(remaining)}</td>
                 <td>—</td>
             </tr>
             <tr>
-                <td>Phase 5 跨文件</td>
+                <td>Phase 8 跨文件</td>
                 <td>—</td>
-                <td class="{'error' if p5_errors else 'ok'}">{len(p5_errors)} errors + {len(p5_warnings)} warnings</td>
+                <td class="{'error' if p8_errors else 'ok'}">{len(p8_errors)} errors + {len(p8_warnings)} warnings</td>
                 <td>—</td>
             </tr>
             <tr>
-                <td>Phase 6 运行</td>
+                <td>Phase 9 运行</td>
                 <td>—</td>
                 <td>—</td>
                 <td class="error">{len(runtime_failures)}</td>
@@ -257,7 +257,7 @@ def render_summary(repair_data, phase5_violations, runtime_failures, learn_log):
             <tr style="font-weight: 600;">
                 <td>合计</td>
                 <td class="ok">{len(repairs)}</td>
-                <td class="warning">{len(remaining) + len(p5_errors)}</td>
+                <td class="warning">{len(remaining) + len(p8_errors)}</td>
                 <td class="error">{len(runtime_failures)}</td>
             </tr>
         </table>
@@ -266,11 +266,11 @@ def render_summary(repair_data, phase5_violations, runtime_failures, learn_log):
 
 
 def render_repairs(repair_data):
-    """渲染 Phase 4a 自修复记录"""
+    """渲染 Phase 5 自修复记录"""
     repairs = repair_data.get('repairs', [])
     if not repairs:
         return """
-        <h2>Phase 4a 自修复记录</h2>
+        <h2>Phase 5 自修复记录</h2>
         <p class="empty-msg">无自修复记录（generate_cases 未检出问题或未运行自检层）</p>
         """
 
@@ -286,7 +286,7 @@ def render_repairs(repair_data):
             </tr>""")
 
     return f"""
-    <h2>Phase 4a 自修复记录（{len(repairs)} 项已修复）</h2>
+    <h2>Phase 5 自修复记录（{len(repairs)} 项已修复）</h2>
     <table>
         <tr><th>#</th><th>规则</th><th>文件</th><th>操作</th><th>保障</th></tr>
         {''.join(rows)}
@@ -295,11 +295,11 @@ def render_repairs(repair_data):
 
 
 def render_remaining(repair_data):
-    """渲染 Phase 4a 未解决问题"""
+    """渲染 Phase 5 未解决问题"""
     remaining = repair_data.get('remaining', [])
     if not remaining:
         return """
-        <h2>Phase 4a 未解决问题</h2>
+        <h2>Phase 5 未解决问题</h2>
         <p class="empty-msg">无未解决问题 ✓</p>
         """
 
@@ -315,7 +315,7 @@ def render_remaining(repair_data):
             </tr>""")
 
     return f"""
-    <h2>Phase 4a 未解决问题（{len(remaining)} 项待人工）</h2>
+    <h2>Phase 5 未解决问题（{len(remaining)} 项待人工）</h2>
     <table>
         <tr><th>#</th><th>规则</th><th>文件</th><th>原因</th><th>建议</th></tr>
         {''.join(rows)}
@@ -323,16 +323,16 @@ def render_remaining(repair_data):
     """
 
 
-def render_phase5(phase5_violations):
-    """渲染 Phase 5 跨文件检查问题"""
-    if not phase5_violations:
+def render_phase8(phase8_violations):
+    """渲染 Phase 8 跨文件检查问题"""
+    if not phase8_violations:
         return """
-        <h2>Phase 5 跨文件检查问题</h2>
-        <p class="empty-msg">validate_05 未检出跨文件问题 ✓</p>
+        <h2>Phase 8 跨文件检查问题</h2>
+        <p class="empty-msg">validate_08 未检出跨文件问题 ✓</p>
         """
 
-    errors = [v for v in phase5_violations if v.get('severity') == 'error']
-    warnings = [v for v in phase5_violations if v.get('severity') == 'warning']
+    errors = [v for v in phase8_violations if v.get('severity') == 'error']
+    warnings = [v for v in phase8_violations if v.get('severity') == 'warning']
 
     rows = []
     for i, v in enumerate(errors + warnings, 1):
@@ -350,7 +350,7 @@ def render_phase5(phase5_violations):
             </tr>""")
 
     return f"""
-    <h2>Phase 5 跨文件检查问题（{len(errors)} errors + {len(warnings)} warnings）</h2>
+    <h2>Phase 8 跨文件检查问题（{len(errors)} errors + {len(warnings)} warnings）</h2>
     <table>
         <tr><th>#</th><th>规则</th><th>级别</th><th>文件</th><th>描述</th><th>建议</th></tr>
         {''.join(rows)}
@@ -358,20 +358,20 @@ def render_phase5(phase5_violations):
     """
 
 
-def render_runtime(runtime_failures, phase6_analysis=None):
-    """渲染 Phase 6 运行时失败（优先使用结构化数据，回退到日志扫描）"""
-    phase6_analysis = phase6_analysis or {}
+def render_runtime(runtime_failures, phase9_analysis=None):
+    """渲染 Phase 9 运行时失败（优先使用结构化数据，回退到日志扫描）"""
+    phase9_analysis = phase9_analysis or {}
 
-    # 优先使用 phase6_analysis 的结构化分类（未来格式）
-    exec_errors = phase6_analysis.get('execution_errors', [])
-    assert_errors = phase6_analysis.get('assertion_errors', [])
-    # 当前 validate_07 输出格式：errors/warnings/info 列表
-    p6_errors = phase6_analysis.get('errors', [])
-    p6_warnings = phase6_analysis.get('warnings', [])
+    # 优先使用 phase9_analysis 的结构化分类（未来格式）
+    exec_errors = phase9_analysis.get('execution_errors', [])
+    assert_errors = phase9_analysis.get('assertion_errors', [])
+    # 当前 validate_09 输出格式：errors/warnings/info 列表
+    p6_errors = phase9_analysis.get('errors', [])
+    p6_warnings = phase9_analysis.get('warnings', [])
 
     if not runtime_failures and not exec_errors and not assert_errors and not p6_errors:
         return """
-        <h2>Phase 6 运行时失败</h2>
+        <h2>Phase 9 运行时失败</h2>
         <p class="empty-msg">未检测到运行时失败（尚未运行测试或全部通过）</p>
         """
 
@@ -405,7 +405,7 @@ def render_runtime(runtime_failures, phase6_analysis=None):
             idx += 1
         total = len(exec_errors) + len(assert_errors)
         sections.append(f"""
-        <h2>Phase 6 运行时失败（{total} 项）</h2>
+        <h2>Phase 9 运行时失败（{total} 项）</h2>
         <table>
             <tr><th>#</th><th>类型</th><th>Case</th><th>Step</th><th>错误</th><th>截图/日志</th></tr>
             {''.join(rows)}
@@ -424,7 +424,7 @@ def render_runtime(runtime_failures, phase6_analysis=None):
                     <td>{_esc(f.get('log_file', ''))}</td>
                 </tr>""")
         sections.append(f"""
-        <h2>Phase 6 运行时失败（{len(runtime_failures)} 项）</h2>
+        <h2>Phase 9 运行时失败（{len(runtime_failures)} 项）</h2>
         <table>
             <tr><th>#</th><th>类型</th><th>Case</th><th>Step</th><th>错误</th><th>日志</th></tr>
             {''.join(rows)}
@@ -438,14 +438,14 @@ def render_runtime(runtime_failures, phase6_analysis=None):
         for i, msg in enumerate(p6_warnings, 1):
             rows.append(f'<tr><td>{len(p6_errors)+i}</td><td>warning</td><td>{_esc(msg)}</td></tr>')
         sections.append(f"""
-        <h3>Phase 6 分析摘要（{len(p6_errors)} errors + {len(p6_warnings)} warnings）</h3>
+        <h3>Phase 9 分析摘要（{len(p6_errors)} errors + {len(p6_warnings)} warnings）</h3>
         <table>
             <tr><th>#</th><th>级别</th><th>描述</th></tr>
             {''.join(rows)}
         </table>""")
 
     return '\n'.join(sections) if sections else """
-        <h2>Phase 6 运行时失败</h2>
+        <h2>Phase 9 运行时失败</h2>
         <p class="empty-msg">未检测到运行时失败</p>
         """
 
@@ -523,17 +523,17 @@ def render_learn_log(learn_log):
     """
 
 
-def generate_html(project_dir, repair_data, phase5_violations,
-                  runtime_failures, learn_log, timestamp, phase6_analysis=None):
+def generate_html(project_dir, repair_data, phase8_violations,
+                  runtime_failures, learn_log, timestamp, phase9_analysis=None):
     """组装完整 HTML"""
     project_name = os.path.basename(os.path.abspath(project_dir))
 
     body = ''.join([
-        render_summary(repair_data, phase5_violations, runtime_failures, learn_log),
+        render_summary(repair_data, phase8_violations, runtime_failures, learn_log),
         render_repairs(repair_data),
         render_remaining(repair_data),
-        render_phase5(phase5_violations),
-        render_runtime(runtime_failures, phase6_analysis),
+        render_phase8(phase8_violations),
+        render_runtime(runtime_failures, phase9_analysis),
         render_learn_log(learn_log),
     ])
 
@@ -550,7 +550,7 @@ def generate_html(project_dir, repair_data, phase5_violations,
     <p>项目: <strong>{_esc(project_name)}</strong> | 生成时间: {_esc(timestamp)}</p>
     {body}
     <div class="footer">
-        <p>由 generate_issues_report.py 自动生成 | Phase 5/6 上游自修复架构</p>
+        <p>由 generate_issues_report.py 自动生成 | Phase 8/9 上游自修复架构</p>
         <p>此报告为纯分析产出，不再触发 AI 修复循环。待人工处理项请逐一排查。</p>
     </div>
 </body>
@@ -562,15 +562,15 @@ def generate_html(project_dir, repair_data, phase5_violations,
 # ============================================================================
 
 def generate_issues_report(project_dir, repair_log_path=None,
-                           phase5_json_path=None, learn_log_path=None,
+                           phase8_json_path=None, learn_log_path=None,
                            timestamp=None):
     """生成 HTML 联合问题报告
 
     Args:
         project_dir: 项目根目录
-        repair_log_path: Phase 4a 修复日志路径（默认 _probe/repair_log.json）
-        phase5_json_path: Phase 5 violations JSON 路径
-        learn_log_path: Phase 6 学习日志路径（默认 _probe/learn_log.json）
+        repair_log_path: Phase 5 修复日志路径（默认 _probe/repair_log.json）
+        phase8_json_path: Phase 8 violations JSON 路径
+        learn_log_path: Phase 9 学习日志路径（默认 _probe/learn_log.json）
         timestamp: 时间戳字符串（默认当前时间）
 
     Returns:
@@ -588,15 +588,15 @@ def generate_issues_report(project_dir, repair_log_path=None,
     # 加载数据
     repair_data = load_repair_log(project_dir) if not repair_log_path \
         else (load_json(repair_log_path) or {'repairs': [], 'remaining': []})
-    phase5_violations = load_phase5_violations(project_dir, phase5_json_path)
+    phase8_violations = load_phase8_violations(project_dir, phase8_json_path)
     learn_log = load_learn_log(project_dir) if not learn_log_path \
         else (load_json(learn_log_path) or {})
     runtime_failures = load_runtime_failures(project_dir)
-    phase6_analysis = load_phase6_analysis(project_dir)
+    phase9_analysis = load_phase9_analysis(project_dir)
 
     # 生成 HTML
-    html = generate_html(project_dir, repair_data, phase5_violations,
-                         runtime_failures, learn_log, display_ts, phase6_analysis)
+    html = generate_html(project_dir, repair_data, phase8_violations,
+                         runtime_failures, learn_log, display_ts, phase9_analysis)
 
     # 输出
     report_dir = os.path.join(project_dir, 'report', 'issues_report')
@@ -608,10 +608,10 @@ def generate_issues_report(project_dir, repair_log_path=None,
     # 统计摘要
     repairs = repair_data.get('repairs', [])
     remaining = repair_data.get('remaining', [])
-    p5_errors = len([v for v in phase5_violations if v.get('severity') == 'error'])
+    p8_errors = len([v for v in phase8_violations if v.get('severity') == 'error'])
 
     print(f"[INFO] 问题分析报告: {output_file}")
-    print(f"  自修复: {len(repairs)} | 待人工: {len(remaining) + p5_errors} | "
+    print(f"  自修复: {len(repairs)} | 待人工: {len(remaining) + p8_errors} | "
           f"运行时失败: {len(runtime_failures)}")
 
     return output_file
@@ -623,12 +623,12 @@ def main():
         sys.stderr.reconfigure(encoding='utf-8')
 
     parser = argparse.ArgumentParser(
-        description='Phase 5/6 联合问题报告生成器'
+        description='Phase 8/9 联合问题报告生成器'
     )
     parser.add_argument('project_dir', help='项目根目录')
-    parser.add_argument('--repair-log', help='Phase 4a repair_log.json 路径')
-    parser.add_argument('--phase5-json', help='Phase 5 violations JSON 路径')
-    parser.add_argument('--learn-log', help='Phase 6 learn_log.json 路径')
+    parser.add_argument('--repair-log', help='Phase 5 repair_log.json 路径')
+    parser.add_argument('--phase8-json', help='Phase 8 violations JSON 路径')
+    parser.add_argument('--learn-log', help='Phase 9 learn_log.json 路径')
     parser.add_argument('--timestamp', help='时间戳（默认当前时间）')
     args = parser.parse_args()
 
@@ -640,7 +640,7 @@ def main():
     generate_issues_report(
         project_dir,
         repair_log_path=args.repair_log,
-        phase5_json_path=args.phase5_json,
+        phase8_json_path=args.phase8_json,
         learn_log_path=args.learn_log,
         timestamp=args.timestamp,
     )

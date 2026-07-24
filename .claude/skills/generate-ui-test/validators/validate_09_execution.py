@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Phase 6: 运行分析器 (validate_07_execution.py)
+Phase 9: 运行分析器 (validate_09_execution.py)
 
 分析测试运行结果，分类记录问题，输出 JSON 供 HTML 联合报告消费。
 **不再阻断管线**（始终 exit 0），纯分析+学习角色。
@@ -12,7 +12,7 @@ Phase 6: 运行分析器 (validate_07_execution.py)
   R6.4 自学习记录 (失败/成功模式)
 
 用法:
-    python validate_07_execution.py <project_dir>
+    python validate_09_execution.py <project_dir>
 
 退出码: 始终 0（纯分析，不阻断）
 """
@@ -264,7 +264,7 @@ def check_r6_4_learning_records(project_dir: str) -> Tuple[List[str], List[str],
 # ============================================================================
 
 def validate_execution(project_dir: str) -> Tuple[List[str], List[str], List[str]]:
-    """Phase 6 主校验入口"""
+    """Phase 9 主校验入口"""
     all_errors = []
     all_warnings = []
     all_info = []
@@ -306,7 +306,7 @@ def main():
         sys.stderr.reconfigure(encoding='utf-8')
 
     parser = argparse.ArgumentParser(
-        description="UIEngine Phase 6 运行验证器"
+        description="UIEngine Phase 9 运行验证器"
     )
     parser.add_argument(
         'project_dir',
@@ -322,7 +322,7 @@ def main():
     errors, warnings, info = validate_execution(project_dir)
 
     print("=" * 70)
-    print(f"UIEngine Execution Analysis Report (Phase 6)")
+    print(f"UIEngine Execution Analysis Report (Phase 9)")
     print(f"Project: {os.path.basename(project_dir)}")
     print("=" * 70)
 
@@ -341,17 +341,17 @@ def main():
     print("=" * 70)
 
     # 输出 JSON 供 HTML 联合报告消费
-    _export_phase6_json(project_dir, errors, warnings, info)
+    _export_phase9_json(project_dir, errors, warnings, info)
 
     # 纯分析模式：始终 exit 0，不阻断管线
     sys.exit(0)
 
 
-def _export_phase6_json(project_dir, errors, warnings, info):
-    """导出 Phase 6 分析结果到 JSON（供 generate_issues_report.py 消费）"""
+def _export_phase9_json(project_dir, errors, warnings, info):
+    """导出 Phase 9 分析结果到 JSON（供 generate_issues_report.py 消费）"""
     import json as _json
 
-    phase6_data = {
+    phase9_data = {
         'errors': errors,
         'warnings': warnings,
         'info': info,
@@ -359,11 +359,11 @@ def _export_phase6_json(project_dir, errors, warnings, info):
         'warning_count': len(warnings),
     }
 
-    output_path = os.path.join(project_dir, '_probe', 'phase6_analysis.json')
+    output_path = os.path.join(project_dir, '_probe', 'phase9_analysis.json')
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     try:
         with open(output_path, 'w', encoding='utf-8') as f:
-            _json.dump(phase6_data, f, ensure_ascii=False, indent=2)
+            _json.dump(phase9_data, f, ensure_ascii=False, indent=2)
     except Exception:
         pass  # JSON 输出失败不影响主流程
 

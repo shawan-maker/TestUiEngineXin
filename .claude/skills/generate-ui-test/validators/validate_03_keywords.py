@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Phase 3.5: 模块关键字编译验证器 (validate_03_5_keywords.py)
+Phase 3: 模块关键字编译验证器 (validate_03_keywords.py)
 
 检查 _knowledge/*.yaml → lib/module_keywords.py 编译链路的完整性。
 
@@ -17,7 +17,7 @@ Phase 3.5: 模块关键字编译验证器 (validate_03_5_keywords.py)
 向后兼容: _knowledge/ 不存在或为空时退出 0。
 
 用法:
-    python validate_03_5_keywords.py <project_dir>
+    python validate_03_keywords.py <project_dir>
 
 退出码: 0 = 通过, 1 = 有 error
 """
@@ -74,7 +74,7 @@ def main():
         sys.stderr.reconfigure(encoding='utf-8')
 
     parser = argparse.ArgumentParser(
-        description="Phase 3.5 模块关键字编译验证器"
+        description="Phase 3 模块关键字编译验证器"
     )
     parser.add_argument('project_dir', help="项目根目录路径")
     args = parser.parse_args()
@@ -96,13 +96,13 @@ def main():
         print("[INFO] _knowledge/ 和 system_workflows.yaml 均不存在，跳过 L3 验证")
         sys.exit(0)
 
-    # ── 统一阶段门禁：检查 Phase 3f 前置（十一） ──
+    # ── 统一阶段门禁：检查 Phase 6 前置（十一） ──
     _sys_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if _sys_path not in sys.path:
         sys.path.insert(0, _sys_path)
     try:
         from tools._phase_registry import check_prerequisite_phases
-        prereq_violations = check_prerequisite_phases(project_dir, 'validate_03_5')
+        prereq_violations = check_prerequisite_phases(project_dir, 'validate_03')
         for pv in prereq_violations:
             errors.append(f"[PREREQUISITE] {pv.message} → {pv.suggestion}")
     except ImportError:
@@ -271,7 +271,7 @@ def _report(errors, warnings, project_dir):
     """输出检查报告"""
     project_name = os.path.basename(project_dir)
     print(f"\n{'='*60}")
-    print(f"Phase 3.5 模块关键字编译验证: {project_name}")
+    print(f"Phase 3 模块关键字编译验证: {project_name}")
     print(f"{'='*60}")
 
     for w in warnings:

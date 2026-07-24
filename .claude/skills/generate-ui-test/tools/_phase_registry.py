@@ -4,13 +4,13 @@
 
 设计原则:
   1. 声明式 — 每个阶段的产物和检查条件在注册表中声明
-  2. 条件化 — 前置阶段是否需要检查取决于条件（如 _knowledge/ 为空则 Phase 3.5 无需检查）
+  2. 条件化 — 前置阶段是否需要检查取决于条件（如 _knowledge/ 为空则 Phase 3 无需检查）
   3. 可复用 — 同一个 check_prerequisite_phases() 函数被多个验证器调用
   4. 可扩展 — 新增阶段只需在注册表中加一条
 
 用法:
     from tools._phase_registry import check_prerequisite_phases
-    violations = check_prerequisite_phases(project_dir, 'validate_05')
+    violations = check_prerequisite_phases(project_dir, 'validate_08')
 """
 import json
 import os
@@ -20,7 +20,7 @@ from dataclasses import dataclass
 
 @dataclass
 class Violation:
-    """与 validate_05_scripts.py Violation 格式一致"""
+    """与 validate_08_scripts.py Violation 格式一致"""
     file: str
     line: int
     rule: str
@@ -73,7 +73,7 @@ def _validate_verify_result(filepath):
 # ============================================================================
 
 PHASE_ARTIFACTS = {
-    'phase_3_probe': {
+    'phase_4_discovery': {
         'artifact_globs': ['_probe/probe_*.json', '_probe/discovery_*.json'],
         'min_count': 1,
         'condition_check': lambda d: bool(
@@ -82,17 +82,17 @@ PHASE_ARTIFACTS = {
         'condition_reason': 'pages YAML 已生成，但无任何 probe 结果',
         'remediation': 'python discover_page.py "{url}" --cookie "..." --module ... --output {project}/_probe/discovery_{module}.json',
     },
-    'phase_3f_supplement': {
+    'phase_6_verify': {
         'artifact_globs': ['_probe/probe_supplement*.json', '_probe/verify_result.json'],
         'min_count': 1,
         'content_validator': _validate_verify_result,
         'condition_check': lambda d: bool(
             glob.glob(os.path.join(d, 'pages', '**', '*.yaml'), recursive=True)
         ),
-        'condition_reason': 'pages YAML 已生成，但 Phase 3f (verify_locators.py) 未执行',
+        'condition_reason': 'pages YAML 已生成，但 Phase 6 (verify_locators.py) 未执行',
         'remediation': 'python verify_locators.py {project} --cookie "..." --url "..." --discovery ... --module ...',
     },
-    'phase_3_5_keywords': {
+    'phase_3_keywords': {
         'artifact_globs': ['lib/module_keywords.py'],
         'min_count': 1,
         'condition_check': lambda d: bool(
@@ -111,12 +111,12 @@ PHASE_ARTIFACTS = {
 # ============================================================================
 
 VALIDATOR_PREREQUISITES = {
-    'validate_04': [],  # phase_2_harvest 已废弃
-    'validate_03_5': ['phase_3f_supplement'],
-    'validate_05': [
-        'phase_3_probe',
-        'phase_3f_supplement',
-        'phase_3_5_keywords',
+    'validate_04': [],  # 旧 phase_2_harvest 已废弃（Phase 4 探测，文件不改名）
+    'validate_03': [],  # Phase 3 在 Phase 6 之前执行，无前置（D1 决策）
+    'validate_08': [    # Phase 8 跨文件验证
+        'phase_4_discovery',
+        'phase_6_verify',
+        'phase_3_keywords',
     ],
 }
 
@@ -130,7 +130,7 @@ def check_prerequisite_phases(project_dir, validator_name):
 
     Args:
         project_dir: 项目根目录
-        validator_name: 当前验证器名（如 'validate_05'）
+        validator_name: 当前验证器名（如 'validate_08'）
 
     Returns:
         list[Violation]: 未满足的前置阶段违规列表

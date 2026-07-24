@@ -3147,7 +3147,7 @@ def _normalize_desc_quotes(desc, known_labels):
 def _ensure_desc_quotes(steps):
     """确保所有 [待确认] desc 中的操作目标有引号。
 
-    Phase 3f 的 label 提取依赖引号对 (verify_locators.py line 1077)。
+    Phase 6 的 label 提取依赖引号对 (verify_locators.py line 1077)。
     无引号的 desc 导致 label 为空，KB/discovery/fallback 全部跳过。
     此函数作为 generate_step 后的兜底，统一补齐引号。
     """
@@ -3168,11 +3168,11 @@ def _ensure_desc_quotes(steps):
         if '[待确认]' not in desc:
             continue
 
-        # 跳过断言步骤（Phase 3f 不验证断言）
+        # 跳过断言步骤（Phase 6 不验证断言）
         if '断言' in desc:
             continue
 
-        # 跳过 parsed['raw'] 透传（Phase 0.5 已处理引号）
+        # 跳过 parsed['raw'] 透传（Phase 1 已处理引号）
         if desc.startswith('[待确认] ') and not any(
             kw in desc for kw in ('点击', '在', '选择', '日期')
         ):
@@ -3551,7 +3551,7 @@ def generate_case_file(case_data, generator, seq, output_dir, module='', project
             if isinstance(step, dict) and 'desc' in step and isinstance(step['desc'], str):
                 step['desc'] = _normalize_desc_quotes(step['desc'], known_labels)
 
-    # V3b: [待确认] desc 引号兜底（确保 Phase 3f label 提取不失败）
+    # V3b: [待确认] desc 引号兜底（确保 Phase 6 label 提取不失败）
     _ensure_desc_quotes(all_steps)
 
     # 生成 YAML
@@ -3649,7 +3649,7 @@ def preflight_check(target_cases, disc_labels, target_module):
     }
 
     if hit_rate < 0.6:
-        extra = (" discovery 数据与 Excel 严重脱节，建议检查 Phase 3 探测是否覆盖了所有操作对象。"
+        extra = (" discovery 数据与 Excel 严重脱节，建议检查 Phase 4 探测是否覆盖了所有操作对象。"
                  if hit_rate < 0.3 else " 建议检查 discovery 覆盖率。")
         print(f"[WARN] discovery 覆盖率偏低: {len(hits)}/{len(excel_labels)}"
               f" ({int(hit_rate * 100)}%){extra}")

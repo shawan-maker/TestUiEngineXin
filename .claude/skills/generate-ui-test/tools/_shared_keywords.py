@@ -1,7 +1,7 @@
 """共享关键字常量（v1.1 P1-3）
 
 统一 ENGINE_KEYWORDS 定义，供多个工具共享使用：
-- validators/validate_05_scripts.py
+- validators/validate_08_scripts.py
 - tools/_case_generator.py
 - tools/auto_fix_checkpoint_a.py（已删除 R4.50，但保留供未来使用）
 

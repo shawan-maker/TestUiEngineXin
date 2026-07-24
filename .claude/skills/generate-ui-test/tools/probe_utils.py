@@ -367,7 +367,7 @@ def get_kb_patterns(etype):
 def get_all_patterns(etype):
     """获取 single_step/composite 的直接 patterns（不含 multi_step）。
 
-    用于 Phase 3f 构建完整 candidates 列表。
+    用于 Phase 6 构建完整 candidates 列表。
     """
     db = load_knowledge()
     for section in ("single_step", "composite"):

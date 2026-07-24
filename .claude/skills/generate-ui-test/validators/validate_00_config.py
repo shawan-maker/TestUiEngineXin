@@ -346,7 +346,6 @@ if __name__ == '__main__':
     # 除非显式传入 --skip-runtime-check
     # 注意：cookie 认证必须验证，静态错误（如 R0.5 中文模块名）不阻断认证检查
     auto_runtime_check = bool(config.get('cookie')) and not args.skip_runtime_check
-    has_cookie_errors = any('[R0.6]' in e for e in errors)  # 已存在的认证错误
 
     print("=" * 60)
     print(f"Phase 0 Config Validation - {config_file}")
@@ -361,7 +360,7 @@ if __name__ == '__main__':
 
     # 运行时检查（显式请求 或 cookie 认证自动触发）
     # cookie 认证时不受静态错误（R0.5）阻断
-    if (args.runtime_check or auto_runtime_check) and not has_cookie_errors:
+    if args.runtime_check or auto_runtime_check:
         print("-" * 60)
         print("运行时认证验证 + UI 框架检测...")
 

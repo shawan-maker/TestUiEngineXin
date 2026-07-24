@@ -96,16 +96,14 @@ playwright install chromium
 
 AI 会自动完成以下工作（无需额外操作）：
 
-1. **采集页面 DOM** — 打开真实页面，自动检测 UI 框架、表格结构、容器组件类型
-2. **按需探测定位器** — 对用例中涉及的每个元素，在真实页面上验证选择器是否可用
-3. **关键字映射** — 将操作映射到 UIEngine 关键字（优先使用引擎方法，JS 仅作后备）
-4. **生成脚手架** — 创建 `run.py`、`config.yaml`、目录结构
-5. **生成四类文件**：
-   - `pages/` — 页面元素定位器（经 probe 验证）
+1. **全自动探测** — 打开真实页面，自动扫描所有交互元素（按钮、输入框、下拉框、行按钮等）
+2. **运行时验证定位器** — 在浏览器中验证每个 XPath 是否可用（count==1）
+3. **生成四类文件**：
+   - `pages/` — 页面元素定位器（经探测验证）
    - `data/` — 参数化测试数据（结构相似的用例自动提取）
    - `cases/` — 测试用例（完整步骤 + 关键字）
    - `suites/` — 测试套件（编排用例执行顺序）
-6. **验证** — 检查 YAML 语法和引用完整性
+4. **跨文件验证** — 检查 YAML 语法和引用完整性
 
 ### 第五步：运行测试
 
@@ -220,11 +218,11 @@ storage_navigate_url: "/login"
 ├── suites/{module}/          # 测试套件（编排用例顺序）
 ├── lib/                      # 运行时关键字（auth + L3 模块关键字）
 ├── _knowledge/               # 模块级知识库（workflow 定义 → 编译为 L3 关键字）
-├── _probe/                   # 探测结果（harvest + probe，自动生成）
+├── _probe/                   # 探测结果（discovery JSON，自动生成）
 ├── files/                    # 截图/日志/下载（运行时自动创建）
 └── report/                   # HTML 测试报告
-    ├── generate_report/      # 脚本生成报告 (Phase 5)
-    └── run_report/           # 运行报告 (Phase 6)
+    ├── generate_report/      # 脚本生成报告 (Phase 8)
+    └── run_report/           # 运行报告 (Phase 9)
 ```
 
 > **子目录用例自动发现**：`cases/<module>/<subdir>/` 下的用例无需注册到 suite 的 `case_refs`，`--all`、`--module`、无参数三种模式均会自动扫描子目录并合并执行。同级根目录下未引用的用例视为有意排除，不会被自动发现。
@@ -235,7 +233,11 @@ storage_navigate_url: "/login"
 A：AI 根据模块名和用例名称自动生成（如"正确密码登录"→ `login-correct-password`）。
 
 **Q：元素定位不准确怎么办？**
-A：直接编辑 `pages/` 目录下对应文件中的选择器即可。
+A：直接编辑 `pages/` 目录下对应文件中的选择器即可。修改后建议重新运行 Phase 6 验证：
+```bash
+python .claude/skills/generate-ui-test/tools/verify_locators.py {project} \
+  --cookie "..." --url "..." --module "{module}"
+```
 
 **Q：Cookie/Token 过期了怎么办？**
 A：重新手动登录获取新值，更新 `config.yaml` 即可。无需重新生成工程。

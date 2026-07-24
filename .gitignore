@@ -1,0 +1,62 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyo
+
+# ===== 虚拟环境 =====
+venv/
+.venv/
+env/
+
+# ===== IDE =====
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ===== 打包/发布 =====
+dist/
+build/
+*.egg-info/
+*.egg
+
+# ===== Claude Code（独立管理，不纳入引擎仓库） =====
+.claude/
+
+# ===== 示例项目（独立管理，引擎不依赖） =====
+examples/
+
+# ===== 运行时产物 =====
+files/
+report/
+_probe/
+*.log
+*.html
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+
+# ===== Office 临时文件 =====
+~$*
+
+# ===== 压缩包/归档 =====
+*.rar
+*.zip
+*.tar.gz
+*.whl
+
+# ===== 测试 =====
+htmlcov/
+.coverage
+coverage.xml
+.pytest_cache/
+
+# ===== 系统 =====
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,9 @@
+# UI 自动化测试引擎默认配置
+browser_type: chromium
+is_debug: false
+host: ""
+# project_dir: ""          # 项目目录（可选，显式指定日志/截图/报告的输出位置）
+# cookie: ""               # Cookie 字符串，格式：name1=value1; name2=value2
+# cookie_domain: ""        # Cookie 域名（可选，为空时自动从 host 提取）
+max_suite_screenshot_dirs: 10
+global_variable: {}

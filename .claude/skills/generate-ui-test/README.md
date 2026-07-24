@@ -1,0 +1,244 @@
+# generate-ui-test
+
+基于 UIEngine 的 UI 自动化测试工程生成技能。
+
+## 快速开始
+
+在 Claude Code 中输入以下任意触发词即可开始：
+- `/generate-ui-test`
+- "生成UI测试脚本"
+- "创建自动化测试"
+- "从Excel生成测试"
+
+---
+
+## 用户操作指南
+
+### 第一步：启动技能并确认项目信息
+
+**第一次输入**：/generate-ui-test 在xx目录下创建项目进行ui自动化
+
+**后续输入**：/generate-ui-test   在xxx项目下，针对如下用例进行UI自动化脚本编写及执行，给出结果的汇总和问题分析。
+
+AI 会向您确认以下信息：
+
+> 请确认以下信息：
+> 1. 项目名称？
+> 2. 模块名称？（不指定默认 common）
+> 3. 被测系统 URL？
+> 4. 浏览器类型？（默认 chromium）
+> 5. 输入来源：自然语言 / Excel / CSV？
+> 6. 认证方式？（默认 none）
+
+**你的回答示例：**
+```
+项目名称：login-test
+模块：登录
+URL：https://example.com
+浏览器：chromium
+输入：自然语言
+认证方式：cookie
+```
+
+### 第二步：安装依赖
+
+在生成工程之前，先确保依赖已安装：
+
+```bash
+pip install ui_engine_xin pyyaml openpyxl
+playwright install chromium
+```
+
+### 第三步：提供测试用例
+
+根据输入方式选择以下其中一种：
+
+#### 方式 A：自然语言描述（推荐新手）
+
+直接用中文描述你的测试步骤，AI 自动理解并生成代码。
+
+**你的输入示例：**
+
+```
+帮我生成登录模块的测试用例：
+
+用例1：正确密码登录
+1. 访问 /login 页面
+2. 在用户名输入框中输入 admin
+3. 在密码输入框中输入 123456
+4. 点击登录按钮
+5. 验证页面显示"欢迎，admin"
+
+用例2：错误密码登录
+1. 访问 /login 页面
+2. 在用户名输入框中输入 admin
+3. 在密码输入框中输入 wrong
+4. 点击登录按钮
+5. 验证页面提示"密码错误"
+```
+
+#### 方式 B：Excel / CSV 文件
+
+准备一个 Excel 或 CSV 文件，只需 3 列：
+
+| 模块 | 用例名称 | 用例步骤 |
+|------|---------|---------|
+| 登录 | 正确密码登录 | 1. 访问 /login 页面<br>2. 在用户名输入框中输入 admin<br>3. 在密码输入框中输入 123456<br>4. 点击登录按钮<br>5. 验证页面显示"欢迎，admin" |
+| 登录 | 错误密码登录 | 1. 访问 /login 页面<br>2. 在用户名输入框中输入 admin<br>3. 在密码输入框中输入 wrong<br>4. 点击登录按钮<br>5. 验证页面提示"密码错误" |
+
+**格式要点：**
+- 每行 = 一条完整用例
+- 用例步骤列用编号列表（`1.` `2.` `3.`…）书写全部步骤
+- Excel 中步骤换行：在单元格内按 **Alt + Enter**
+- 列名不同也没关系，AI 会询问映射
+
+### 第四步：AI 自动解析并生成
+
+AI 会自动完成以下工作（无需额外操作）：
+
+1. **采集页面 DOM** — 打开真实页面，自动检测 UI 框架、表格结构、容器组件类型
+2. **按需探测定位器** — 对用例中涉及的每个元素，在真实页面上验证选择器是否可用
+3. **关键字映射** — 将操作映射到 UIEngine 关键字（优先使用引擎方法，JS 仅作后备）
+4. **生成脚手架** — 创建 `run.py`、`config.yaml`、目录结构
+5. **生成四类文件**：
+   - `pages/` — 页面元素定位器（经 probe 验证）
+   - `data/` — 参数化测试数据（结构相似的用例自动提取）
+   - `cases/` — 测试用例（完整步骤 + 关键字）
+   - `suites/` — 测试套件（编排用例执行顺序）
+6. **验证** — 检查 YAML 语法和引用完整性
+
+### 第五步：运行测试
+
+```bash
+cd login-test
+python run.py --all                     # 运行全部用例（含子目录，一次执行，一个报告）
+python run.py --module login            # 运行指定模块（自动合并子目录用例）
+python run.py suites/login/smoke.yaml   # 运行指定套件
+python run.py                           # 运行所有套件（按模块自动合并子目录用例）
+```
+
+---
+
+## 关键字使用原则
+
+测试用例中**优先使用 UIEngine 封装的关键字**，保证可读性和可维护性：
+
+| 优先级 | 关键字 | 说明 |
+|:------:|--------|------|
+| 1 | `click_element` | 点击按钮、链接等 |
+| 1 | `fill_value` | 输入框填写内容 |
+| 1 | `click_select_option` | 下拉框选择（原生 select 或非 Element UI） |
+| 1 | `wait_for_element` / `wait_for_element_hidden` | 等待元素出现/消失 |
+| 1 | `except_to_be_visible` | 断言验证（统一使用可见性断言） |
+| 2 | `execute_script` | **仅当上述方法不可用时**作为后备 |
+
+> `execute_script` 中的 JS 脚本不支持 `${variable}` 变量替换，且测试人员不易维护，应尽量避免。
+
+**Element UI 已知引擎方法失效场景**（需使用 `execute_script` 后备）：
+
+| 场景 | 失效原因 | 后备方案 |
+|------|---------|---------|
+| el-select 选项选择 | `:visible` 伪类对 Element UI 全局失效 | 使用纯 XPath 定位 + `click_element` 展开选择 |
+| 等待 drawer/dialog 出现 | visibility 检查失效 | `wait_for_time` |
+| TinyMCE 编辑器填写 | textarea 有 `aria-hidden` | `execute_script` + TinyMCE API |
+| 断言 toast 成功消息 | toast 可能太快消失 | `except_to_be_visible` 验证页面正常 |
+
+---
+
+## 认证配置指南
+
+### 方式一：用户名密码登录（无需配置）
+
+适用于：系统使用用户名+密码登录，**验证码已关闭或使用固定值**。
+
+在测试用例中正常编写登录步骤即可，无需额外配置。
+
+> **关于验证码**：建议联系开发在测试环境关闭验证码，或设置万能验证码（如 `0000`）。
+
+### 方式二：Cookie 认证（推荐）
+
+适用于：登录有动态验证码，无法通过浏览器自动登录。
+
+**操作步骤：**
+
+1. 用浏览器手动登录被测系统
+2. 按 F12 → Network → 任意请求 → Headers → Cookie → 整串复制
+3. 填入 `config.yaml`：
+
+```yaml
+# config.yaml
+cookie: "ud_token=eyJhbGci...; lang=zh-CN"    # 整串粘贴即可
+cookie_domain: "100.71.19.25"                  # Cookie 所属域名
+```
+
+引擎在 `open_browser` 时**自动注入** Cookie，无需在 suite 中添加额外步骤。
+
+> **注意**：Cookie 有过期时间，过期后需重新手动登录并更新 `config.yaml` 中的值。
+
+### 方式三：Token 请求头认证
+
+适用于：前后端分离系统，通过 Authorization 请求头携带 Bearer Token。
+
+```yaml
+# config.yaml
+# 在 suite 的 setup_step 中使用 inject_token_header 关键字
+token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### 方式四：localStorage 认证
+
+适用于：前端框架将 Token 存储在 localStorage 中。
+
+```yaml
+# config.yaml
+# 在 suite 的 setup_step 中使用 inject_local_storage 关键字
+storage_key: "access_token"
+storage_value: "eyJhbGciOiJIUzI1NiIs..."
+storage_navigate_url: "/login"
+```
+
+### 认证方式对比
+
+| 方式 | 适用场景 | 凭据来源 | 注入方式 |
+|------|---------|---------|---------|
+| 用户名密码 | 无验证码或验证码固定 | 写在用例步骤中 | 无需注入 |
+| Cookie | 有验证码，无法自动登录 | DevTools 复制 | 引擎自动注入 |
+| Header Token | 前后端分离 | DevTools 或 API | setup_step 手动注入 |
+| localStorage | 前端 Token 存储 | 同上 | setup_step 手动注入 |
+
+---
+
+## 生成的工程结构
+
+```
+{project_name}/
+├── run.py                    # 运行入口
+├── config.yaml               # 环境配置（浏览器、URL、Cookie、localStorage）
+├── pages/{module}/           # 页面元素定位器（经 probe 验证）
+├── data/{module}/            # 参数化测试数据
+├── cases/{module}/           # 测试用例（完整步骤 + 引擎关键字，支持子目录自动发现）
+├── suites/{module}/          # 测试套件（编排用例顺序）
+├── lib/                      # 运行时关键字（auth + L3 模块关键字）
+├── _knowledge/               # 模块级知识库（workflow 定义 → 编译为 L3 关键字）
+├── _probe/                   # 探测结果（harvest + probe，自动生成）
+├── files/                    # 截图/日志/下载（运行时自动创建）
+└── report/                   # HTML 测试报告
+    ├── generate_report/      # 脚本生成报告 (Phase 5)
+    └── run_report/           # 运行报告 (Phase 6)
+```
+
+> **子目录用例自动发现**：`cases/<module>/<subdir>/` 下的用例无需注册到 suite 的 `case_refs`，`--all`、`--module`、无参数三种模式均会自动扫描子目录并合并执行。同级根目录下未引用的用例视为有意排除，不会被自动发现。
+
+## 常见问题
+
+**Q：用例 ID 怎么来的？**
+A：AI 根据模块名和用例名称自动生成（如"正确密码登录"→ `login-correct-password`）。
+
+**Q：元素定位不准确怎么办？**
+A：直接编辑 `pages/` 目录下对应文件中的选择器即可。
+
+**Q：Cookie/Token 过期了怎么办？**
+A：重新手动登录获取新值，更新 `config.yaml` 即可。无需重新生成工程。
+
+**Q：系统有验证码怎么处理？**
+A：推荐让开发在测试环境关闭验证码。如果无法关闭，使用 Cookie 认证方式跳过登录。

@@ -1,0 +1,50 @@
+{
+  "_comment": "文档参考 — 此 schema 描述数据结构格式，供 AI 理解输入用，未被工具运行时加载",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "测试步骤结构校验",
+  "description": "校验用户提供的测试步骤是否符合生成要求（文档参考，非运行时校验）",
+  "type": "object",
+  "required": ["case_name", "steps"],
+  "properties": {
+    "module": {
+      "type": "string",
+      "description": "功能模块名称，未指定时默认 common"
+    },
+    "case_name": {
+      "type": "string",
+      "description": "用例名称",
+      "minLength": 1
+    },
+    "skip": {
+      "type": "boolean",
+      "default": false
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["desc"],
+        "properties": {
+          "desc": {
+            "type": "string",
+            "description": "步骤的自然语言描述，用于关键字匹配",
+            "minLength": 1
+          },
+          "locator": {
+            "type": "string",
+            "description": "元素定位表达式（XPath）"
+          },
+          "value": {
+            "type": "string",
+            "description": "操作的输入值"
+          },
+          "expect_results": {
+            "type": "string",
+            "description": "预期结果文本（对应引擎断言关键字的 expect_results 参数）"
+          }
+        }
+      }
+    }
+  }
+}

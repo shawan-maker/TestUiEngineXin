@@ -1,0 +1,23 @@
+# ===== docs 文档（不上传） =====
+docs/
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# ===== Claude Code 本地配置（不上传） =====
+.claude/
+
+# ===== 运行时产物 =====
+tools/_probe/
+
+# ===== 测试 =====
+.pytest_cache/
+htmlcov/
+.coverage
+
+# ===== 系统 =====
+.DS_Store
+Thumbs.db

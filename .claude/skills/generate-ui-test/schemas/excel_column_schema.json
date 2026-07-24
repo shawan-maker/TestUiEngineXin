@@ -1,0 +1,45 @@
+{
+  "_comment": "文档参考 — 此 schema 描述数据结构格式，供 AI 理解输入用，未被工具运行时加载",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Excel/CSV 列映射校验",
+  "description": "校验用户提供的列映射是否完整（文档参考，非运行时校验）。每行 = 一条完整用例，用例步骤列包含多个编号步骤。用户只需用自然语言描述，AI 自动解析元素定位、输入数据和预期结果。",
+  "type": "object",
+  "required": ["case_name_col", "step_desc_col"],
+  "properties": {
+    "module_col": {
+      "type": "string",
+      "description": "模块名称所在列（可选，缺失时统一归入 common）"
+    },
+    "case_name_col": {
+      "type": "string",
+      "description": "用例名称所在列（必填）"
+    },
+    "step_desc_col": {
+      "type": "string",
+      "description": "用例步骤所在列（必填）——每行包含一条用例的全部步骤，用编号列表（1. 2. 3.）分隔，预期结果写在对应步骤中"
+    }
+  },
+  "default_mapping": {
+    "module_col": "模块",
+    "case_name_col": "用例名称",
+    "step_desc_col": "用例步骤"
+  },
+  "step_separator": {
+    "description": "步骤分隔规则：按编号列表自动拆分",
+    "supported_formats": [
+      "1. 步骤内容",
+      "1、步骤内容",
+      "步骤1：步骤内容"
+    ],
+    "split_regex": "^\\s*\\d+[.、．：:]\\s*"
+  },
+  "parsing_rules": {
+    "description": "AI 从每条用例步骤中自动解析以下信息",
+    "extract_fields": [
+      "操作动作（关键字映射：点击/输入/验证…）",
+      "元素定位（从上下文推断，如'用户名输入框'→#username）",
+      "输入数据（如'输入 admin'→value: admin）",
+      "预期结果（如'验证显示成功'→expected: 显示成功）"
+    ]
+  }
+}

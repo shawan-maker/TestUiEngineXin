@@ -1,0 +1,102 @@
+# system_workflows.yaml — 系统级 L3 业务关键字定义
+#
+# 跨项目复用的通用业务关键字。项目级 _knowledge/*.yaml 中的同名关键字
+# 会覆盖系统级（last-writer-wins）。
+#
+# Excel 用法：直接写中文名 + 括号参数（如有），如：
+#   等待加载完成
+#   列表查询(项目名称, 测试项目)
+#   导出验证
+#
+# 关键字由 compile_module_keywords.py 编译为 Python 函数，
+# 注册到 KeyWordManager.maps，运行时按 name 查找。
+
+workflows:
+
+  # ── 关键字一：等待加载完成（无参数）──
+  # 等待 3 种 loading 元素全部消失 + 1s 稳定等待
+  - name: wait_for_loading_complete
+    chinese_name: 等待加载完成
+    params: []
+    description: "等待 3 种 loading 元素全部消失 + 1s 稳定等待"
+    steps:
+      - keyword: wait_for_element_hidden
+        desc: "等待 el-loading-text 消失"
+        params:
+          locator: "xpath=//p[@class='el-loading-text']"
+          timeout: 10000
+      - keyword: wait_for_element_hidden
+        desc: "等待 ng-show loading 消失"
+        params:
+          locator: "xpath=//div[@ng-show='loading' and not(contains(@class,'ng-hide'))]"
+          timeout: 10000
+      - keyword: wait_for_element_hidden
+        desc: "等待 el-loading-spinner 消失"
+        params:
+          locator: "xpath=//div[@class='el-loading-spinner']/p[@class='el-loading-text']"
+          timeout: 10000
+      - keyword: wait_for_time
+        desc: "稳定等待"
+        params:
+          timeout: 1000
+
+  # ── 关键字二：列表查询（2 参数）──
+  # 在搜索框输入关键词 → 点击查询 → 等待加载完成
+  - name: list_search
+    chinese_name: 列表查询
+    params: [search_field, search_value]
+    description: "在搜索框输入关键词 → 点击查询 → 等待加载完成"
+    locators:
+      search_input: "xpath=//input[contains(@placeholder,'{search_field}')]"
+      search_btn: "xpath=//button[contains(.,'查询')]"
+      loading_mask: "xpath=//div[contains(@class,'el-loading-mask')]"
+    steps:
+      - keyword: fill_value
+        desc: "输入搜索关键词"
+        params:
+          locator: "${locators.search_input}"
+          value: "{search_value}"
+      - keyword: click_element
+        desc: "点击查询按钮"
+        params:
+          locator: "${locators.search_btn}"
+      - keyword: wait_for_element_hidden
+        desc: "等待加载完成"
+        params:
+          locator: "${locators.loading_mask}"
+          timeout: 10000
+
+  # ── 关键字三：导出验证（无参数）──
+  # 点击导出 → 等待下载 → 验证文件存在
+  - name: export_verify
+    chinese_name: 导出验证
+    params: []
+    description: "点击导出 → 等待下载 → 验证文件存在"
+    locators:
+      export_btn: "xpath=//button[contains(.,'导出')]"
+    steps:
+      - keyword: click_element
+        desc: "点击导出按钮"
+        params:
+          locator: "${locators.export_btn}"
+      - keyword: wait_for_time
+        desc: "等待文件下载"
+        params:
+          timeout: 15000
+      - keyword: log
+        desc: "导出完成"
+        params:
+          message: "文件已导出，请检查下载目录"
+
+  # ── 关键字四：生成随机变量（2 参数）──
+  # 生成 prefix + 时间戳，存入 runtime_variables 供后续步骤引用
+  # 由 compile_module_keywords.py 特殊编译为 Python 代码（含 datetime.now()）
+  - name: set_random_variable
+    chinese_name: 生成随机变量
+    params: [name, prefix]
+    description: "生成前缀+时间戳格式的随机名称，存入运行时变量"
+    steps:
+      - keyword: log
+        desc: "生成随机名称（实际由编译器生成 Python 代码）"
+        params:
+          message: "随机名称已生成"

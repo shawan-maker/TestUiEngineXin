@@ -307,7 +307,7 @@ def extract_urls_from_excel(filepath, output_path, pages_dir=None, config_path=N
     """从 Excel 按第一列模块值分组收集 URL，不翻译模块名。
 
     修复: Issue 1 — 直接用中文名作 key，永不因翻译失败而丢失 URL。
-    翻译逻辑移至 generate_from_excel.py build_module_map()（v2），输出 module_map.json 供下游使用。
+    翻译逻辑由独立工具 build_module_map.py 完成，输出 _probe/module_map.json 供下游使用。
     """
     wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
     url_pattern = re.compile(r'访问\s*(https?://\S+)')

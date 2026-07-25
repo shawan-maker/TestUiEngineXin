@@ -29,7 +29,6 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
 
 # v2 direct imports (replacing subprocess calls — G17)
-from generate_from_excel import build_module_map as _build_module_map
 from _pages_writer import generate_pages_yaml_from_discovery as _generate_pages_yaml
 
 
@@ -136,6 +135,8 @@ def main():
                         help='跳过探测步骤（使用已有 discovery JSON）')
     parser.add_argument('--skip-generate', action='store_true',
                         help='跳过 pages 生成步骤')
+    parser.add_argument('--module-map', default='',
+                        help='手动覆盖模块映射，格式: 中文名1=slug1,中文名2=slug2')
 
     args = parser.parse_args()
 
@@ -182,30 +183,32 @@ def main():
     with open(module_urls_path, encoding='utf-8') as f:
         module_urls = json.load(f)
 
-    # ── Step 1.5: 构建 cn_name → slug 映射（v2: direct import — G17）──
+    # ── Step 1.5: 构建 cn_name → slug 映射（调用 build_module_map.py）──
     # module_urls.json 格式: {cn_name: {"urls": [...]}} — key 是中文名
-    # v2: 从 discovery JSON 的 cn_name 字段构建映射（不再调用 build_module_map.py）
+    # build_module_map.py 从 Excel + pages/ + YAML 注释 + discovery JSON 构建映射
     print(f"\n{'='*60}")
     print(f"[Phase 4] Step 1.5: 构建模块名映射 (cn_name → slug)")
     print(f"{'='*60}")
 
-    cn_to_slug = _build_module_map(probe_dir)
-
-    # 持久化 module_map.json 供 discover_page.py --module-map-file 使用
     module_map_path = os.path.join(probe_dir, 'module_map.json')
-    if cn_to_slug:
-        with open(module_map_path, 'w', encoding='utf-8') as f:
-            json.dump(cn_to_slug, f, ensure_ascii=False, indent=2)
-        print(f"[INFO] module_map: {len(cn_to_slug)} 个映射 (from discovery cn_name)")
-    else:
-        # 无 discovery JSON（首次运行），尝试从旧文件加载
-        if os.path.isfile(module_map_path):
-            with open(module_map_path, encoding='utf-8') as f:
-                cn_to_slug = json.load(f)
-            print(f"[INFO] module_map: {len(cn_to_slug)} 个映射 (from cached file)")
-        else:
-            print("[WARN] 无 discovery JSON 且无缓存 module_map.json，"
-                  "将使用中文名作为 slug")
+    pages_dir = os.path.join(args.project, 'pages')
+    bmm_cmd = [sys.executable, os.path.join(SCRIPT_DIR, 'build_module_map.py'),
+               args.excel,
+               '--pages', pages_dir,
+               '--discovery-dir', probe_dir,
+               '--output', module_map_path]
+    if args.module_map:
+        bmm_cmd.extend(['--module-map', args.module_map])
+
+    bmm_ok = run_cmd(bmm_cmd, 'Step 1.5: build_module_map.py')
+    if not (bmm_ok and os.path.isfile(module_map_path)):
+        print("[ERROR] build_module_map.py 失败，无法生成模块映射",
+              file=sys.stderr)
+        print("[INFO] 请确保 Excel 文件和 pages/ 目录结构正确", file=sys.stderr)
+        sys.exit(1)
+
+    with open(module_map_path, encoding='utf-8') as f:
+        cn_to_slug = json.load(f)
 
     if args.module:
         # --module 可以是 slug 或中文名

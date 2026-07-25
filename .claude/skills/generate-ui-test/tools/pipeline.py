@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 pipeline.py — 统一管线编排器
 
@@ -29,6 +30,11 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
+
+# Windows 控制台 UTF-8 输出修复
+if sys.platform == 'win32':
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 try:
     import yaml
@@ -74,6 +80,13 @@ class PipelineContext:
 
     def update_from_config(self):
         """从 config.yaml 加载配置"""
+        # 自动推导 excel_json_path
+        probe_dir = Path(self.project_dir) / "_probe"
+        if probe_dir.exists():
+            for json_file in probe_dir.glob("excel_parsed.json"):
+                self.excel_json_path = str(json_file)
+                break
+
         try:
             import yaml
         except ImportError:
@@ -689,6 +702,8 @@ class PipelineExecutor:
                 cmd,
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 timeout=600  # 10 分钟超时
             )
 

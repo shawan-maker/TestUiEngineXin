@@ -134,7 +134,7 @@ def _load_all_pages_refs(pages_dir: Path) -> dict[str, set[str]]:
                 continue
 
             for group_name, group_data in data.items():
-                if group_name.startswith('_') or group_name == 'common_elements':
+                if group_name.startswith('_'):
                     continue
 
                 if isinstance(group_data, dict):

@@ -8,7 +8,7 @@ v2 核心改进（vs v1 subprocess chain）：
   - 消除 subprocess 开销：直接 import _element_resolver, _case_generator, _pages_writer
   - 按需生成：CaseGenerator 记录 required_fields → PagesWriter 只写需要的元素
   - 组名唯一真相源：ElementResolver.get_group_name()（不再依赖 pages YAML 注释）
-  - 模块中文名唯一来源：discovery JSON 的 cn_name 字段（design doc §六）
+  - 模块映射：load_module_map() 优先读 _probe/module_map.json（build_module_map.py 产出）
 
 用法:
     python generate_from_excel.py "{excel_json}" \\
@@ -40,30 +40,45 @@ from _pages_writer import PagesWriter
 # 模块映射
 # ═══════════════════════════════════════════════════════════════
 
-def build_module_map(discovery_dir, module_map_str=''):
-    """构建中文→英文模块映射。
+def load_module_map(discovery_dir, module_map_str=''):
+    """加载中文→英文模块映射。
 
-    中文名唯一来源：discovery JSON 的 cn_name 字段（与 design doc §六 对齐）。
+    数据源优先级:
+      P0: _probe/module_map.json（build_module_map.py 产出）
+      P1: discovery JSON 的 cn_name 字段（历史兼容）
+      P2: CLI --module-map 显式覆盖
 
     Args:
-        discovery_dir: discovery JSON 目录
+        discovery_dir: discovery JSON 目录（通常也是 module_map.json 所在位置）
         module_map_str: CLI --module-map 参数（可选覆盖）
 
     Returns: {cn_name: slug} dict
     """
     cn_to_slug = {}
-    for disc_file in sorted(glob.glob(os.path.join(discovery_dir, 'discovery_*.json'))):
-        try:
-            with open(disc_file, encoding='utf-8') as f:
-                disc = json.load(f)
-        except Exception:
-            continue
-        slug = disc.get('module', '')
-        cn = disc.get('cn_name', '')
-        if cn and slug:
-            cn_to_slug[cn] = slug
 
-    # CLI 覆盖
+    # P0: 优先读 module_map.json（Phase 4 产出）
+    map_path = os.path.join(discovery_dir, 'module_map.json')
+    if os.path.isfile(map_path):
+        try:
+            with open(map_path, encoding='utf-8') as f:
+                cn_to_slug = json.load(f)
+        except Exception:
+            pass
+
+    # P1: 回退到 discovery JSON cn_name/module 字段（历史兼容）
+    if not cn_to_slug:
+        for disc_file in sorted(glob.glob(os.path.join(discovery_dir, 'discovery_*.json'))):
+            try:
+                with open(disc_file, encoding='utf-8') as f:
+                    disc = json.load(f)
+            except Exception:
+                continue
+            slug = disc.get('module', '')
+            cn = disc.get('cn_name', '') or disc.get('module', '')
+            if cn and slug:
+                cn_to_slug[cn] = slug
+
+    # P2: CLI 覆盖（追加或覆盖已有映射）
     if module_map_str:
         for pair in module_map_str.split(','):
             pair = pair.strip()
@@ -77,14 +92,14 @@ def build_module_map(discovery_dir, module_map_str=''):
 def group_cases_by_module(excel_data, module_map_str, discovery_dir):
     """将 Excel 步骤按模块分组。
 
-    3 级优先级匹配：
-      P1: CLI --module-map 显式覆盖
-      P2: discovery JSON cn_name 精确匹配（design doc 指定的唯一来源）
-      P3: 未匹配 → 诊断退出
+    数据源优先级（load_module_map）：
+      P0: _probe/module_map.json（build_module_map.py 产出）
+      P1: discovery JSON 的 cn_name 字段（历史兼容）
+      P2: CLI --module-map 显式覆盖
 
     Returns: {module_slug: [case_data, ...]}
     """
-    cn_to_slug = build_module_map(discovery_dir, module_map_str)
+    cn_to_slug = load_module_map(discovery_dir, module_map_str)
 
     # Excel JSON 可以是 list（read_excel.py 输出）或 dict（兼容格式）
     if isinstance(excel_data, list):
@@ -100,7 +115,7 @@ def group_cases_by_module(excel_data, module_map_str, discovery_dir):
             if m:
                 cn_names_from_excel.add(m)
 
-    # 构建 cn → slug 映射（3 级优先级）
+    # 构建 cn → slug 映射
     mapping = {}
     for cn in cn_names_from_excel:
         slug = cn_to_slug.get(cn)
@@ -112,9 +127,9 @@ def group_cases_by_module(excel_data, module_map_str, discovery_dir):
                     break
         if not slug:
             print(f"[FATAL] 无法匹配模块: '{cn}'")
-            print(f"  discovery JSON 中的 cn_name: {list(cn_to_slug.keys())}")
-            print(f"  可能原因: discover_page.py 未写入 cn_name 字段")
-            print(f"  解决: 重新运行 Phase 4 探测，或使用 --module-map \"{cn}=<slug>\"")
+            print(f"  module_map.json 中的映射: {list(cn_to_slug.keys())}")
+            print(f"  可能原因: build_module_map.py 未运行或映射不完整")
+            print(f"  解决: 运行 Phase 4（自动生成 module_map.json），或使用 --module-map \"{cn}=<slug>\"")
             sys.exit(1)
         mapping[cn] = slug
 
@@ -146,27 +161,38 @@ def find_discovery_json(discovery_dir, module_slug):
     匹配优先级：
       1. discovery_{slug}.json
       2. discovery_{slug}_merged.json
-      3. 连字符↔下划线变体
-      4. 子串模糊匹配
+      3. 连字符↔下划线变体（slug_with_underscores / slug-with-hyphens）
+      4. 精确文件名匹配（兜底，兼容历史中文文件名）
+      5. 子串模糊匹配（最后兜底，按文件名长度排序避免误匹配）
     """
     slug = module_slug.replace('-', '_')
+    slug_hyphen = module_slug.replace('_', '-')
     candidates = [
         f'discovery_{slug}.json',
         f'discovery_{slug}_merged.json',
         f'discovery_{module_slug}.json',
-        f'discovery_{module_slug.replace("_", "-")}.json',
+        f'discovery_{slug_hyphen}.json',
     ]
     for name in candidates:
         path = os.path.join(discovery_dir, name)
         if os.path.isfile(path):
             return path
 
-    # 子串模糊匹配
+    # 兜底：精确文件名匹配 + 子串匹配（按文件名长度排序，优先匹配短文件名）
     if os.path.isdir(discovery_dir):
+        matches = []
         for f in os.listdir(discovery_dir):
             if f.startswith('discovery_') and f.endswith('.json'):
-                if slug in f or module_slug in f:
+                # 精确匹配：discovery_{slug}.json 或 discovery_{module_slug}.json
+                if f == f'discovery_{slug}.json' or f == f'discovery_{module_slug}.json':
                     return os.path.join(discovery_dir, f)
+                # 子串匹配（收集后按长度排序）
+                if slug in f or module_slug in f:
+                    matches.append(f)
+        # 按文件名长度升序，优先返回短文件名（避免误匹配 v2/v3 后缀）
+        if matches:
+            matches.sort(key=len)
+            return os.path.join(discovery_dir, matches[0])
     return None
 
 

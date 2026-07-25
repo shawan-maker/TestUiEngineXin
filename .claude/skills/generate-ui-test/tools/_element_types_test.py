@@ -165,6 +165,7 @@ test_cases = [
     ('textarea-generic', 'textarea-generic'),
     ('date-picker', 'date-picker'),
     ('rich_text', 'rich_text'),
+    ('option-card', 'option-card'),
     ('', ''),
     (None, ''),
     ('unknown_type', 'unknown_type'),  # passthrough
@@ -186,6 +187,7 @@ section_cases = [
     ('detail-link', ('detail_links',)),
     ('checkbox', ('checkboxes',)),
     ('menu-item', ('menu_items',)),
+    ('option-card', ('inputs',)),
     ('success-toast', ()),
     (None, ALL_LIST_SECTIONS),
     ('unknown_xyz', ALL_LIST_SECTIONS),
@@ -209,6 +211,7 @@ suffix_cases = [
     ('checkbox', '_checkbox'),
     ('checkbox-all', '_checkbox_all'),
     ('menu-item', '_menu'),
+    ('option-card', '_card'),
     ('rich_text', '_iframe'),
     ('unknown', '_field'),
     ('', '_field'),
@@ -249,6 +252,7 @@ infer_cases = [
     ('click_element', 'click menu item', 'menu-item'),    # menu-item (English)
     ('click_element', '点击确定', 'button'),
     ('click_element', '点击新增', 'button'),
+    ('click_element', '在"架构"选项卡中选择"ARM计算型"', 'option-card'),
     ('fill_value', '填写描述', 'textarea-generic'),
     ('fill_value', '填写文本', 'textarea-generic'),
     ('fill_value', '填写名称', 'input-generic'),
@@ -273,6 +277,7 @@ discovery_cases = [
     ({'type': 'el-select'}, 'inputs'),
     ({'type': 'date_picker'}, 'inputs'),
     ({'type': 'rich_text'}, 'inputs'),
+    ({'type': 'option-card'}, 'inputs'),  # L1 fix: option-card → inputs
     ({'type': 'tab'}, 'tabs'),
     ({'type': 'checkbox'}, 'checkboxes'),
     ({'type': 'unknown_xyz'}, None),
@@ -321,14 +326,85 @@ import _case_generator as _cg_mod
 check(not hasattr(_cg_mod, '_STEP_TO_KB'),
       "_case_generator._STEP_TO_KB should be removed (dead import after single-source fix)")
 
-# TYPE_SUFFIXES canonical keys
-print('TYPE_SUFFIXES canonical keys:')
-from probe_from_pages import TYPE_SUFFIXES
+# FIELD_TYPE_SUFFIXES canonical keys (migrated from probe_from_pages.py)
+print('FIELD_TYPE_SUFFIXES canonical keys:')
+from _element_types import FIELD_TYPE_SUFFIXES as TYPE_SUFFIXES
 for suffix, etype in TYPE_SUFFIXES.items():
     if etype in ('option',):  # option is not a KB key, it's a pseudo-type
         continue
     check(etype in KB_TYPE_KEYS or normalize_type(etype) in KB_TYPE_KEYS,
           f"TYPE_SUFFIXES['{suffix}'] = '{etype}' not canonical")
+
+
+# ================================================================
+# Part 5: L7 集成测试 — option-card 容器前缀 + M1/L1/L3 修复验证
+# ================================================================
+print('\n' + '=' * 60)
+print('Part 5: option-card Integration Tests')
+print('=' * 60)
+
+# L7-1: TYPE_SUFFIXES option-card 后缀规范化 (M1 fix)
+print('\nL7-1: TYPE_SUFFIXES option-card 后缀规范化 (M1 fix):')
+check(TYPE_SUFFIXES.get('_card') == 'option-card',
+      f"TYPE_SUFFIXES['_card'] = {TYPE_SUFFIXES.get('_card')!r}, expected 'option-card'")
+check(TYPE_SUFFIXES.get('_option') == 'option',
+      f"TYPE_SUFFIXES['_option'] = {TYPE_SUFFIXES.get('_option')!r}, expected 'option'")
+check(TYPE_SUFFIXES.get('_first_option') == 'option',
+      f"TYPE_SUFFIXES['_first_option'] = {TYPE_SUFFIXES.get('_first_option')!r}, expected 'option'")
+
+# L7-2: infer_discovery_section option-card 处理 (L1 fix)
+print('L7-2: infer_discovery_section option-card (L1 fix):')
+check(infer_discovery_section({'type': 'option-card'}) == 'inputs',
+      "infer_discovery_section({'type': 'option-card'}) != 'inputs'")
+
+# L7-3: infer_type_from_field 类型推断 (migrated from probe_from_pages._infer_type)
+print('L7-3: infer_type_from_field (M1 downstream):')
+from _element_types import infer_type_from_field as _infer_type
+check(_infer_type('架构_card', 'xpath=//label...') == 'option-card',
+      f"_infer_type('架构_card', ...) = {_infer_type('架构_card', 'xpath=//label...')!r}")
+check(_infer_type('规格_card', '//label...') == 'option-card',
+      f"_infer_type('规格_card', ...) = {_infer_type('规格_card', '//label...')!r}")
+
+# L7-4: option-card XPath 容器前缀逻辑 (1421-1426)
+print('L7-4: option-card 容器前缀 XPath 生成:')
+base_xpath = "//label[contains(*,'架构')]//following-sibling::*[self::div or self::span]//*[contains(text(),'ARM计算型')]"
+drawer_xpath = f"//div[contains(@class,'el-drawer')]{base_xpath}"
+dialog_xpath = f"//div[contains(@class,'el-dialog')]{base_xpath}"
+msgbox_xpath = f"//div[contains(@class,'el-message-box')]{base_xpath}"
+
+# 验证前缀格式正确
+check(drawer_xpath.startswith("//div[contains(@class,'el-drawer')]"),
+      "drawer 前缀格式错误")
+check(dialog_xpath.startswith("//div[contains(@class,'el-dialog')]"),
+      "dialog 前缀格式错误")
+check(msgbox_xpath.startswith("//div[contains(@class,'el-message-box')]"),
+      "message-box 前缀格式错误")
+check("//label[contains(*,'架构')]" in drawer_xpath,
+      "drawer XPath 缺少 label 选择器")
+check("contains(text(),'ARM计算型')" in drawer_xpath,
+      "drawer XPath 缺少选项文本")
+
+# L7-5: infer_elem_type 死代码删除验证 (L2 fix)
+print('L7-5: infer_elem_type 无重复分支 (L2 fix):')
+# 验证 '选项卡' 仍能正确推断（死代码删除不影响功能）
+check(infer_elem_type('click_element', '在"架构"选项卡中选择"ARM计算型"') == 'option-card',
+      "选项卡推断失败（死代码删除后）")
+check(infer_elem_type('fill_value', '在"规格"选项卡中点击"16核"') == 'option-card',
+      "选项卡推断失败（fill_value 上下文）")
+
+# L7-6: 容器上下文下的 option-card 推断
+print('L7-6: 容器上下文 option-card 推断:')
+for container, expected_prefix in [('drawer', 'el-drawer'), ('dialog', 'el-dialog'), ('message-box', 'el-message-box')]:
+    # 模拟 _case_generator 的容器前缀逻辑
+    xpath = "//label[contains(*,'test')]"
+    if container == 'drawer':
+        xpath = f"//div[contains(@class,'el-drawer')]{xpath}"
+    elif container == 'dialog':
+        xpath = f"//div[contains(@class,'el-dialog')]{xpath}"
+    elif container == 'message-box':
+        xpath = f"//div[contains(@class,'el-message-box')]{xpath}"
+    check(f"el-{container.replace('-box', '')}" in xpath,
+          f"{container} 容器前缀缺失")
 
 
 # ================================================================

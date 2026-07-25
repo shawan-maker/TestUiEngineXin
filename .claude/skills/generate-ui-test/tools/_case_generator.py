@@ -33,17 +33,19 @@ from field_suffixes import (
 )
 from xpath_utils import inject_hidden_filter as _inject_hidden_filter
 from xpath_utils import HIDDEN_FILTER as _HIDDEN_FILTER_SUFFIX
+from xpath_utils import _unwrap_positional, _rewrap_positional
+from xpath_utils import apply_container_prefix, detect_container_type
 from _element_resolver import ElementResolver, ElementEntry
 from probe_element import _get_expand_patterns, _safe_format, load_knowledge
 from _pages_writer import _make_editable_locator
 
-# ─── common_elements 常量 ───
+# ─── common_elements 常量（与 _pages_writer.DEFAULT_COMMON_ELEMENTS 保持一致）───
 COMMON_ELEMENTS = {
-    'success_text': "xpath=//*[contains(.,'成功')]",
     'loading_mask': "xpath=//div[contains(@class,'el-loading-mask')]",
-    'confirm_btn': "xpath=//button[contains(.,'确定') or contains(.,'确认')]",
-    'cancel_btn': "xpath=//button[contains(.,'取消')]",
+    'success_text': "xpath=//*[contains(.,'成功')]",
     'error_text': "xpath=//*[contains(.,'失败') or contains(.,'错误')]",
+    'confirm_btn': "xpath=//button[contains(.,'确') and contains(.,'定') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]",
+    'cancel_btn': "xpath=//button[contains(.,'取') and contains(.,'消') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]",
 }
 
 # ═══════════════════════════════════════════════════════════════
@@ -60,19 +62,11 @@ def _slugify(text):
 
 
 def _detect_container_type(locator):
-    """从 locator 中检测容器类型。
+    """从 locator 中检测容器类型（委托给 detect_container_type）
 
     Returns: 'drawer' / 'dialog' / 'message-box' / None
     """
-    if not isinstance(locator, str):
-        return None
-    if "contains(@class,'el-drawer')" in locator:
-        return 'drawer'
-    if "contains(@class,'el-dialog')" in locator:
-        return 'dialog'
-    if "contains(@class,'el-message-box')" in locator:
-        return 'message-box'
-    return None
+    return detect_container_type(locator)
 
 
 def _build_date_picker_xpath(value, scope_prefix=''):
@@ -327,6 +321,7 @@ class CaseGenerator:
         'l3_call',
     })
     _RANDOM_NAME_RE = re.compile(r'随机名称[(（](.*?)[)）]')
+    _CT_HASH_RE = re.compile(r'_([0-9a-f]{4})$')  # BUG-14: 容器哈希后缀检测
 
     def __init__(self, resolver, module_name, project_dir=''):
         """
@@ -363,6 +358,12 @@ class CaseGenerator:
         self._discovery_element_map = {
             (ctx, label): entry.raw
             for (ctx, label), entry in resolver.get_element_map().items()
+            if entry.raw and entry.raw.get('locator')
+        }
+        # 多URL精确索引：按 page_slug 区分
+        self._discovery_page_element_map = {
+            (ps, ctx, label): entry.raw
+            for (ps, ctx, label), entry in resolver.get_page_element_map().items()
             if entry.raw and entry.raw.get('locator')
         }
         self._current_context = 'list_page'
@@ -428,12 +429,16 @@ class CaseGenerator:
         labels = {}
         for (ctx, label), entry in self.resolver.get_element_map().items():
             ct = entry.container_type
-            field_prefix = entry.field or ''
+            field_key = entry.field or ''
+
+            # BUG-14: 先剥离容器哈希后缀（4 hex chars），再剥离标准后缀
+            field_without_ct = self._CT_HASH_RE.sub('', field_key)
+            field_prefix = field_without_ct
             for suf in ('_select', '_input', '_editable', '_first_option',
                         '_textarea', '_btn', '_tab', '_link', '_row_link',
-                        '_row', '_option', '_cascader'):
-                if field_prefix.endswith(suf):
-                    field_prefix = field_prefix[:-len(suf)]
+                        '_row', '_option', '_card', '_cascader'):
+                if field_without_ct.endswith(suf):
+                    field_prefix = field_without_ct[:-len(suf)]
                     break
             labels.setdefault(label, []).append((entry.group, field_prefix, ct))
         return labels
@@ -443,43 +448,23 @@ class CaseGenerator:
     def find_el_select(self, label, preferred_container=None):
         """根据中文标签查找 el-select 触发器 locator 引用。
 
-        返回 select（触发器）+ editable（可编辑检测，来自 pages YAML _editable 字段）。
-        generate_step 根据 editable 是否存在决定生成单步还是条件分支。
+        与 find_input / find_button 统一（BUG-14 一致性修复）。
+        注：当前已被 _emit_el_select_steps 绕过，保留以备未来使用。
         """
         elem = self._discovery_lookup(label)
         if not elem:
             return None
 
-        group_name = elem.get('group_name', '')
-        field_key = elem.get('field_key', '')
-        if not group_name or not field_key:
-            return None
-
-        field_prefix = field_key
-        for suf in ('_select', '_input'):
-            if field_key.endswith(suf):
-                field_prefix = field_key[:-len(suf)]
-                break
-
-        fields = self._compat_groups().get(group_name, {})
-        select_key = f"{field_prefix}_select"
-        input_key = f"{field_prefix}_input"
-        editable_key = f"{field_prefix}_editable"
-        first_option_key = f"{field_prefix}_first_option"
-
-        select_ref = (f"${{{group_name}.{select_key}}}" if select_key in fields
-                      else f"${{{group_name}.{input_key}}}" if input_key in fields
-                      else None)
-
-        if not select_ref:
+        ref = self._elem_to_ref(elem)
+        if not ref:
             return None
 
         return {
-            'group': group_name,
-            'select': select_ref,
-            'field_prefix': field_prefix,
-            'editable': f"${{{group_name}.{editable_key}}}" if editable_key in fields else None,
-            'first_option': f"${{{group_name}.{first_option_key}}}" if first_option_key in fields else None,
+            'group': elem.get('group_name', ''),
+            'select': ref,
+            'field_prefix': elem.get('field_key', ''),
+            'editable': None,
+            'first_option': None,
         }
 
     def _add_container_prefix_to_xpath(self, xpath):
@@ -488,27 +473,16 @@ class CaseGenerator:
         Plan A: 与 _emit_el_select_steps L485-498 逻辑对称。
         用于 fill_value / textarea 等非 el-select 路径。
 
+        BUG-13 修复：支持 (xpath)[N] 包裹格式，前缀注入到括号内部
+
         Args:
             xpath: 原始 XPath（以 // 开头，不含 xpath= 前缀）
         Returns:
             带容器前缀的 XPath（如果适用），否则原样返回
         """
-        if not self.current_container or self.current_container == 'new_page':
-            return xpath
-        # 已有容器前缀则不重复添加
-        if any(ct in xpath for ct in ('el-drawer', 'el-dialog', 'el-message-box')):
-            return xpath
-        if not xpath.startswith('//'):
-            return xpath
-        if self.current_container == 'drawer':
-            return f"//div[contains(@class,'el-drawer')]{xpath}"
-        elif self.current_container == 'dialog':
-            return f"//div[contains(@class,'el-dialog')]{xpath}"
-        elif self.current_container == 'message-box':
-            return f"//div[contains(@class,'el-message-box')]{xpath}"
-        return xpath
+        return apply_container_prefix(xpath, self.current_container)
 
-    def _emit_el_select_steps(self, steps, label, value):
+    def _emit_el_select_steps(self, steps, label, value, nth=1):
         """生成 el-select 完整 3 步条件分支（始终使用 KB 标准 XPath）。
 
         KB XPath 通过 _track_field() 注册，由 PagesWriter 写入 pages YAML。
@@ -516,10 +490,12 @@ class CaseGenerator:
         PagesWriter Stage 3 自动生成 _editable + _first_option companion。
 
         生成步骤:
-          1. click_element(${group.field_select})       ← 点击 input 展开
+          1. click_element(${group.field_select})       ← 点击第 nth 个 input 展开
           2. if_element_visible(${group.field_editable}) ← 判断可编辑？
-             then: fill_value + wait + click_option     ← 可搜索
-             else: click_first_option                   ← 只读选第一项
+             then: fill_value + wait + click_option     ← 可搜索（带 hidden filter）
+             else: 判断目标选项可见？                   ← readonly 路径
+               then: click_option                        ← 直接点目标选项
+               else: click_first_option                  ← 回退选第一项
           3. wait_for_time(1000)                         ← 等待选择完成
         """
         # 1. 生成 field prefix（hash-based，与现有机制一致）
@@ -544,29 +520,21 @@ class CaseGenerator:
                 trigger=self._current_context)
 
         # 3. KB 标准 XPath（来自 probe_knowledge.json el-select multi_step）
-        select_xpath = (
+        select_xpath_base = (
             f"//*[contains(text(),'{label}')]"
             f"/following-sibling::*[self::div or self::span]"
             f"//input[@class='el-input__inner']"
         )
 
         # 4. 容器前缀（在 drawer/dialog 内时限定范围，避免跨容器误匹配）
-        #    Fix-1+M1: 直接拼接，不截断 [2:]（xpath 本身以 // 开头）
-        if self.current_container == 'drawer':
-            select_xpath = (
-                f"//div[contains(@class,'el-drawer')]"
-                f"{select_xpath}"
-            )
-        elif self.current_container == 'dialog':
-            select_xpath = (
-                f"//div[contains(@class,'el-dialog')]"
-                f"{select_xpath}"
-            )
-        elif self.current_container == 'message-box':
-            select_xpath = (
-                f"//div[contains(@class,'el-message-box')]"
-                f"{select_xpath}"
-            )
+        select_xpath_base = apply_container_prefix(select_xpath_base, self.current_container)
+
+        # 4.5. _editable 从 base 生成（在 [nth] 包裹之前，避免 _make_editable_locator 误解析 [N]）
+        editable_xpath_base = _make_editable_locator(select_xpath_base)
+
+        # 4.6. 序号后缀：(xpath)[nth] — 默认 [1]，兼容多同名下拉框场景
+        select_xpath = f"({select_xpath_base})[{nth}]"
+        editable_xpath = f"({editable_xpath_base})[{nth}]"
 
         # 5. 注册 _select 到 required_fields（原始 XPath，无 hidden filter）
         #    PagesWriter Stage 2 注入 hidden filter
@@ -581,16 +549,20 @@ class CaseGenerator:
         #     中找不到该字段 → 注册 locator='' → PagesWriter guard 跳过生成。
         #     预注册正确的 locator 可避免此问题。
         #     _editable: _select 的 XPath + and not(@readonly)
-        #     H1+L6: 使用 _make_editable_locator()（括号深度计数）替代 rfind(']')
-        editable_xpath = _make_editable_locator(select_xpath)
         self._track_field(group, f'{field}_editable',
                           locator=f'xpath={editable_xpath}',
                           label=f'{label}（可编辑状态）')
-        #     _first_option: 通用第一项 XPath（与 PagesWriter 常量一致）
+        #     _first_option: 通用第一项 XPath（带 hidden filter，下拉面板选项可能被虚拟滚动隐藏）
+        #     注意：下拉面板渲染在 body 级别（非容器 DOM 内），不加容器前缀
+        first_option_xpath = (
+            "(//div[(@x-placement='bottom-start' "
+            "or @x-placement='top-start')]//li"
+            "[not(ancestor::*[contains(@class,'is-hidden')])"
+            " and not(ancestor::*[contains(@style,'display: none')])])[1]"
+        )
         self._track_field(group, f'{field}_first_option',
-                          locator="xpath=(//div[(@x-placement='bottom-start' "
-                                  "or @x-placement='top-start')]//li)[1]",
-                          label=f'{label}（第一个选项）')
+                          locator=f'xpath={first_option_xpath}',
+                          label=f'{label}（第一个可见选项）')
 
         # 6. 数据引用
         resolved_value, is_random = self._try_expand_random_name(
@@ -606,9 +578,19 @@ class CaseGenerator:
         editable_ref = f'${{{group}.{field}_editable}}'
         first_option_ref = f'${{{group}.{field}_first_option}}'
 
+        # 8. 选项 XPath（inline，不走 PagesWriter Stage 2，需手动拼接 hidden filter）
+        option_xpath = (
+            f"(//div[(@x-placement='bottom-start' "
+            f"or @x-placement='top-start')]//li"
+            f"[contains(.,'{option_ref}')"
+            f" and not(ancestor::*[contains(@class,'is-hidden')])"
+            f" and not(ancestor::*[contains(@style,'display: none')])])[1]"
+        )
+
         # === Step 1: 点击下拉框 ===
+        nth_desc = f"第{nth}个" if nth > 1 else ""
         steps.append({
-            'desc': f"选择「{label}」 - 点击下拉框",
+            'desc': f"选择「{label}」 - 点击{nth_desc}下拉框",
             'keyword': 'click_element',
             'params': {'locator': select_ref},
         })
@@ -628,18 +610,36 @@ class CaseGenerator:
             {
                 'desc': f"选择「{label}」 - 选择选项",
                 'keyword': 'click_element',
-                'params': {'locator': (
-                    f"xpath=(//div[(@x-placement='bottom-start' "
-                    f"or @x-placement='top-start')]//li"
-                    f"[contains(.,'{option_ref}')])[1]"
-                )},
+                'params': {'locator': f'xpath={option_xpath}'},
+            },
+        ]
+
+        # else 分支：readonly 模式
+        # 下拉面板已展开，先检查目标选项是否可见（虚拟滚动场景可能不可见）
+        else_then_steps = [
+            {
+                'desc': f"选择「{label}」 - 点击目标选项",
+                'keyword': 'click_element',
+                'params': {'locator': f'xpath={option_xpath}'},
+            },
+        ]
+        else_else_steps = [
+            {
+                'desc': f"选择「{label}」 - 目标选项不可见，回退选择第一项",
+                'keyword': 'click_element',
+                'params': {'locator': first_option_ref},
             },
         ]
         else_steps = [
             {
-                'desc': f"选择「{label}」 - 选择第一项",
-                'keyword': 'click_element',
-                'params': {'locator': first_option_ref},
+                'desc': f"判断「{label}」目标选项是否可见",
+                'keyword': 'if_element_visible',
+                'params': {
+                    'locator': f'xpath={option_xpath}',
+                    'timeout': 500,
+                    'then_steps': else_then_steps,
+                    'else_steps': else_else_steps,
+                },
             },
         ]
 
@@ -662,85 +662,24 @@ class CaseGenerator:
         })
 
     def find_el_cascader(self, label, preferred_container=None):
-        """根据中文标签查找级联选择器的 locator 引用。"""
+        """根据中文标签查找级联选择器的 locator 引用。
+
+        与 find_input / find_button 统一：直接取 discovery 的 group+key，
+        不做 suffix stripping + key 重建（BUG-14 修复）。
+        """
         elem = self._discovery_lookup(label)
-        if elem:
-            group_name = elem.get('group_name', '')
-            field_key = elem.get('field_key', '')
-            if group_name and field_key:
-                field_prefix = field_key
-                for suf in ('_cascader', '_select', '_input'):
-                    if field_key.endswith(suf):
-                        field_prefix = field_key[:-len(suf)]
-                        break
-                fields = self._compat_groups().get(group_name, {})
-                cascader_key = f"{field_prefix}_cascader"
-                if cascader_key in fields:
-                    return {
-                        'group': group_name,
-                        'cascader': f"${{{group_name}.{cascader_key}}}",
-                        'field_prefix': field_prefix,
-                    }
-                for n in range(2, 10):
-                    cascader_n = f"{cascader_key}_{n}"
-                    if cascader_n in fields:
-                        return {
-                            'group': group_name,
-                            'cascader': f"${{{group_name}.{cascader_n}}}",
-                            'field_prefix': field_prefix,
-                        }
-                select_key = f"{field_prefix}_select"
-                if select_key in fields:
-                    return {
-                        'group': group_name,
-                        'cascader': f"${{{group_name}.{select_key}}}",
-                        'field_prefix': field_prefix,
-                    }
-
-        # label_map 回退
-        label_map = self._compat_labels()
-        if label not in label_map:
+        if not elem:
             return None
-        entries = label_map[label]
 
-        def sort_key(entry):
-            _, _, container_type = entry
-            if container_type == preferred_container:
-                return 0
-            if container_type is None:
-                return 1
-            return 2
+        ref = self._elem_to_ref(elem)
+        if not ref:
+            return None
 
-        sorted_entries = sorted(entries, key=sort_key)
-        groups = self._compat_groups()
-
-        for group_name, field_prefix, _ in sorted_entries:
-            if not field_prefix:
-                continue
-            fields = groups.get(group_name, {})
-            cascader_key = f"{field_prefix}_cascader"
-            if cascader_key in fields:
-                return {
-                    'group': group_name,
-                    'cascader': f"${{{group_name}.{cascader_key}}}",
-                    'field_prefix': field_prefix,
-                }
-            for n in range(2, 10):
-                cascader_n = f"{cascader_key}_{n}"
-                if cascader_n in fields:
-                    return {
-                        'group': group_name,
-                        'cascader': f"${{{group_name}.{cascader_n}}}",
-                        'field_prefix': field_prefix,
-                    }
-            select_key = f"{field_prefix}_select"
-            if select_key in fields:
-                return {
-                    'group': group_name,
-                    'cascader': f"${{{group_name}.{select_key}}}",
-                    'field_prefix': field_prefix,
-                }
-        return None
+        return {
+            'group': elem.get('group_name', ''),
+            'cascader': ref,
+            'field_prefix': elem.get('field_key', ''),
+        }
 
     def find_button(self, label, preferred_container=None, prefer_row=False):
         """根据按钮标签查找 locator 引用。"""
@@ -839,8 +778,25 @@ class CaseGenerator:
         return None
 
     def _lookup_discovery_element(self, label, context=None):
-        """从 discovery_element_map 查找元素（三层 context 回退）。"""
+        """从 discovery_element_map 查找元素（三层 context 回退）。
+
+        多URL场景：优先按 page_slug 精确索引查找，避免跨URL同名覆盖。
+        """
         ctx = context or self._current_context or 'list_page'
+        page_slug = self._get_current_page_slug()
+
+        # 多URL精确索引：优先按 page_slug 查找
+        if page_slug:
+            elem = self._discovery_page_element_map.get((page_slug, ctx, label))
+            if elem and elem.get('locator'):
+                return elem
+            # 容器回退到 list_page
+            if ctx != 'list_page':
+                elem = self._discovery_page_element_map.get((page_slug, 'list_page', label))
+                if elem and elem.get('locator'):
+                    return elem
+
+        # 向后兼容：原有逻辑
         elem = self._discovery_element_map.get((ctx, label))
         if elem and elem.get('locator'):
             return elem
@@ -882,17 +838,33 @@ class CaseGenerator:
         # [DEBUG-F7] 追踪子串搜索
         print(f"  [DEBUG-F7] 精确匹配失败，开始子串搜索 (is_container_ctx={is_container_ctx})")
 
-        for (c, disc_label), e in self._discovery_element_map.items():
-            if c != ctx and c != 'list_page':
-                continue
-            if is_container_ctx and c == 'list_page':
-                continue
-            score = self._substring_similarity(label, disc_label)
-            if score >= best_score:
-                best_score = score
-                best_elem = e
-                # [DEBUG-F7] 追踪候选匹配
-                print(f"  [DEBUG-F7]   候选: ctx='{c}', disc_label='{disc_label}', score={score:.2f}")
+        # 多URL场景：子串搜索也只搜当前 page_slug 的元素
+        page_slug = self._get_current_page_slug()
+        if page_slug:
+            for (ps, c, disc_label), e in self._discovery_page_element_map.items():
+                if ps and ps != page_slug:
+                    continue  # 跳过其他 URL 的元素
+                if c != ctx and c != 'list_page':
+                    continue
+                if is_container_ctx and c == 'list_page':
+                    continue
+                score = self._substring_similarity(label, disc_label)
+                if score >= best_score:
+                    best_score = score
+                    best_elem = e
+                    print(f"  [DEBUG-F7]   候选: ps='{ps}', ctx='{c}', disc_label='{disc_label}', score={score:.2f}")
+        else:
+            for (c, disc_label), e in self._discovery_element_map.items():
+                if c != ctx and c != 'list_page':
+                    continue
+                if is_container_ctx and c == 'list_page':
+                    continue
+                score = self._substring_similarity(label, disc_label)
+                if score >= best_score:
+                    best_score = score
+                    best_elem = e
+                    # [DEBUG-F7] 追踪候选匹配
+                    print(f"  [DEBUG-F7]   候选: ctx='{c}', disc_label='{disc_label}', score={score:.2f}")
 
         if best_elem and best_elem.get('locator'):
             group = best_elem.get('group_name', '?')
@@ -1354,6 +1326,15 @@ class CaseGenerator:
         """设置当前 page context（根据 URL 限定搜索范围）。"""
         self._current_page_url = url
 
+    def _get_current_page_slug(self):
+        """从 _current_page_url 反查 page_slug。
+
+        Returns: page_slug 或 None
+        """
+        if not self._current_page_url:
+            return None
+        return self.resolver.url_to_page_slug(self._current_page_url)
+
     def _get_common(self, field_name):
         """获取 common_elements 中的 locator 引用。"""
         if field_name in COMMON_ELEMENTS:
@@ -1382,8 +1363,15 @@ class CaseGenerator:
             self.set_page_context(url)
 
         elif ptype == 'el_select':
-            label, value = args[0], args[1]
-            self._emit_el_select_steps(steps, label, value)
+            if len(args) == 3:
+                # 带序号: label, nth, value
+                label, nth_raw, value = args
+                nth = self._cn_to_int(nth_raw)
+                self._emit_el_select_steps(steps, label, value, nth=nth)
+            else:
+                # 无序号: label, value (默认 nth=1)
+                label, value = args[0], args[1]
+                self._emit_el_select_steps(steps, label, value, nth=1)
 
         elif ptype == 'el_cascader':
             label = args[0]
@@ -1458,6 +1446,52 @@ class CaseGenerator:
                     'keyword': 'log',
                     'params': {'message': f"[PENDING-NO-GROUP] 未找到'{label}'对应的级联选择器定位器，请手动补充"},
                 })
+
+        elif ptype == 'option_card':
+            label, value = args[0], args[1]
+            # 选项卡：单次点击选项文本
+            # 生成 field prefix（hash-based）
+            field_with_suffix = _shared_label_to_key(
+                label, 'option_card',
+                container_type=self.current_container,
+                skip_container_prefix=True)
+            field = field_with_suffix[:-len('_card')] if field_with_suffix.endswith('_card') else field_with_suffix
+
+            # 确定 group
+            group = self.resolver.get_group_name(
+                self.module,
+                container_type=self.current_container,
+                trigger=self._current_context)
+            if not group:
+                group = self.resolver.construct_pending_group(
+                    self.current_container, self.module,
+                    trigger=self._current_context)
+
+            # KB 标准 XPath
+            card_xpath = (
+                f"//label[contains(*,'{label}')]"
+                f"//following-sibling::*[self::div or self::span]"
+                f"//*[contains(text(),'{value}')]"
+            )
+
+            # 容器前缀
+            card_xpath = apply_container_prefix(card_xpath, self.current_container)
+
+            # 注册到 required_fields
+            self._track_field(group, f'{field}_card',
+                              locator=f'xpath={card_xpath}',
+                              label=label,
+                              comment='option-card KB 标准模式')
+
+            # 生成引用
+            card_ref = f'${{{group}.{field}_card}}'
+
+            # 单步点击
+            steps.append({
+                'desc': f"在「{label}」选项卡中选择「{value}」",
+                'keyword': 'click_element',
+                'params': {'locator': card_ref},
+            })
 
         elif ptype in ('fill', 'textarea'):
             label, value = args[0], args[1]
@@ -1990,7 +2024,7 @@ class CaseGenerator:
                     'keyword': 'wait_for_time',
                     'params': {'timeout': 1000},
                 })
-                option_ref = f"xpath=//*[(@x-placement='top-end' or @x-placement='bottom-end')]//*[contains(text(),'{action}')]"
+                option_ref = f"xpath=//*[(@x-placement='top-end' or @x-placement='bottom-end')]//*[contains(text(),'{action}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]"
                 steps.append({
                     'desc': f'选择「{action}」',
                     'keyword': 'click_element',
@@ -2010,7 +2044,9 @@ class CaseGenerator:
                     'params': {'timeout': 1000},
                 })
                 option_ref = (f"xpath=//*[(@x-placement='top-end' or @x-placement='bottom-end')]"
-                              f"//*[contains(text(),'{action}')]")
+                              f"//*[contains(text(),'{action}')"
+                              f" and not(ancestor::*[contains(@class,'is-hidden')])"
+                              f" and not(ancestor::*[contains(@style,'display: none')])]")
                 steps.append({
                     'desc': f'[待确认] 选择「{action}」',
                     'keyword': 'click_element',
@@ -2033,7 +2069,7 @@ class CaseGenerator:
                     'keyword': 'wait_for_time',
                     'params': {'timeout': 1000},
                 })
-                option_ref = f"xpath=//*[(@x-placement='top-end' or @x-placement='bottom-end')]//*[contains(text(),'{action}')]"
+                option_ref = f"xpath=//*[(@x-placement='top-end' or @x-placement='bottom-end')]//*[contains(text(),'{action}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]"
                 steps.append({
                     'desc': f'点击「{action}」',
                     'keyword': 'click_element',
@@ -2064,7 +2100,9 @@ class CaseGenerator:
                     'params': {'timeout': 1000},
                 })
                 option_ref = (f"xpath=//*[(@x-placement='top-end' or @x-placement='bottom-end')]"
-                              f"//*[contains(text(),'{action}')]")
+                              f"//*[contains(text(),'{action}')"
+                              f" and not(ancestor::*[contains(@class,'is-hidden')])"
+                              f" and not(ancestor::*[contains(@style,'display: none')])]")
                 steps.append({
                     'desc': f'点击「{action}」',
                     'keyword': 'click_element',
@@ -2482,7 +2520,6 @@ class CaseGenerator:
     def generate_preamble(self, url):
         """生成用例开头的标准三步"""
         url_ref = self.add_data('page_url', url)
-        loading_ref = self._get_common('loading_mask')
         steps = [
             {
                 'desc': '访问页面',
@@ -2493,19 +2530,12 @@ class CaseGenerator:
                 'desc': '刷新页面确保环境干净',
                 'keyword': 'refresh',
             },
-        ]
-        if loading_ref:
-            steps.append({
+            {
                 'desc': '等待加载完成',
-                'keyword': 'wait_for_element_hidden',
-                'params': {'locator': loading_ref, 'timeout': 15000},
-            })
-        else:
-            steps.append({
-                'desc': '等待页面加载',
-                'keyword': 'wait_for_time',
-                'params': {'timeout': 3000},
-            })
+                'keyword': 'wait_for_loading_complete',
+                'params': {},
+            },
+        ]
         return steps
 
 
@@ -2851,8 +2881,7 @@ class SelfCheckLayer:
             {'desc': '导航到目标页', 'keyword': 'open_url',
              'params': {'url': '${common_data.target_url}'}},
             {'desc': '刷新页面', 'keyword': 'refresh'},
-            {'desc': '等待加载完成', 'keyword': 'wait_for_element_hidden',
-             'params': {'locator': '${common_elements.loading_mask}', 'timeout': 15000}},
+            {'desc': '等待加载完成', 'keyword': 'wait_for_loading_complete', 'params': {}},
         ]
         for p_step in reversed(preamble):
             if p_step['keyword'] not in first_keywords:
@@ -3487,22 +3516,16 @@ def generate_case_file(case_data, generator, seq, output_dir, module='', project
                 and not generator._next_needs_no_wait(raw_steps, i)):
             steps.append({
                 'desc': '等待页面加载完成',
-                'keyword': 'wait_for_element_hidden',
-                'params': {
-                    'locator': '${common_elements.loading_mask}',
-                    'timeout': 15000,
-                },
+                'keyword': 'wait_for_loading_complete',
+                'params': {},
             })
 
         if getattr(generator, '_pending_nav_wait', False):
-            if not any(s.get('keyword') == 'wait_for_element_hidden' for s in steps):
+            if not any(s.get('keyword') == 'wait_for_loading_complete' for s in steps):
                 steps.append({
                     'desc': '等待页面加载完成',
-                    'keyword': 'wait_for_element_hidden',
-                    'params': {
-                        'locator': '${common_elements.loading_mask}',
-                        'timeout': 15000,
-                    },
+                    'keyword': 'wait_for_loading_complete',
+                    'params': {},
                 })
             generator._pending_nav_wait = False
 

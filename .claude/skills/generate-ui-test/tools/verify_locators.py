@@ -56,6 +56,8 @@ from probe_utils import (
     get_multi_step_patterns, kb_fallback, KB_KEY_ALIAS,
 )
 from xpath_utils import inject_hidden_filter, has_hidden_filter, CONTAINER_XPATH
+from xpath_utils import _unwrap_positional, _rewrap_positional
+from xpath_utils import apply_hidden_filters_to_pages, strip_not_ancestor_from_pages
 from field_suffixes import DIALOG_CONFIRM_LABELS
 from _pages_writer import _make_editable_locator as _make_editable_locator_from_select
 from _element_types import (
@@ -84,9 +86,6 @@ CONTAINER_TYPES = ['dialog', 'drawer', 'message-box']
 # L3 system workflows cache (for P2-3 l3_call expansion)
 _SYSTEM_WORKFLOWS = None
 _PROJECT_WORKFLOWS = {}
-
-# el-select options global XPath — exclude dropdown panel (P1-2)
-EL_SELECT_DROPDOWN_EXCL = "not(ancestor::*[contains(@class,'el-select-dropdown')])"
 
 # Probe data isolation prefix (P2-6)
 PROBE_ISOLATION_PREFIX = '__probe__'
@@ -475,13 +474,19 @@ CONTAINER_PREFIX_PATTERN = re.compile(
 def _strip_container_prefix(raw_xpath):
     """剥离 XPath 中的容器前缀（el-dialog/el-drawer/el-message-box）
 
+    支持两种格式：
+    - 裸 XPath: //div[...]//button → //button
+    - 包裹 XPath: (//div[...]//button)[1] → (//button)[1]
+
     Args:
         raw_xpath: 原始 XPath（不含 xpath= 前缀）
 
     Returns:
-        剥离后的裸 XPath
+        剥离后的 XPath（保持原有包裹格式）
     """
-    return CONTAINER_PREFIX_PATTERN.sub("", raw_xpath)
+    inner, wrap = _unwrap_positional(raw_xpath)
+    stripped = CONTAINER_PREFIX_PATTERN.sub("", inner)
+    return _rewrap_positional(stripped, wrap)
 
 
 def _verify_count_or_first(page, locator):
@@ -553,8 +558,9 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
 
             # 按 prefix 决定的顺序测试 4 种变体
             if prefix is None:
-                # prefix=None: none 优先，然后 dialog/drawer/message-box
-                test_order = [None] + CONTAINER_TYPES
+                # prefix=None: 容器前缀优先，最后不带前缀
+                # 优先级: dialog > drawer > message-box > 无前缀
+                test_order = CONTAINER_TYPES + [None]
             else:
                 # prefix='dialog': dialog 优先，然后其他容器，最后 none
                 test_order = [prefix] + [p for p in CONTAINER_TYPES if p != prefix] + [None]
@@ -564,7 +570,9 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
                 if test_prefix is None:
                     test_xpath = bare_xpath
                 elif test_prefix in CONTAINER_XPATH:
-                    test_xpath = CONTAINER_XPATH[test_prefix] + bare_xpath
+                    # BUG-13 修复：前缀注入到括号内部，避免 prefix + (xpath)[N] 无效拼接
+                    inner, wrap = _unwrap_positional(bare_xpath)
+                    test_xpath = _rewrap_positional(CONTAINER_XPATH[test_prefix] + inner, wrap)
                 else:
                     test_xpath = bare_xpath
 
@@ -586,7 +594,9 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
                                 if try_ct not in CONTAINER_XPATH:
                                     continue
                                 try_prefix = CONTAINER_XPATH[try_ct]
-                                scoped_raw = try_prefix + bare_xpath
+                                # BUG-13 修复：前缀注入到括号内部
+                                inner, wrap = _unwrap_positional(bare_xpath)
+                                scoped_raw = _rewrap_positional(try_prefix + inner, wrap)
                                 scoped_full = inject_hidden_filter(f"xpath={scoped_raw}")
                                 try:
                                     scoped_count = page.locator(scoped_full).count()
@@ -912,22 +922,20 @@ def _execute_el_select_flow(page, verified_locator, step, data_dict, desc):
     except Exception:
         pass
 
-    # Step 3: locate + click option (P1-2: NO container prefix)
+    # Step 3: locate + click option (统一标准格式：x-placement + contains + hidden filter)
     escaped_label = _xpath_escape_label(option_text)
-    option_candidates = [
-        f"//div[contains(@class,'el-select-dropdown')]//li[{escaped_label} and {EL_SELECT_DROPDOWN_EXCL}]",
-        f"//li[{escaped_label} and {EL_SELECT_DROPDOWN_EXCL}]",
-        f"//div[contains(@class,'el-select-dropdown')]//li[contains(.,{escaped_label}) and {EL_SELECT_DROPDOWN_EXCL}]",
-    ]
-    option_locator = None
-    for cand in option_candidates:
-        full = f"xpath={cand}"
-        try:
-            if page.locator(full).count() >= 1:
-                option_locator = full
-                break
-        except Exception:
-            continue
+    option_xpath = (
+        f"(//div[(@x-placement='bottom-start' or @x-placement='top-start')]"
+        f"//li[contains(.,{escaped_label})"
+        f" and not(ancestor::*[contains(@class,'is-hidden')])"
+        f" and not(ancestor::*[contains(@style,'display: none')])])[1]"
+    )
+    option_locator = f"xpath={option_xpath}"
+    try:
+        if page.locator(option_locator).count() < 1:
+            option_locator = None
+    except Exception:
+        option_locator = None
 
     if not option_locator:
         # Force close dropdown
@@ -1962,6 +1970,37 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
         except Exception as e:
             print(f"  [ERROR] Failed to update {filepath}: {e}")
 
+    # Post-processing: Apply hidden filters and strip not(ancestor::) exclusions
+    # These functions were migrated from probe_from_pages.py and need to be called here
+    print("\n[Post-processing] Applying hidden filters and cleaning up exclusions...")
+
+    # Build pages_data and source_files for batch processing
+    pages_data = load_pages(project_dir, module)
+    source_files = {}
+    for root, dirs, files in os.walk(pages_dir):
+        for f in files:
+            if f.endswith(('.yaml', '.yml')):
+                path = os.path.join(root, f)
+                try:
+                    with open(path, encoding='utf-8') as fh:
+                        data = yaml.safe_load(fh)
+                    if isinstance(data, dict):
+                        for group in data.keys():
+                            if group != 'page_urls' and isinstance(data[group], dict):
+                                source_files[group] = path
+                except Exception:
+                    pass
+
+    # Apply hidden filters to all locators
+    hidden_count = apply_hidden_filters_to_pages(pages_data, source_files, pages_dir)
+    if hidden_count > 0:
+        print(f"  R4.11: 补齐 {hidden_count} 个定位器的隐藏过滤属性")
+
+    # Strip not(ancestor::) exclusions (R3.14)
+    stripped_count = strip_not_ancestor_from_pages(pages_data, source_files, pages_dir)
+    if stripped_count > 0:
+        print(f"  R3.14: 清除 {stripped_count} 个定位器的 not(ancestor::) 排除")
+
 
 # ============================================================================
 # Main verification flow
@@ -2434,7 +2473,8 @@ def _consume_pending_detail_links(project_dir, cookie, url, local_storage=None):
     """M20: 自动消费 pending_detail_links.json
 
     如果 _probe/pending_detail_links.json 存在且非空，
-    先尝试 KB 模板直连探测，失败再调用 probe_from_pages.py。
+    用 KB 模板在浏览器中直接探测 locator，解决后清理文件。
+    不再调用 probe_from_pages.py subprocess。
     """
     pending_file = os.path.join(project_dir, '_probe', 'pending_detail_links.json')
     if not os.path.isfile(pending_file):
@@ -2451,7 +2491,7 @@ def _consume_pending_detail_links(project_dir, cookie, url, local_storage=None):
 
     print(f"[M20] 发现 {len(pending)} 个 pending detail-link")
 
-    # ── 修改 3: KB 模板直连探测（优先于 subprocess）──
+    # ── KB 模板浏览器直连探测 ──
     resolved = _try_kb_resolve_detail_links(
         project_dir, pending, cookie, url, local_storage)
     if resolved:
@@ -2466,37 +2506,9 @@ def _consume_pending_detail_links(project_dir, cookie, url, local_storage=None):
         # 更新 pending 文件
         with open(pending_file, 'w', encoding='utf-8') as f:
             json.dump(remaining, f, ensure_ascii=False, indent=2)
-        print(f"[M20] KB 解决 {len(resolved)} 个，剩余 {len(remaining)} 个")
-        pending = remaining
-
-    # 仍有未解决的 → 回退到 probe_from_pages.py
-    print(f"[M20] 剩余 {len(pending)} 个 pending，调用 probe_from_pages.py 探测...")
-
-    import subprocess
-    probe_script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                'probe_from_pages.py')
-    if not os.path.isfile(probe_script):
-        print("[M20] probe_from_pages.py 不存在，跳过自动消费")
-        return
-
-    cmd = [sys.executable, probe_script,
-           project_dir,
-           '--cookie', cookie,
-           '--url', url]
-
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True,
-                                encoding='utf-8', errors='replace')
-        if result.returncode == 0:
-            print(f"[M20] detail-link 探测完成")
-            os.remove(pending_file)
-            print(f"[M20] 已清理 {pending_file}")
-        else:
-            print(f"[M20] detail-link 探测失败 (exit {result.returncode})")
-            if result.stderr:
-                print(f"  stderr: {result.stderr[:500]}")
-    except Exception as e:
-        print(f"[M20] detail-link 探测异常: {e}")
+        print(f"[M20] KB 解决 {len(resolved)} 个，剩余 {len(remaining)} 个待 Phase 6 预执行处理")
+    else:
+        print(f"[M20] KB 模板未匹配，{len(pending)} 个 detail-link 将在 Phase 6 预执行中处理")
 
 
 # KB detail-link 模式（文本无关的 class-based 优先，文本依赖的兜底）
@@ -2647,119 +2659,6 @@ def _try_kb_resolve_detail_links(project_dir, pending, cookie, url,
 # Phase 2: Gap Scan + Auto-Supplement
 # ============================================================================
 
-def _extract_case_refs(project_dir):
-    """Extract all ${group.field} references from case YAML files."""
-    import re
-    var_ref_re = re.compile(r'\$\{([^}]+)\}')
-    refs = set()
-    cases_dir = os.path.join(project_dir, 'cases')
-
-    for root, dirs, files in os.walk(cases_dir):
-        for f in files:
-            if f.endswith(('.yaml', '.yml')):
-                path = os.path.join(root, f)
-                try:
-                    with open(path, encoding='utf-8') as fh:
-                        data = yaml.safe_load(fh)
-                    if not isinstance(data, dict):
-                        continue
-                    steps = data.get('steps', [])
-                    _scan_steps_for_refs(steps, refs, var_ref_re)
-                except Exception:
-                    pass
-
-    return refs
-
-
-def _scan_steps_for_refs(steps, refs, var_ref_re):
-    """Recursively scan steps for ${group.field} references."""
-    for step in steps:
-        if not isinstance(step, dict):
-            continue
-        params = step.get('params', {})
-        if isinstance(params, dict):
-            for key in ('locator', 'value', 'expect_results'):
-                val = params.get(key, '')
-                if isinstance(val, str):
-                    for m in var_ref_re.finditer(val):
-                        ref = m.group(1)
-                        if '.' in ref:
-                            refs.add(ref)
-        # Recurse into sub-steps
-        for sub_key in ('then_steps', 'else_steps', 'steps'):
-            if sub_key in params and isinstance(params[sub_key], list):
-                _scan_steps_for_refs(params[sub_key], refs, var_ref_re)
-
-
-def _load_pages_keys(project_dir):
-    """Load all group.field keys from pages YAML files."""
-    keys = set()
-    pages_dir = os.path.join(project_dir, 'pages')
-
-    for root, dirs, files in os.walk(pages_dir):
-        for f in files:
-            if f.endswith(('.yaml', '.yml')):
-                path = os.path.join(root, f)
-                try:
-                    with open(path, encoding='utf-8') as fh:
-                        data = yaml.safe_load(fh)
-                    if isinstance(data, dict):
-                        for group, fields in data.items():
-                            if isinstance(fields, dict):
-                                for field in fields:
-                                    keys.add(f"{group}.{field}")
-                except Exception:
-                    pass
-
-    return keys
-
-
-def _compute_gap_fields(case_refs, pages_keys):
-    """Compute gap = case_refs - pages_keys, filtering out non-supplementable fields."""
-    gap = case_refs - pages_keys
-
-    # Filter out non-supplementable fields
-    supplementable = set()
-    for ref in gap:
-        parts = ref.split('.', 1)
-        if len(parts) != 2:
-            continue
-        group, field = parts
-
-        # Exclude: common_elements (manually maintained)
-        if group == 'common_elements':
-            continue
-        # Exclude: detail_page_elements (probe can't cover)
-        if group == 'detail_page_elements':
-            continue
-        # H3: companion fields 不再排除（加入验证但标记为 companion，失败时降级为 warning）
-        is_companion = field.endswith(('_editable', '_first_option', '_iframe', '_body'))
-        if is_companion:
-            print(f"  [WARN] companion 字段加入补探: {ref}（失败不阻断）")
-        # Exclude: _meta fields
-        if field == '_meta':
-            continue
-
-        supplementable.add(ref)
-
-    return supplementable
-
-
-def _run_supplement_probe(project_dir, cookie, url, gap_fields):
-    """Run probe_from_pages.py for gap fields and return verified locators."""
-    # For now, just log the gap fields and return empty dict
-    # Full implementation would call probe_from_pages.py with --fields parameter
-    print(f"  [INFO] Gap fields identified: {len(gap_fields)}")
-    for ref in sorted(gap_fields)[:10]:  # Show first 10
-        print(f"    - {ref}")
-    if len(gap_fields) > 10:
-        print(f"    ... and {len(gap_fields) - 10} more")
-
-    # TODO: Implement actual probe_from_pages.py integration
-    # For now, return empty dict (gap fields remain as errors)
-    return {}
-
-
 def main():
     parser = argparse.ArgumentParser(
         description='Phase 6 运行时验证 — 按 case 流程执行，验证所有 locator'
@@ -2775,8 +2674,6 @@ def main():
                         help='额外 localStorage 注入（JSON 对象字符串），合并 config.yaml 的 local_storage')
     parser.add_argument('--dry-run', action='store_true',
                         help='只报告需要验证的 locator，不执行浏览器')
-    parser.add_argument('--auto-supplement', action='store_true',
-                        help='启用 Gap Scan + 自动补探（默认关闭，不影响已有行为）')
 
     args = parser.parse_args()
 
@@ -2805,28 +2702,6 @@ def main():
     # P3f-2: 回写验证结果到 pages YAML + 生成 verify_result.json
     if result and not result.get('auth_error'):
         verified_locators = result.get('verified_locators', {})
-
-        # Phase 2: Gap Scan + Auto-Supplement (when --auto-supplement is enabled)
-        if args.auto_supplement:
-            print("\n[Phase 6] Gap Scan + Auto-Supplement")
-            case_refs = _extract_case_refs(args.project_dir)
-            print(f"  Case 引用: {len(case_refs)} group.field")
-
-            pages_keys = _load_pages_keys(args.project_dir)
-            print(f"  Pages 定义: {len(pages_keys)} group.field")
-
-            gap_fields = _compute_gap_fields(case_refs, pages_keys)
-            print(f"  Gap 字段: {len(gap_fields)} 个")
-
-            if gap_fields:
-                supplement_result = _run_supplement_probe(
-                    args.project_dir, args.cookie, args.url, gap_fields
-                )
-                if supplement_result:
-                    verified_locators.update(supplement_result)
-                    print(f"  补探结果: {len(supplement_result)} 个 locator 已合并")
-            else:
-                print("  无 gap 字段，跳过补探")
 
         if verified_locators:
             print(f"\n[Writeback] Updating {len(verified_locators)} locators in pages YAML...")

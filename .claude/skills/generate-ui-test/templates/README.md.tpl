@@ -22,8 +22,8 @@ playwright install chromium
 ```bash
 python run.py --all                                # 运行全部用例（一次执行，一个报告）
 python run.py                                      # 运行所有套件（每个套件一个报告）
-python run.py --module {{module}}                  # 运行指定模块
-python run.py suites/{{module}}/xxx.yaml           # 运行指定套件
+python run.py --module <module>                  # 运行指定模块
+python run.py suites/<module>/xxx.yaml           # 运行指定套件
 ```
 
 ## 工程结构
@@ -35,10 +35,10 @@ python run.py suites/{{module}}/xxx.yaml           # 运行指定套件
 ├── lib/                # 运行时关键字
 │   ├── auth_keywords.py         # 认证注入（Cookie/Token/localStorage）
 │   └── module_keywords.py     # L3 模块复合关键字（从 _knowledge/ 编译）
-├── pages/{{module}}/   # 页面元素定位器
-├── data/{{module}}/    # 参数化测试数据
-├── cases/{{module}}/   # 测试用例（完整步骤）
-├── suites/{{module}}/  # 测试套件（编排用例顺序）
+├── pages/<module>/     # 页面元素定位器
+├── data/<module>/      # 参数化测试数据
+├── cases/<module>/     # 测试用例（完整步骤）
+├── suites/<module>/    # 测试套件（编排用例顺序）
 ├── _knowledge/         # 模块级知识库
 ├── _probe/             # 探测结果（自动生成）
 ├── files/              # 截图/日志/下载（运行时自动创建）

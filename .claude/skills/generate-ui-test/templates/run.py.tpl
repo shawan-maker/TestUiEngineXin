@@ -4,8 +4,8 @@
 用法：
     python run.py --all                           # 运行总套件（所有用例一次执行，一个报告）
     python run.py                                 # 运行所有套件（每个套件一个报告）
-    python run.py --module {{module}}              # 运行指定模块
-    python run.py suites/{{module}}/smoke.yaml    # 运行指定套件
+    python run.py --module <module>              # 运行指定模块
+    python run.py suites/<module>/smoke.yaml    # 运行指定套件
 """
 import sys
 import os

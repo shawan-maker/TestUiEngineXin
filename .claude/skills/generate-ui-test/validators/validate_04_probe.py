@@ -663,8 +663,8 @@ def check_r3_coverage(cases_dir: str, probe_dir: str, project_dir: str,
 
     if uncovered_list:
         info.append(
-            "[HINT] 运行 probe_from_pages.py 可自动补探未覆盖元素并添加 R4.11 隐藏过滤: "
-            "python tools/probe_from_pages.py {project_dir}"
+            "[HINT] 运行 Phase 6 可自动验证并补全未覆盖的定位器: "
+            "python tools/verify_locators.py {project_dir} --cookie \"...\" --url \"...\""
         )
 
     return errors, warnings, info

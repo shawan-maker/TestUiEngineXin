@@ -10,7 +10,8 @@
           "//button[{chars_all}]",
           "//button[contains(.,'{label}')]",
           "//button[contains(.,'{char1}') and contains(.,'{char2}')]",
-          "//*[contains(.,'{label}') and contains(@class,'flex-item')]"
+          "//*[contains(.,'{label}') and contains(@class,'flex-item')]",
+          "//*[contains(text(),'{label}')][contains(@class,\"ec-button\")]"
         ]
       },
       "search-button": {
@@ -57,13 +58,15 @@
       "input-generic": {
         "name": "通用输入框",
         "patterns": [
-          "//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner']"
+          "//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner']",
+          "//label[contains(*,'{label}')]//following-sibling::*[self::div or self::span]//input[@class='el-input__inner']"
         ]
       },
       "textarea-generic": {
         "name": "通用文本框",
         "patterns": [
-          "//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//textarea"
+          "//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//textarea",
+          "//label[contains(*,'{label}')]//following-sibling::*[self::div or self::span]//textarea"
         ]
       },
       "detail-link": {
@@ -82,6 +85,12 @@
           "//*[contains(text(),'{field_label}')]/following-sibling::*[self::div or self::span]//*[contains(.,'{keyword}')]",
           "//tbody/tr[1]//*[contains(.,'{keyword}')]"
         ]
+      },
+      "option-card": {
+        "name": "选项卡",
+        "patterns": [
+          "//label[contains(*,'{label}')]//following-sibling::*[self::div or self::span]//*[contains(text(),'{option_text}')]"
+        ]
       }
     }
   },
@@ -95,7 +104,8 @@
           "expand": {
             "desc": "点击展开下拉框",
             "patterns": [
-              "//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner']"
+              "//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner']",
+              "//label[contains(*,'{label}')]//following-sibling::*[self::div or self::span]//input[@class='el-input__inner']"
             ]
           },
           "fill": {
@@ -107,7 +117,7 @@
           "select": {
             "desc": "选择匹配选项",
             "patterns": [
-              "(//div[(@x-placement='bottom-start' or @x-placement='top-start')]//li[contains(.,'{option_text}')])[1]"
+              "(//div[(@x-placement='bottom-start' or @x-placement='top-start')]//li[contains(.,'{option_text}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])])[1]"
             ]
           },
           "editable-check": {
@@ -117,9 +127,9 @@
             ]
           },
           "first-option": {
-            "desc": "readonly 时选择第一项（else_steps）",
+            "desc": "readonly 时选择第一个可见项（else_steps，带 hidden filter）",
             "patterns": [
-              "(//div[(@x-placement='bottom-start' or @x-placement='top-start')]//li)[1]"
+              "(//div[(@x-placement='bottom-start' or @x-placement='top-start')]//li[not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])])[1]"
             ]
           }
         }
@@ -132,7 +142,8 @@
           "expand": {
             "desc": "点击展开级联面板",
             "patterns": [
-              "//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner']"
+              "//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner']",
+              "//label[contains(*,'{label}')]//following-sibling::*[self::div or self::span]//input[@class='el-input__inner']"
             ]
           },
           "expand-level": {
@@ -168,7 +179,8 @@
           "expand": {
             "desc": "点击展开日期面板",
             "patterns": [
-              "//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner']"
+              "//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner']",
+              "//label[contains(*,'{label}')]//following-sibling::*[self::div or self::span]//input[@class='el-input__inner']"
             ]
           },
           "select-today": {

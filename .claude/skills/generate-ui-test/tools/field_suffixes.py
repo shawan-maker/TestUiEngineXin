@@ -35,7 +35,7 @@ STANDARD_SUFFIXES = (
     '_select', '_input', '_option', '_editable', '_first_option',
     '_btn', '_text', '_textarea', '_link', '_area', '_field',
     '_count', '_tab', '_cascader', '_level', '_checkbox',
-    '_iframe', '_body', '_row_link', '_row', '_menu',  # Fix-R431: _menu
+    '_iframe', '_body', '_row_link', '_row', '_menu', '_card',
 )
 
 # ============================================================================
@@ -46,7 +46,7 @@ STANDARD_SUFFIXES = (
 FIELD_RE_SUFFIXES = (
     'select', 'input', 'option', 'btn', 'text', 'textarea',
     'link', 'area', 'field', 'count', 'editable', 'iframe', 'body', 'row',
-    'cascader', 'checkbox', 'checkbox_all', 'menu',  # Fix-R431: 补齐缺失类型
+    'cascader', 'checkbox', 'checkbox_all', 'menu', 'card',
 )
 
 # ============================================================================

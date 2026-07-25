@@ -909,7 +909,7 @@ def check_r4_42(filepath: str, data: dict, lines: List[str], ctx: dict) -> List[
                             f"${{{ref}}} 未经 probe_with_knowledge 验证"
                         ),
                         suggestion=(
-                            f"运行 probe_from_pages.py 补探，或手动执行：\n"
+                            f"运行 Phase 6 验证，或手动执行：\n"
                             f"  python tools/probe_element.py \"{{url}}\" "
                             f"--cookie \"...\" "
                             f"--element \"detail-link:{label}:{field}\" "
@@ -1030,8 +1030,8 @@ def check_r4_43(filepath: str, data: dict, lines: List[str], ctx: dict) -> List[
                             f"probe_with_knowledge 验证"
                         ),
                         suggestion=(
-                            f"运行 Phase 6 补探：\n"
-                            f"  python tools/probe_from_pages.py "
+                            f"运行 Phase 6 验证：\n"
+                            f"  python tools/verify_locators.py "
                             f"{{project_dir}} --cookie \"...\" --url \"...\"\n"
                             f"或手动探测：\n"
                             f"  python tools/probe_element.py \"{{url}}\" "

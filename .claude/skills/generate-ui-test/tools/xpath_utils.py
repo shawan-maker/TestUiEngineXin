@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """xpath_utils.py — XPath 定位器工具函数（共享模块）
 
-被 _pages_writer.py、probe_from_pages.py 共同导入。
+被 _pages_writer.py、verify_locators.py 共同导入。
 隐藏过滤注入逻辑只维护此一处，确保三处行为完全一致。
 
 用法:
@@ -10,6 +10,7 @@
     locator = inject_hidden_filter("xpath=//button[contains(.,'查询')]")
     # → xpath=//button[contains(.,'查询') and not(ancestor::...) and not(ancestor::...)]
 """
+import os
 import re
 
 # ============================================================================
@@ -162,6 +163,86 @@ def _find_predicate_close_in_segment(segment: str) -> int:
     return -1
 
 
+# ============================================================================
+# 容器前缀操作函数（P2 统一重构）
+# ============================================================================
+
+def has_container_prefix(xpath):
+    """检查 XPath 是否已包含任意容器前缀（精确匹配）
+
+    使用完整模式匹配（contains(@class,'el-drawer')），非子串匹配。
+
+    Args:
+        xpath: XPath 表达式（可含 xpath= 前缀，可含 (xpath)[N] 包裹）
+
+    Returns:
+        True 如果包含 el-drawer/el-dialog/el-message-box 前缀
+    """
+    if not xpath or not isinstance(xpath, str):
+        return False
+    return any(pattern in xpath for pattern in CONTAINER_CLASS_PATTERNS)
+
+
+def apply_container_prefix(xpath, container_type):
+    """为 XPath 添加容器前缀（幂等：已有前缀则跳过）
+
+    特性：
+    - 幂等：已含容器前缀则原样返回
+    - BUG-13 保护：正确处理 (xpath)[N] 包裹格式
+    - 相对路径保护：非 // 开头的 XPath 原样返回
+    - 无效参数保护：container_type 无效或空值时原样返回
+
+    Args:
+        xpath: 原始 XPath 表达式（不含 xpath= 前缀）
+        container_type: 容器类型 ('drawer'/'dialog'/'message-box'/None)
+
+    Returns:
+        添加前缀后的 XPath；如不适用则返回原值
+    """
+    if not xpath or not container_type:
+        return xpath
+
+    # 幂等：已有容器前缀则跳过
+    if has_container_prefix(xpath):
+        return xpath
+
+    # 查找前缀模板
+    prefix = CONTAINER_XPATH.get(container_type, "")
+    if not prefix:
+        return xpath
+
+    # BUG-13 保护：解包 (xpath)[N]，前缀注入到括号内部
+    inner, wrap = _unwrap_positional(xpath)
+
+    # 相对路径保护：非 // 开头的 XPath 不添加前缀
+    if not inner.startswith('//'):
+        return xpath
+
+    scoped = f"{prefix}{inner}"
+    return _rewrap_positional(scoped, wrap)
+
+
+def detect_container_type(locator):
+    """从 locator 中精确检测容器类型
+
+    使用完整模式匹配（contains(@class,'el-drawer')），非子串匹配。
+    仅用于需要精确判断的场景。宽松的 'el-drawer' in locator 检查
+    不应使用此函数（如 R4.38 警告检查、容器统计）。
+
+    Args:
+        locator: locator 字符串（可含 xpath= 前缀）
+
+    Returns:
+        'drawer' / 'dialog' / 'message-box' / None
+    """
+    if not locator or not isinstance(locator, str):
+        return None
+    for pattern, ctype in zip(CONTAINER_CLASS_PATTERNS, CONTAINER_XPATH.keys()):
+        if pattern in locator:
+            return ctype
+    return None
+
+
 def inject_hidden_filter(locator: str) -> str:
     """在 XPath 最终元素标签上注入隐藏过滤属性（R4.11）
 
@@ -217,3 +298,127 @@ def inject_hidden_filter(locator: str) -> str:
     # Step 4: 重新包裹 + 恢复前缀
     prefix = 'xpath=' if has_prefix else ''
     return prefix + _rewrap_positional(new_xpath, outer_wrap)
+
+
+# ============================================================================
+# 批量页面处理函数（从 probe_from_pages.py 迁移）
+# ============================================================================
+
+def apply_hidden_filters_to_pages(pages_data: dict, source_files: dict, pages_dir: str) -> int:
+    """批量补齐 pages YAML 中所有 locator 的隐藏过滤属性。
+
+    遍历 pages_data 中的所有 group 和 field，对每个 locator 调用 inject_hidden_filter()。
+    如果 locator 被修改，更新 pages_data 内存对象并回写到对应的 YAML 文件。
+
+    Args:
+        pages_data: {group_name: {field_name: locator}} 页面数据字典
+        source_files: {group_name: filepath} group 到 YAML 文件的映射
+        pages_dir: pages 目录路径（未使用，保留参数兼容性）
+
+    Returns:
+        修改的 locator 数量
+    """
+    modified_count = 0
+    file_changes = {}
+
+    for group_name, fields in pages_data.items():
+        if not isinstance(fields, dict):
+            continue
+        for field_name, locator in fields.items():
+            if not isinstance(locator, str):
+                continue
+            new_locator = inject_hidden_filter(locator)
+            if new_locator != locator:
+                pages_data[group_name][field_name] = new_locator
+                modified_count += 1
+                src = source_files.get(group_name, '')
+                if src:
+                    file_changes.setdefault(src, []).append(
+                        (locator, new_locator, field_name))
+
+    # 回写文件
+    for filepath, changes in file_changes.items():
+        if not os.path.exists(filepath):
+            continue
+        with open(filepath, encoding='utf-8') as f:
+            lines = f.readlines()
+        for old_val, new_val, field_name in changes:
+            for i, line in enumerate(lines):
+                # 行级精准替换：只在 YAML 值位置（冒号后）替换，避免污染注释或其他字段
+                if ':' in line and old_val in line:
+                    key_part, sep, val_part = line.partition(':')
+                    # 检查字段名精确匹配（防止后缀重叠的误替换）
+                    if old_val in val_part and key_part.strip() == field_name:
+                        lines[i] = key_part + sep + val_part.replace(old_val, new_val, 1)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.writelines(lines)
+
+    return modified_count
+
+
+# R3.14：禁止使用 not(ancestor::...) 负向排除
+_NOT_ANCESTOR_RE = re.compile(
+    r"\s+and\s+not\(ancestor::\*\[contains\(@class,'(?:el-drawer|el-dialog|el-message-box)'\)\]\)"
+)
+
+
+def _strip_not_ancestor_exclusion(locator: str) -> str:
+    """移除 locator 中的 not(ancestor::*[contains(@class,'el-drawer')]) 等负向排除条件
+
+    R3.14：禁止使用 not(ancestor::...) 负向排除。
+    元素定位应使用正向容器前缀（如 //div[contains(@class,'el-drawer')]//button[...]），
+    探测阶段会自动尝试有前缀 → 无前缀的降级策略。
+    """
+    return _NOT_ANCESTOR_RE.sub('', locator)
+
+
+def strip_not_ancestor_from_pages(pages_data: dict, source_files: dict, pages_dir: str) -> int:
+    """清除所有 locator 中的 not(ancestor::...) 负向排除条件
+
+    替代原 apply_cross_group_exclusions()：不再注入负向排除，
+    而是清除已有的负向排除，确保所有 locator 只使用正向容器前缀。
+
+    Args:
+        pages_data: {group_name: {field_name: locator}} 页面数据字典
+        source_files: {group_name: filepath} group 到 YAML 文件的映射
+        pages_dir: pages 目录路径（未使用，保留参数兼容性）
+
+    Returns:
+        清除的定位器数量
+    """
+    modified_count = 0
+    file_changes = {}
+
+    for group_name, fields in pages_data.items():
+        if not isinstance(fields, dict):
+            continue
+        for field_name, locator in fields.items():
+            if not isinstance(locator, str) or not locator.startswith('xpath='):
+                continue
+            new_locator = _strip_not_ancestor_exclusion(locator)
+            if new_locator != locator:
+                pages_data[group_name][field_name] = new_locator
+                modified_count += 1
+                src = source_files.get(group_name, '')
+                if src:
+                    file_changes.setdefault(src, []).append(
+                        (locator, new_locator, field_name))
+
+    # 回写文件
+    for filepath, changes in file_changes.items():
+        if not os.path.exists(filepath):
+            continue
+        with open(filepath, encoding='utf-8') as f:
+            lines = f.readlines()
+        for old_val, new_val, field_name in changes:
+            for i, line in enumerate(lines):
+                # 行级精准替换：只在 YAML 值位置（冒号后）替换，避免污染注释或其他字段
+                if ':' in line and old_val in line:
+                    key_part, sep, val_part = line.partition(':')
+                    # 检查字段名匹配
+                    if old_val in val_part and key_part.strip().endswith(field_name):
+                        lines[i] = key_part + sep + val_part.replace(old_val, new_val, 1)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.writelines(lines)
+
+    return modified_count

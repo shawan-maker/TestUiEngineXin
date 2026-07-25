@@ -303,7 +303,7 @@ Cookie 和 localStorage 认证信息**统一在 `config.yaml` 中维护**，suit
 ```
 probe_element.py  →  使用知识库模板逐个验证定位器（verified: true 才能写入 pages/）
        ↓
-probe_from_pages.py  →  覆盖检查 + 隐藏过滤补齐 + 未覆盖元素补探测
+verify_locators.py (Phase 6)  →  运行时验证 + 隐藏过滤补齐 + 容器前缀修正
        ↓
 才能生成 pages/*.yaml 和 cases/*.yaml
 ```
@@ -343,7 +343,7 @@ case 中出现的**每一个** locator（包括 L3 关键字内部的）都必�
 6. `suites/**/*.yaml` 中 `setup_step` 的 locator 引用
 7. 去重后生成最终探测清单
 
-**工具保证**：`probe_from_pages.py`（Phase 6）自动执行覆盖检查，未覆盖的元素自动补探测。
+**工具保证**：`verify_locators.py`（Phase 6）按 case 步骤顺序预执行，自动验证所有定位器，补齐隐藏过滤，修正容器前缀。
 
 **验证器**：`validate_04_probe.py` 检查每个 locator 在 `_probe/*.json` 中有对应记录，无记录 → error（阻断 Phase 4）。
 
@@ -361,7 +361,7 @@ and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(
 |------|--------|------|
 | 1. 知识库模板 | `probe_knowledge.json` | 所有 XPath 模板已内置隐藏过滤 |
 | 2. 探测工具 | `probe_element.py` | 探测输出的 locator 已自动包含过滤 |
-| 3. 覆盖补全 | `probe_from_pages.py` | 对 pages YAML 中缺失过滤的 locator 自动补齐 |
+| 3. 覆盖补全 | `verify_locators.py` | 预执行时自动补齐缺失的隐藏过滤属性 |
 
 **正确示例**：
 ```yaml

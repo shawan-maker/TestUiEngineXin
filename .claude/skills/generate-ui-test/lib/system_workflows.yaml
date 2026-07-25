@@ -14,12 +14,17 @@
 workflows:
 
   # ── 关键字一：等待加载完成（无参数）──
-  # 等待 3 种 loading 元素全部消失 + 1s 稳定等待
+  # 等待 4 种 loading 元素全部消失 + 1s 稳定等待
   - name: wait_for_loading_complete
     chinese_name: 等待加载完成
     params: []
-    description: "等待 3 种 loading 元素全部消失 + 1s 稳定等待"
+    description: "等待 4 种 loading 元素全部消失 + 1s 稳定等待"
     steps:
+      - keyword: wait_for_element_hidden
+        desc: "等待 el-loading-mask 消失"
+        params:
+          locator: "xpath=//div[contains(@class,'el-loading-mask')]"
+          timeout: 15000
       - keyword: wait_for_element_hidden
         desc: "等待 el-loading-text 消失"
         params:

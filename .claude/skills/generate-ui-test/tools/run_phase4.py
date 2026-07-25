@@ -97,6 +97,9 @@ def _merge_discovery_files(probe_dir, slug):
                     'containers': data.get('containers', []),
                     'list_page': data.get('list_page', {}),
                 })
+            # 从第一个文件继承 cn_name（如果存在）
+            if 'cn_name' not in merged and 'cn_name' in data:
+                merged['cn_name'] = data['cn_name']
             merged['_merged_from'].append(os.path.basename(fpath))
         except Exception as e:
             print(f"[WARN] 无法读取 {fpath}: {e}", file=sys.stderr)
@@ -259,6 +262,29 @@ def main():
                 }
             else:
                 print(f"[WARN] {output_path} 不存在，跳过 {slug}", file=sys.stderr)
+
+    # ── Step 2.5: 回写 cn_name 到 discovery JSON（持久化唯一来源）──
+    # discover_page.py 不写入 cn_name，需要从 module_urls.json 的 key 补充
+    for slug, res in results.items():
+        if not res.get('success'):
+            continue
+        cn_name = res.get('cn_name', '')
+        if not cn_name or cn_name == slug:
+            continue  # 无需回写（cn_name 为空或已等于 slug）
+
+        disc_path = res['output']
+        if not os.path.isfile(disc_path):
+            continue
+
+        try:
+            with open(disc_path, encoding='utf-8') as f:
+                disc = json.load(f)
+            if disc.get('cn_name') != cn_name:  # 避免无谓写入
+                disc['cn_name'] = cn_name
+                with open(disc_path, 'w', encoding='utf-8') as f:
+                    json.dump(disc, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"[WARN] {slug}: cn_name 回写失败 — {e}", file=sys.stderr)
 
     # ── Step 3: 生成 pages YAML（v2: direct import — G17）──
     if not args.skip_generate:

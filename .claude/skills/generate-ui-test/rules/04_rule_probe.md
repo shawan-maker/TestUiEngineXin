@@ -361,4 +361,4 @@ first_remove_btn: "xpath=//div[contains(@class,'el-table__body-wrapper')]//tbody
 
 - **R4.27**：同名 label 跨容器冲突 → warning（提示确认，不阻断）
 - **R4.28**：通用按钮缺少容器前缀 → warning（建议添加，不阻断）
-- `probe_from_pages.py` 的 `strip_not_ancestor_exclusions()` 自动清除已有的负向排除
+- `verify_locators.py` 回写前自动调用 `strip_not_ancestor_from_pages()` 清除已有的负向排除

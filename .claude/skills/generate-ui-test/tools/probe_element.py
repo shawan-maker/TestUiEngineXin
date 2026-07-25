@@ -34,6 +34,7 @@
   locator - 完整的 locator 字符串（xpath=... 或 //...）
 """
 import json
+import re
 import sys
 import os
 from urllib.parse import urlparse
@@ -42,6 +43,7 @@ from playwright.sync_api import sync_playwright
 # 导入共享常量（容器前缀，统一维护在 xpath_utils.py）
 sys.path.insert(0, os.path.dirname(__file__))
 from xpath_utils import CONTAINER_XPATH, CONTAINER_CLASS_PATTERNS
+from xpath_utils import _unwrap_positional, _rewrap_positional
 from field_suffixes import DIALOG_CONFIRM_LABELS, CONTAINER_PRIORITY
 from _element_types import normalize_type as _normalize_type
 
@@ -770,24 +772,26 @@ def _detect_container_prefix(xpath_expr):
 def _strip_container_prefix(xpath_expr):
     """剥离 XPath 表达式中的容器前缀
 
-    :param xpath_expr: XPath 表达式（不含 xpath= 前缀）
-    :return: 剥离前缀后的 XPath
+    支持两种格式：
+    - 裸 XPath: //div[...]//button → //button
+    - 包裹 XPath: (//div[...]//button)[1] → (//button)[1]
     """
-    # 匹配 //div[contains(@class,'el-drawer')] / el-dialog / el-message-box
-    import re
+    inner, wrap = _unwrap_positional(xpath_expr)
     pattern = r"^//div\[contains\(@class,'el-(drawer|dialog|message-box)'\)\]"
-    return re.sub(pattern, "", xpath_expr)
+    stripped = re.sub(pattern, "", inner)
+    return _rewrap_positional(stripped, wrap)
 
 
 def _add_container_prefix(xpath_expr, container_type):
     """为 XPath 表达式添加容器前缀
 
-    :param xpath_expr: XPath 表达式（不含 xpath= 前缀）
-    :param container_type: 容器类型 'drawer'/'dialog'/'message-box'
-    :return: 添加前缀后的 XPath
+    支持 (xpath)[N] 包裹格式：前缀注入到括号内部
     """
     prefix = CONTAINER_XPATH.get(container_type, "")
-    return prefix + xpath_expr
+    if not prefix:
+        return xpath_expr
+    inner, wrap = _unwrap_positional(xpath_expr)
+    return _rewrap_positional(prefix + inner, wrap)
 
 
 # ============================================================
@@ -2308,7 +2312,7 @@ def main():
         else:
             i += 1
 
-    # M1 修复: cookie 优先从环境变量读取（probe_from_pages.py 传递）
+    # M1 修复: cookie 优先从环境变量读取（verify_locators.py 传递）
     if cookie_str is None:
         cookie_str = os.environ.get('_PROBE_COOKIE')
 

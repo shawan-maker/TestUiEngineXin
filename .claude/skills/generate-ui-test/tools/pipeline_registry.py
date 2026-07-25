@@ -12,14 +12,21 @@ from typing import Any
 
 
 def _has_knowledge_files(ctx) -> bool:
-    """检查是否有 workflow YAML（项目级 + 技能级）"""
-    # 1. 项目级 _knowledge/
+    """检查是否有 workflow YAML（系统级 + 项目级 + 技能级）"""
+    skill_dir = Path(__file__).parent.parent
+
+    # 1. 系统级: lib/system_workflows.yaml
+    sys_wf = skill_dir / "lib" / "system_workflows.yaml"
+    if sys_wf.exists():
+        return True
+
+    # 2. 项目级 _knowledge/
     knowledge_dir = Path(ctx.project_dir) / "_knowledge"
     if knowledge_dir.exists() and any(knowledge_dir.glob("*.yaml")):
         return True
 
-    # 2. 技能级 _knowledge/
-    skill_knowledge = Path(__file__).parent / "_knowledge"
+    # 3. 技能级 _knowledge/
+    skill_knowledge = skill_dir / "lib" / "_knowledge"
     if skill_knowledge.exists() and any(skill_knowledge.glob("*.yaml")):
         return True
 

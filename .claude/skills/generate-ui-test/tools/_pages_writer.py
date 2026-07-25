@@ -56,13 +56,16 @@ except ImportError:
 # el-select 选项 XPath 模板（R4.12 双向面板 + R4.11 隐藏过滤在 li 上）
 _OPTION_XPATH_TEMPLATE = (
     "(//div[(@x-placement='bottom-start' or @x-placement='top-start')]//"
-    "li[{match_expr}])[1]"
+    "li[{match_expr}"
+    " and not(ancestor::*[contains(@class,'is-hidden')])"
+    " and not(ancestor::*[contains(@style,'display: none')])])[1]"
 )
 
-# el-select _first_option 通用 XPath
+# el-select _first_option 通用 XPath（带 hidden filter，排除虚拟滚动隐藏项）
 _FIRST_OPTION_XPATH = (
     "(//div[(@x-placement='bottom-start' or @x-placement='top-start')]//"
-    "li)[1]"
+    "li[not(ancestor::*[contains(@class,'is-hidden')])"
+    " and not(ancestor::*[contains(@style,'display: none')])])[1]"
 )
 
 # 通用定位器模板
@@ -73,13 +76,6 @@ DEFAULT_COMMON_ELEMENTS = OrderedDict([
     ('confirm_btn', "xpath=//button[contains(.,'确') and contains(.,'定') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]"),
     ('cancel_btn', "xpath=//button[contains(.,'取') and contains(.,'消') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]"),
 ])
-
-# 容器 XPath 前缀
-_CONTAINER_XPATH_PREFIX = {
-    "drawer": "//div[contains(@class,'el-drawer')]",
-    "dialog": "//div[contains(@class,'el-dialog')]",
-    "message-box": "//div[contains(@class,'el-message-box')]",
-}
 
 # 正则
 _OUTER_WRAP_RE = re.compile(r'^\(.*\)\[(\d+|last\(\))\]$')
@@ -169,21 +165,12 @@ def _rewrap_positional(xpath, wrap_suffix):
     return xpath
 
 
-def _has_container_prefix(xpath):
-    """检查 XPath 是否已包含容器前缀"""
-    return any(p in xpath for p in (
-        "contains(@class,'el-drawer')",
-        "contains(@class,'el-dialog')",
-        "contains(@class,'el-message-box')",
-    ))
-
-
-# M2: _add_container_prefix 已移除（死代码 — 从未被调用）
-# _case_generator.py 和 probe_element.py 各有自己的独立实现
+# M2: _add_container_prefix / _has_container_prefix 已移除（死代码 — 从未被调用）
+# 统一重构到 xpath_utils.apply_container_prefix / has_container_prefix
 
 
 def fix_el_select_div_to_input(locator):
-    """R4.32 安全网 — 独立函数，供 probe_from_pages.py 导入。
+    """R4.32 安全网 — 独立函数，供 verify_locators.py 导入。
 
     替代旧的 from generate_pages_from_probe import _fix_el_select_div_to_input。
     """
@@ -455,7 +442,7 @@ class PagesWriter:
                 if first_key not in fields and first_key not in new_fields:
                     new_fields[first_key] = (
                         f'xpath={_FIRST_OPTION_XPATH}',
-                        f'{base_comment}（第一个选项）'
+                        f'{base_comment}（第一个可见选项）'
                     )
 
             groups[group_name] = new_fields

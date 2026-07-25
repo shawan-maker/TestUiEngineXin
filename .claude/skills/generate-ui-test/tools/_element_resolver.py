@@ -69,7 +69,8 @@ class ElementResolver:
         """
         self._module_slug = None
         self._cn_name = None
-        self._element_map = {}      # {(context_key, label): ElementEntry}
+        self._element_map = {}      # {(context_key, label): ElementEntry} — 向后兼容
+        self._page_element_map = {}  # {(page_slug, context_key, label): ElementEntry} — 多URL精确索引
         self._trigger_map = {}      # {button_text: container_entry}
         self._group_map = {}        # {group_name: {field_key: ElementEntry}}
         self._page_url_map = {}     # {slug: {url, groups}}
@@ -342,6 +343,45 @@ class ElementResolver:
         """
         return self._element_map
 
+    def get_page_element_map(self):
+        """返回按 page_slug 索引的全量元素映射（只读）。
+
+        Returns: {(page_slug, context_key, label): ElementEntry}
+        """
+        return self._page_element_map
+
+    def find_element_by_page(self, page_slug, context_key, label):
+        """按 page_slug 精确查找元素，回退到无 page_slug 的 element_map。
+
+        Args:
+            page_slug: 页面标识（从 URL 提取）
+            context_key: 上下文标识（'list_page' 或触发按钮文本）
+            label: 元素标签
+
+        Returns: ElementEntry 或 None
+        """
+        entry = self._page_element_map.get((page_slug, context_key, label))
+        if entry:
+            return entry
+        # 回退：单 URL 模块或 page_slug 不匹配时
+        return self._element_map.get((context_key, label))
+
+    def url_to_page_slug(self, url):
+        """从 URL 反查 page_slug。
+
+        Args:
+            url: 完整 URL
+
+        Returns: page_slug 或 None
+        """
+        if not url:
+            return None
+        for slug, meta in self._page_url_map.items():
+            meta_url = meta.get('url', '')
+            if meta_url and meta_url in url:
+                return slug
+        return None
+
     def get_groups(self):
         """返回全量分组映射（只读）。
 
@@ -431,7 +471,7 @@ class ElementResolver:
 
         # R4.58: 字段名标准后缀校验
         _STANDARD_SUFFIXES = (
-            '_select', '_input', '_btn', '_textarea', '_option',
+            '_select', '_input', '_btn', '_textarea', '_option', '_card',
             '_first_option', '_link', '_tab', '_checkbox', '_editable',
             '_iframe', '_body', '_cascader', '_date', '_picker',
             '_search', '_row', '_menu', '_text', '_field', '_count',
@@ -825,8 +865,11 @@ class ElementResolver:
             raw=elem,
         )
 
-        # 注册到 element_map
+        # 注册到 element_map（向后兼容）
         self._element_map[(context_key, label)] = entry
+
+        # 注册到 page_element_map（多URL精确索引）
+        self._page_element_map[(page_slug, context_key, label)] = entry
 
         # 注册到 group_map
         self._group_map.setdefault(group, {})
@@ -871,6 +914,7 @@ class ElementResolver:
             )
             self._group_map[group_name][field] = entry
             self._element_map[(trigger, label)] = entry
+            self._page_element_map[(page_slug, trigger, label)] = entry
 
     def _build_entries_from_elements(self, elements, container_type, trigger,
                                       page_slug=None):
@@ -986,12 +1030,15 @@ class ElementResolver:
                     alias_trigger not in self._trigger_map:
                 self._trigger_map[alias_trigger] = self._trigger_map[canonical]
 
-            # 复制 canonical 的 element_map 条目
-            for (ctx, lbl), elem in list(self._element_map.items()):
+            # 复制 canonical 的 page_element_map 条目（多URL精确索引）
+            for (ps, ctx, lbl), elem in list(self._page_element_map.items()):
                 if ctx == canonical and \
-                        (alias_trigger, lbl) not in self._element_map:
-                    self._element_map[(alias_trigger, lbl)] = elem
+                        (ps, alias_trigger, lbl) not in self._page_element_map:
+                    self._page_element_map[(ps, alias_trigger, lbl)] = elem
                     registered += 1
+                    # 同步到 element_map（向后兼容）
+                    if (alias_trigger, lbl) not in self._element_map:
+                        self._element_map[(alias_trigger, lbl)] = elem
 
             # 注册 alias_map
             if canonical in self._alias_map:

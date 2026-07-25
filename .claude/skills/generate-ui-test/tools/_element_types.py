@@ -23,12 +23,13 @@ import re
 # ════════════════════════════════════════════════════════════════════════
 
 KB_TYPE_KEYS = frozenset({
-    # ── single_step (11) ──
+    # ── single_step (12) ──
     'button', 'search-button', 'download-button',
     'menu-item', 'tab',
     'checkbox', 'checkbox-all',
     'input-generic', 'textarea-generic',
     'detail-link', 'field-assertion',
+    'option-card',                     # 选项卡（单选组）
     # ── multi_step (3) ──
     'el-select', 'el-cascader', 'date-picker',
     # ── composite (4) ──
@@ -59,6 +60,7 @@ STEP_TO_KB = {
     'el_select': 'el-select',
     'el_cascader': 'el-cascader',
     'date_select': 'date-picker',
+    'option_card': 'option-card',      # 选项卡
     # ── click / button ──
     'click_btn': 'button',
     'search_btn': 'search-button',
@@ -106,6 +108,7 @@ TYPE_TO_SECTIONS = {
     'checkbox':           ('checkboxes',),
     'checkbox-all':       ('checkboxes',),
     'field-assertion':    ('inputs',),
+    'option-card':        ('inputs',),
     # ── composite ──
     'table-action-button': ('row_buttons',),          # BUG-2 fix: was missing
     'section-row-link':   ('detail_links',),
@@ -148,6 +151,7 @@ DISCOVERY_TO_KB = {
     'table-action-button':   'table-action-button',
     'tab':                   'tab',
     'rich_text':             'rich_text',            # RESERVED: iframe
+    'option-card':           'option-card',
     # ── Identity mappings (KB key → KB key, for idempotent normalize) ──
     'input-generic':         'input-generic',
     'textarea-generic':      'textarea-generic',
@@ -181,6 +185,7 @@ KB_TO_SUFFIX = {
     'textarea-generic':    '_textarea',
     'detail-link':         '_link',
     'field-assertion':     '_field',
+    'option-card':         '_card',
     # ── multi_step ──
     'el-select':           '_select',
     'el-cascader':         '_cascader',
@@ -231,6 +236,8 @@ SUFFIX_MAP_COMPAT = {
     'tab-scoped':         '_tab',
     'field-assertion':    '_field',
     'rich_text':          '_iframe',
+    'option-card':        '_card',
+    'option_card':        '_card',
 }
 
 # Legacy _STEP_TYPE_ALIASES for backward compatibility
@@ -261,6 +268,7 @@ D4_RULES_DOC = [
     ('desc contains 选择 + 点击/click (excluding 编辑/删除/查看/详情/文件/上传/第)', 'el-select'),
     ('locator_ref suffix _select/_editable', 'el-select'),
     ('keyword contains tab OR desc contains 标签', 'tab'),
+    ('desc contains 选项卡', 'option-card'),
     ('desc contains 全选', 'checkbox-all'),
     ('keyword contains checkbox OR desc contains 勾选框/勾选', 'checkbox'),
     ('desc contains 选择+第 + click', 'checkbox'),
@@ -418,6 +426,10 @@ def infer_elem_type(keyword, desc, locator_ref=None):
     if 'date' in keyword_lower or '日期' in desc or '时间' in desc:
         return 'date-picker'
 
+    # 3b. option-card — 选项卡（单选组），在 el-select 弱信号之前检测
+    if '选项卡' in desc:
+        return 'option-card'
+
     # 1b-cont. el-select (desc-based, weaker signal) — BUG-6 fix
     # "选择...点击" pattern — el-select click trigger step
     # Exclusion: 文件/上传 are file-upload contexts, not el-select
@@ -539,10 +551,64 @@ def infer_discovery_section(elem):
     if etype in ('input', 'el-select', 'el-cascader',
                  'textarea', 'date_picker', 'rich_text',
                  # Canonical equivalents (robustness for normalized callers)
-                 'input-generic', 'textarea-generic', 'date-picker'):
+                 'input-generic', 'textarea-generic', 'date-picker',
+                 'option-card'):
         return 'inputs'
     if etype == 'tab':
         return 'tabs'
     if etype in ('checkbox', 'checkbox-all'):
         return 'checkboxes'
     return None  # Unknown type, don't filter
+
+
+# ════════════════════════════════════════════════════════════════════════
+# H. FIELD_TYPE_SUFFIXES — Field 后缀 → 元素类型推断
+# ════════════════════════════════════════════════════════════════════════
+# 从 probe_from_pages.py 迁移（2026-07-25）
+# 用于从 field 名后缀快速推断元素类型（KB key 格式）
+
+FIELD_TYPE_SUFFIXES = {
+    '_btn': 'button', '_button': 'button',
+    '_select': 'el-select', '_dropdown': 'el-select',
+    '_input': 'input-generic', '_textarea': 'textarea-generic',
+    '_tab': 'tab', '_checkbox': 'checkbox',
+    '_date': 'date-picker', '_picker': 'date-picker',
+    '_card': 'option-card', '_option': 'option', '_first_option': 'option',
+    '_link': 'detail-link', '_menu': 'menu-item',
+    '_editable': 'el-select',  # el-select 条件分支伴随字段
+}
+
+
+def infer_type_from_field(field: str, locator: str = '') -> str:
+    """从 field 名后缀和 locator 内容推断元素类型。
+
+    优先级：
+    1. field 后缀匹配 FIELD_TYPE_SUFFIXES
+    2. locator 内容特征（el-select/textarea/tab/checkbox）
+    3. 默认 'button'
+
+    原 probe_from_pages.py _infer_type() 迁移。
+
+    Args:
+        field: pages YAML 中的 field 名（如 'add_btn', 'name_input'）
+        locator: locator 字符串（如 'xpath=//div[@class="el-select"]'）
+
+    Returns:
+        KB key 格式的元素类型（如 'button', 'el-select', 'input-generic'）
+    """
+    field_lower = field.lower()
+    # 后缀匹配（最长匹配优先）
+    for suffix in sorted(FIELD_TYPE_SUFFIXES.keys(), key=len, reverse=True):
+        if field_lower.endswith(suffix):
+            return FIELD_TYPE_SUFFIXES[suffix]
+    # locator 特征匹配
+    if locator:
+        if 'el-select' in locator:
+            return 'el-select'
+        if 'textarea' in locator:
+            return 'textarea-generic'
+        if "@role='tab'" in locator or '@role="tab"' in locator:
+            return 'tab'
+        if 'el-checkbox' in locator or 'checkbox' in locator:
+            return 'checkbox'
+    return 'button'

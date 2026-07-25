@@ -476,13 +476,17 @@ class PipelineExecutor:
             except Exception:
                 pass
 
-        # 至少需要一个模块
-        if not modules:
-            modules = ["common"]
+        # 共享资源层始终创建（common_elements / common_data 的写入目标）
+        for base in ["pages", "data", "cases", "suites"]:
+            dirs_to_create.append(f"{base}/common")
 
-        for module in modules:
-            for base in ["pages", "data", "cases", "suites"]:
-                dirs_to_create.append(f"{base}/{module}")
+        # 业务模块目录（无模块时 common 已创建，无需额外操作）
+        if modules:
+            for module in modules:
+                if module == "common":
+                    continue  # 已创建，不重复
+                for base in ["pages", "data", "cases", "suites"]:
+                    dirs_to_create.append(f"{base}/{module}")
 
         for d in dirs_to_create:
             (project_path / d).mkdir(parents=True, exist_ok=True)

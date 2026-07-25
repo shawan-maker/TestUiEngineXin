@@ -55,6 +55,9 @@ TYPE_TO_SUFFIXES = {
         ('_input', 'el-select 搜索输入框'),
         ('_option', 'el-select 选项'),
     ],
+    'option_card': [
+        ('_card', '选项卡'),
+    ],
     'fill': [
         ('_input', '输入框'),
     ],

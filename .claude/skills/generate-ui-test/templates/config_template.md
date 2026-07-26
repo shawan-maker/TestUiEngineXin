@@ -37,17 +37,24 @@ project_name: tianshu-manager
 target_url: http://100.71.19.25:30101
 browser_type: chromium
 
-auth:
-  method: cookie
-  cookie: "ud_token=eyJhbG...; session_id=abc123"
-  cookie_domain: ".example.com"
+# Cookie 认证（平铺结构，不使用嵌套 auth:）
+cookie: "ud_token=eyJhbG...; session_id=abc123"
+cookie_domain: ".example.com"  # 必填，用于 R0.2 验证
+
+# 页面 URL 映射（必填，用于模块发现和 slug 映射）
+page_urls:
+  question-manage:
+    - "http://100.71.19.25:30101/#/question-manage/list"
+    - "http://100.71.19.25:30101/#/question-manage/detail"
+  work-order:
+    - "http://100.71.19.25:30101/#/work-order/list"
+  overview:
+    - "http://100.71.19.25:30101/#/overview"
 
 # 或 localStorage 认证
-# auth:
-#   method: localStorage
-#   local_storage:
-#     token: "eyJhbG..."
-#     user_info: '{"name":"张三","id":1}'
+# local_storage:
+#   token: "eyJhbG..."
+#   user_info: '{"name":"张三","id":1}'
 ```
 
 ## Cookie 获取方式

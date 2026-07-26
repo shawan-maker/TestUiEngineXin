@@ -77,9 +77,10 @@ class PipelineContext:
         self.target_url = None
         self.modules: list[dict] = modules or []  # [{"slug": "xxx", "cn_name": "xxx", "urls": [...]}]
         self.discovery_path = None  # 当前处理的 discovery 文件路径
+        self.module_map_str = ""    # 自动构建的 cn_name=slug 映射（传递给 run_phase4.py）
 
     def update_from_config(self):
-        """从 config.yaml 加载配置"""
+        """从 config.yaml 加载配置并构建模块映射"""
         # 自动推导 excel_json_path
         probe_dir = Path(self.project_dir) / "_probe"
         if probe_dir.exists():
@@ -101,7 +102,7 @@ class PipelineContext:
                     self.target_url = config.get('target_url')
                     self.cookie = self.cookie or config.get('cookie')
 
-                    # 加载模块列表
+                    # 加载模块列表（从 page_urls）
                     page_urls = config.get('page_urls', {})
                     if isinstance(page_urls, dict) and not self.modules:
                         for slug, urls in page_urls.items():
@@ -111,6 +112,171 @@ class PipelineContext:
                                 "cn_name": cn_name,
                                 "urls": urls if isinstance(urls, list) else [urls],
                             })
+
+        # D 方案: 从 Excel 构建 cn_name → slug 映射
+        # 仅在 excel_parsed.json 存在时构建（Phase 1b 完成后）
+        # Phase 4 调用时会检查，如映射尚未构建则直接读取原始 Excel 作为 fallback
+        if not self.module_map_str and self.excel_json_path:
+            self._build_module_aliases()
+
+    def _build_module_aliases(self):
+        """从 excel_parsed.json + page_urls 自动构建 cn_name→slug 映射。
+
+        匹配策略：提取每个 sheet 中用例步骤的 URL，与 page_urls 的 URL 列表交叉比对，
+        将中文模块名关联到英文 slug。
+
+        结果存入 self.module_map_str，格式 "中文名=slug,中文名=slug"，
+        在 Phase 4 时自动注入 --module-map 参数。
+
+        如果 excel_parsed.json 不存在，直接读取原始 Excel 文件。
+        """
+        # 从 config.yaml page_urls 构建 slug → set(urls)
+        slug_urls = {}
+        for mod_info in self.modules:
+            slug = mod_info.get("slug", "")
+            urls = mod_info.get("urls", [])
+            if slug and urls:
+                slug_urls[slug] = {self._normalize_url(u) for u in urls}
+
+        if not slug_urls:
+            return
+
+        # 尝试从 excel_parsed.json 读取（优先）
+        excel_data = None
+        if self.excel_json_path and Path(self.excel_json_path).is_file():
+            try:
+                with open(self.excel_json_path, encoding='utf-8') as f:
+                    excel_data = json.load(f)
+                if not isinstance(excel_data, list):
+                    excel_data = None
+            except Exception:
+                excel_data = None
+
+        # 如果没有 excel_parsed.json，直接读取 Excel 文件
+        if excel_data is None and self.excel_path and Path(self.excel_path).is_file():
+            try:
+                import openpyxl
+                import re
+                wb = openpyxl.load_workbook(self.excel_path, read_only=True, data_only=True)
+                excel_data = []
+                for ws in wb.worksheets:
+                    rows = list(ws.iter_rows(values_only=True))
+                    if not rows:
+                        continue
+
+                    headers = [str(h).strip() if h else "" for h in rows[0]]
+                    # 查找列索引（兼容各种列名变体，忽略尾部 * 标记）
+                    module_idx = None
+                    steps_idx = None
+
+                    for idx, h in enumerate(headers):
+                        # 去掉尾部 * 和空格后匹配
+                        clean_h = re.sub(r'[\s*]+$', '', h)
+                        if clean_h in ["模块", "功能模块", "所属模块"]:
+                            module_idx = idx
+                        elif clean_h in ["用例步骤", "测试步骤", "步骤描述",
+                                         "测试用例内容", "用例内容"]:
+                            steps_idx = idx
+
+                    if module_idx is None or steps_idx is None:
+                        continue
+
+                    sheet_data = {
+                        "sheet": ws.title,
+                        "cases": []
+                    }
+
+                    for row in rows[1:]:
+                        if len(row) <= max(module_idx, steps_idx):
+                            continue
+
+                        module = str(row[module_idx]).strip() if row[module_idx] else ""
+                        steps_text = str(row[steps_idx]).strip() if row[steps_idx] else ""
+
+                        if not module or not steps_text:
+                            continue
+
+                        # 解析步骤（按换行符分割）
+                        steps = []
+                        for step_line in steps_text.split("\n"):
+                            step_line = step_line.strip()
+                            if step_line:
+                                steps.append(step_line)
+
+                        sheet_data["cases"].append({
+                            "module": module,
+                            "case_name": module,  # 只需要 module 字段
+                            "steps": steps
+                        })
+
+                    if sheet_data["cases"]:
+                        excel_data.append(sheet_data)
+
+                wb.close()
+                print(f"  ✅ 直接读取 Excel: {len(excel_data)} 个 sheet")
+            except Exception as e:
+                print(f"  ⚠️  直接读取 Excel 文件失败：{e}")
+                excel_data = None
+
+        if not excel_data:
+            return
+
+        # 遍历 Excel 每个 sheet 的用例，收集 cn_name → set(urls)
+        cn_name_urls = {}
+        for sheet in excel_data:
+            if not isinstance(sheet, dict):
+                continue
+            cases = sheet.get("cases", [])
+            for case in cases:
+                if not isinstance(case, dict):
+                    continue
+                cn_name = case.get("module", "").strip()
+                if not cn_name:
+                    continue
+                if cn_name not in cn_name_urls:
+                    cn_name_urls[cn_name] = set()
+                for step in case.get("steps", []):
+                    if isinstance(step, str):
+                        # 提取步骤中的 URL
+                        for part in step.split():
+                            if part.startswith("http://") or part.startswith("https://"):
+                                cn_name_urls[cn_name].add(self._normalize_url(part))
+
+        if not cn_name_urls:
+            return
+
+        # 交叉匹配：cn_name 的 URL 集合与 slug 的 URL 集合有交集 → 匹配
+        aliases = {}
+        for cn_name, cn_urls in cn_name_urls.items():
+            if not cn_urls:
+                continue
+            for slug, s_urls in slug_urls.items():
+                if cn_urls & s_urls:
+                    aliases[cn_name] = slug
+                    break
+
+        if aliases:
+            self.module_map_str = ",".join(f"{cn}={slug}" for cn, slug in aliases.items())
+            print(f"  ✅ 自动构建 module_map: {self.module_map_str}")
+
+    @staticmethod
+    def _normalize_url(url):
+        """URL 标准化（保留 hash 路径，忽略 query/fragment）用于匹配。
+
+        对于 hash-based routing 的 SPA（如 http://host/#/path），
+        hash 部分是路由路径，必须保留。只忽略 query string 和 fragment。
+        """
+        from urllib.parse import urlparse
+        try:
+            parsed = urlparse(url.strip())
+            # 返回 scheme + netloc + path + fragment（hash 路由路径）
+            # 例如 http://host/#/question-manage/list → http://host/#/question-manage/list
+            result = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+            if parsed.fragment:
+                result += f"#{parsed.fragment}"
+            return result
+        except Exception:
+            return url.strip()
 
     def get_modules(self) -> list[dict]:
         """获取模块列表"""
@@ -242,6 +408,20 @@ class PipelineExecutor:
             if phase_id == "phase_1b_parse" and result.status == PhaseStatus.PASSED:
                 self.context.update_from_config()
                 print(f"  ✅ excel_json_path 已刷新: {self.context.excel_json_path}")
+                # D方案: Phase 1b 完成后构建 module_map_str
+                if not self.context.module_map_str:
+                    self.context._build_module_aliases()
+                    if self.context.module_map_str:
+                        print(f"  ✅ module_map_str 已构建: {self.context.module_map_str}")
+
+            # BUG-8 fix: Phase 1 完成后检测修正版 Excel 并更新路径
+            if phase_id == "phase_1" and result.status == PhaseStatus.PASSED:
+                if self.context.excel_path:
+                    orig = Path(self.context.excel_path)
+                    corrected = orig.parent / f"{orig.stem}-修正版.xlsx"
+                    if corrected.exists():
+                        self.context.excel_path = str(corrected)
+                        print(f"  ✅ excel_path 已更新为修正版: {corrected}")
 
             # X-3 修复: phase_4 成功后填充 module_urls_path
             if phase_id == "phase_4_discovery" and result.status == PhaseStatus.PASSED:
@@ -443,7 +623,8 @@ class PipelineExecutor:
         config_path = Path(self.project_dir) / "config.yaml"
         if not config_path.exists():
             return PhaseResult("phase_0", PhaseStatus.FAILED,
-                             errors=["config.yaml 不存在"])
+                             errors=["config.yaml 不存在",
+                                    "请手动创建 config.yaml（参考 templates/config_template.md）"])
 
         # 运行验证器
         val_result = self._run_validator("phase_0")
@@ -650,13 +831,16 @@ class PipelineExecutor:
                                           self.context.module_urls_path or "")
                 module_args.append(resolved)
 
-            # 设置 discovery 路径（Phase 6 需要）
+            # BUG-7 fix: Phase 6 需要 --discovery 参数（直接追加，不用字符串替换）
             if phase_id == "phase_6_verify":
                 discovery_file = Path(self.project_dir) / "_probe" / f"discovery_{slug}.json"
                 if discovery_file.exists():
                     self.context.discovery_path = str(discovery_file)
-                    module_args = [a.replace("{discovery_path}", str(discovery_file))
-                                 for a in module_args]
+                    module_args.extend(["--discovery", str(discovery_file)])
+
+            # D方案: Phase 4 自动注入 --module-map（解决新项目中文模块名→slug 映射问题）
+            if phase_id == "phase_4_discovery" and self.context.module_map_str:
+                module_args.extend(["--module-map", self.context.module_map_str])
 
             result = self._run_tool(phase_id, tool, module_args)
 
@@ -780,13 +964,13 @@ class PipelineExecutor:
                     target_url=self.context.target_url or "",
                     excel_path=self.context.excel_path or "",
                     excel_json_path=self.context.excel_json_path or "",
-                    module_slug="",  # 多模块时由 _execute_multi_module 处理
                     module_urls_path=self.context.module_urls_path or "",
-                    discovery_path=self.context.discovery_path or "",
+                    # BUG-6 fix: 不传递 module_slug/discovery_path，让 KeyError 保留占位符
+                    # 由 _execute_multi_module 在循环中替换为真实值
                 )
                 resolved.append(resolved_arg)
             except KeyError as e:
-                print(f"  ⚠️  参数模板解析失败: {arg}, 缺失变量: {e}")
+                # 缺失变量（module_slug, discovery_path）保留原始占位符
                 resolved.append(arg)
         return resolved
 

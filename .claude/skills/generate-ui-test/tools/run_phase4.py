@@ -193,6 +193,11 @@ def main():
     module_map_path = os.path.join(probe_dir, 'module_map.json')
 
     # 如果 module_map.json 已存在且有效，直接复用（避免覆盖手动映射）
+    # BUG-4 fix: 当 --module-map 从 CLI 传入时，删除旧缓存并重新生成
+    if args.module_map and os.path.isfile(module_map_path):
+        os.remove(module_map_path)
+        print(f"[INFO] 收到 --module-map，删除旧缓存重新生成")
+
     if os.path.isfile(module_map_path):
         try:
             with open(module_map_path, encoding='utf-8') as f:

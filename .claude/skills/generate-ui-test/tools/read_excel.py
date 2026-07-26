@@ -420,6 +420,7 @@ def main():
     output = json.dumps(results, ensure_ascii=False, indent=2)
 
     if args.output:
+        os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
         with open(args.output, 'w', encoding='utf-8') as f:
             f.write(output)
         print(f"[OK] 已输出到: {args.output}", file=sys.stderr)

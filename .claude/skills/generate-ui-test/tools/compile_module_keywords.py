@@ -627,6 +627,7 @@ def generate_module(workflows_with_sources, project_dir):
     functions = []
     project_name = os.path.basename(os.path.abspath(project_dir))
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     needs_datetime = False
 

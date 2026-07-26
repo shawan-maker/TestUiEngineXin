@@ -583,8 +583,9 @@ def main():
 
     output_dir = os.path.abspath(args.output_dir)
     discovery_dir = os.path.abspath(args.discovery_dir)
+    excel_json_path = os.path.abspath(args.excel_json)
 
-    print(f"[CONFIG] Excel JSON: {args.excel_json}")
+    print(f"[CONFIG] Excel JSON: {excel_json_path}")
     print(f"[CONFIG] Discovery:  {discovery_dir}")
     print(f"[CONFIG] Output:     {output_dir}")
     print(f"[CONFIG] v2 mode:    direct import (no subprocess)")
@@ -597,7 +598,7 @@ def main():
     print("[STEP 1] 解析 Excel JSON + 构建模块映射")
     print('='*60)
 
-    with open(args.excel_json, encoding='utf-8') as f:
+    with open(excel_json_path, encoding='utf-8') as f:
         excel_data = json.load(f)
 
     cases_by_module = group_cases_by_module(

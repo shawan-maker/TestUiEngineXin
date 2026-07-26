@@ -163,8 +163,7 @@ def generate_suite(cases: list, config: dict, module: str,
         })
     setup_step.extend([
         {'desc': '刷新使认证生效', 'keyword': 'refresh'},
-        {'desc': '等待页面加载完成', 'keyword': 'wait_for_element_hidden',
-         'params': {'locator': "${common_elements.loading_mask}", 'timeout': 15000}},
+        {'desc': '等待页面加载完成', 'keyword': 'wait_for_loading_complete'},
     ])
 
     # 构建 case_refs

@@ -179,8 +179,11 @@ def _detect_ui_framework(page):
     """检测页面使用的 UI 框架"""
     frameworks = []
     checks = [
-        ("element-ui", "document.querySelector('.el-button') !== null && typeof __VUE__ !== 'undefined' && !document.querySelector('[data-v-]') === false"),
-        ("element-plus", "document.querySelector('.el-button') !== null && typeof __VUE__ !== 'undefined'"),
+        # X-6 修复: element-plus 先检查（更具体），element-ui 用正确的 data-v- 判断
+        # element-plus (Vue 3): 有 .el-button + Vue + 有 scoped style data-v- 属性
+        ("element-plus", "document.querySelector('.el-button') !== null && typeof __VUE__ !== 'undefined' && document.querySelector('[data-v-]') !== null"),
+        # element-ui (Vue 2): 有 .el-button + Vue + 无 scoped style data-v- 属性
+        ("element-ui", "document.querySelector('.el-button') !== null && typeof __VUE__ !== 'undefined' && document.querySelector('[data-v-]') === null"),
         ("ant-design", "document.querySelector('.ant-btn') !== null"),
         ("arco-design", "document.querySelector('.arco-btn') !== null"),
         ("tdesign", "document.querySelector('.t-button') !== null"),
@@ -251,7 +254,8 @@ def runtime_check(config):
 
         # 注入 cookie
         if cookie_str:
-            domain = urlparse(url).hostname
+            # X-7 修复: 优先使用 config.yaml 中的 cookie_domain
+            domain = config.get('cookie_domain') or urlparse(url).hostname
             if domain:
                 cookies = _parse_cookie_string(cookie_str, domain)
                 context.add_cookies(cookies)
@@ -279,7 +283,12 @@ def runtime_check(config):
         if local_storage:
             for key, value in local_storage.items():
                 try:
-                    page.evaluate(f"localStorage.setItem('{key}', '{value}')")
+                    page.evaluate(
+                        """([k, v]) => {
+                            localStorage.setItem(k, v);
+                        }""",
+                        [str(key), str(value)]
+                    )
                 except Exception:
                     pass
             # 重新导航（非 reload），因为首次 goto 可能被重定向到登录页

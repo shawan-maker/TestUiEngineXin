@@ -2739,7 +2739,23 @@ def main():
         # 写入 verify_result.json（供阶段门禁检查）
         _write_verify_result(args.project_dir, result)
 
-    if result and result.get('failed', 0) > 0:
+    # X-2 修复: 只有当存在完全无法解析的 locator（非 KB fallback）时才 exit(1)
+    # 计数器关系（来自 verify_project()）:
+    #   failed = fallback_count（KB best-guess + 完全失败的步骤）
+    #   verified = verified_count（运行时验证通过的步骤）
+    #   writeback_count = len(verified_locators)（所有回写到 pages YAML 的 locator）
+    #   其中 writeback_count ≈ verified_count + KB_fallback_stored
+    #   truly_unresolved = failed - KB_fallback_stored = failed - (writeback - verified)
+    if result:
+        failed = result.get('failed', 0)
+        verified = result.get('verified', 0)
+        writeback = result.get('writeback_count', 0)
+        kb_fallback_stored = max(0, writeback - verified)  # KB 回退且成功回写的数量
+        truly_unresolved = failed - kb_fallback_stored    # 完全无法解析的步骤数
+    else:
+        truly_unresolved = 0
+
+    if truly_unresolved > 0:
         sys.exit(1)
     sys.exit(0)
 

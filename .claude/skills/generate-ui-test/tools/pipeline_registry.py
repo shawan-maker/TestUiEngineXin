@@ -2,7 +2,7 @@
 """
 pipeline_registry.py — 阶段注册表（单一真相源）
 
-定义 10 个 Phase 的依赖关系、工具、验证器、产物。
+定义 11 个 Phase 的依赖关系、工具、验证器、产物。
 编排器和 _phase_registry.py 都从这里读取。
 """
 
@@ -61,7 +61,23 @@ PHASE_DEFINITIONS: dict[str, dict[str, Any]] = {
         "validator": None,          # validate_excel 自带 exit code
         "hard_deps": ["phase_0"],
         "soft_deps": [],
-        "artifacts": ["{excel_json_path}"],
+        "artifacts": [],            # validate_excel 产出修正版 xlsx + HTML 报告（路径不固定，不做幂等检查）
+        "optional": True,
+        "condition": _has_excel,
+        "multi_module": False,
+    },
+
+    "phase_1b_parse": {
+        "name": "Excel 解析",
+        "tool": "read_excel.py",
+        "tool_args": [
+            "{excel_path}",
+            "--output", "{project_dir}/_probe/excel_parsed.json",
+        ],
+        "validator": None,          # read_excel 自带 exit code
+        "hard_deps": ["phase_1"],
+        "soft_deps": [],
+        "artifacts": ["{project_dir}/_probe/excel_parsed.json"],
         "optional": True,
         "condition": _has_excel,
         "multi_module": False,
@@ -129,8 +145,8 @@ PHASE_DEFINITIONS: dict[str, dict[str, Any]] = {
             "--output-dir", "{project_dir}",
         ],
         "validator": None,          # 由 CrossRef + Phase 8 统一验证
-        "hard_deps": ["phase_4_discovery"],
-        "soft_deps": ["phase_1", "phase_3_keywords"],  # phase_3_keywords 软依赖（_knowledge 为空时跳过）
+        "hard_deps": ["phase_4_discovery", "phase_1b_parse"],  # 硬依赖 excel_parsed.json
+        "soft_deps": ["phase_3_keywords"],  # phase_3_keywords 软依赖（_knowledge 为空时跳过）
         "artifacts": [
             "{project_dir}/pages/*/elements.yaml",
             "{project_dir}/cases/*/*.yaml",
@@ -208,6 +224,7 @@ PHASE_DEFINITIONS: dict[str, dict[str, Any]] = {
 EXECUTION_ORDER = [
     "phase_0",
     "phase_1",
+    "phase_1b_parse",
     "phase_2",
     "phase_3_keywords",
     "phase_4_discovery",

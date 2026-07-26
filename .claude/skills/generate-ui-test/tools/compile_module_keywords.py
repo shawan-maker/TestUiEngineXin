@@ -693,7 +693,7 @@ def generate_module(workflows_with_sources, project_dir):
     module_lines.append(f'生成时间: {timestamp}')
     module_lines.append('')
     module_lines.append('修改请编辑对应 YAML 后重新运行:')
-    module_lines.append(f'  python .claude/skills/generate-ui-test/tools/compile_module_keywords.py {project_name}')
+    module_lines.append(f'  python {os.path.join(skill_dir, "tools", "compile_module_keywords.py")} {project_name}')
     module_lines.append('"""')
     module_lines.append('from UIEngine.core.keyword_manager import KeyWordManager')
     module_lines.append('from UIEngine.basecase import BaseCase')

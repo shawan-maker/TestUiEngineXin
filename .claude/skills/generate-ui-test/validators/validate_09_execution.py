@@ -77,11 +77,16 @@ def check_r6_1_report_path(project_dir: str) -> Tuple[List[str], List[str], List
 # R6.2 失败分类处理检查
 # ============================================================================
 
-def check_r6_2_failure_classification(project_dir: str) -> Tuple[List[str], List[str], List[str]]:
-    """R6.2: 检查运行日志中的失败分类"""
+def check_r6_2_failure_classification(project_dir: str) -> Tuple[List[str], List[str], List[str], dict]:
+    """R6.2: 检查运行日志中的失败分类
+
+    返回: (errors, warnings, info, structured_data)
+    structured_data 包含 execution_errors 和 assertion_errors 的结构化数组
+    """
     errors = []
     warnings = []
     info = []
+    structured = {'execution_errors': [], 'assertion_errors': []}
 
     # 查找运行日志
     log_files = []
@@ -90,7 +95,7 @@ def check_r6_2_failure_classification(project_dir: str) -> Tuple[List[str], List
 
     if not log_files:
         info.append("[R6.2] 未找到运行日志，跳过失败分类检查")
-        return errors, warnings, info
+        return errors, warnings, info, structured
 
     # 分析日志内容
     execution_errors = []
@@ -125,22 +130,28 @@ def check_r6_2_failure_classification(project_dir: str) -> Tuple[List[str], List
                 for line_num, line in enumerate(f, 1):
                     for p in exec_patterns:
                         if p.search(line):
-                            execution_errors.append({
+                            error_item = {
                                 'file': os.path.relpath(log_file, project_dir),
                                 'line': line_num,
                                 'text': line.strip()[:100],
-                            })
+                            }
+                            execution_errors.append(error_item)
                             break
                     for p in assert_patterns:
                         if p.search(line):
-                            assertion_errors.append({
+                            error_item = {
                                 'file': os.path.relpath(log_file, project_dir),
                                 'line': line_num,
                                 'text': line.strip()[:100],
-                            })
+                            }
+                            assertion_errors.append(error_item)
                             break
         except Exception:
             pass
+
+    # 保存结构化数据
+    structured['execution_errors'] = execution_errors
+    structured['assertion_errors'] = assertion_errors
 
     if execution_errors:
         info.append(f"[R6.2] 执行问题: {len(execution_errors)} 处（应自动修复）")
@@ -159,7 +170,7 @@ def check_r6_2_failure_classification(project_dir: str) -> Tuple[List[str], List
     if not execution_errors and not assertion_errors:
         info.append("[R6.2] 运行日志中未发现失败（全部通过或未运行）")
 
-    return errors, warnings, info
+    return errors, warnings, info, structured
 
 
 # ============================================================================
@@ -263,11 +274,15 @@ def check_r6_4_learning_records(project_dir: str) -> Tuple[List[str], List[str],
 # 主校验入口
 # ============================================================================
 
-def validate_execution(project_dir: str) -> Tuple[List[str], List[str], List[str]]:
-    """Phase 9 主校验入口"""
+def validate_execution(project_dir: str) -> Tuple[List[str], List[str], List[str], dict]:
+    """Phase 9 主校验入口
+
+    返回: (errors, warnings, info, structured_data)
+    """
     all_errors = []
     all_warnings = []
     all_info = []
+    all_structured = {}
 
     # R6.1: 运行报告路径
     e, w, i = check_r6_1_report_path(project_dir)
@@ -276,10 +291,11 @@ def validate_execution(project_dir: str) -> Tuple[List[str], List[str], List[str
     all_info.extend(i)
 
     # R6.2: 失败分类
-    e, w, i = check_r6_2_failure_classification(project_dir)
+    e, w, i, structured = check_r6_2_failure_classification(project_dir)
     all_errors.extend(e)
     all_warnings.extend(w)
     all_info.extend(i)
+    all_structured.update(structured)
 
     # R6.3: 自动修复策略
     e, w, i = check_r6_3_auto_fix(project_dir)
@@ -293,7 +309,7 @@ def validate_execution(project_dir: str) -> Tuple[List[str], List[str], List[str
     all_warnings.extend(w)
     all_info.extend(i)
 
-    return all_errors, all_warnings, all_info
+    return all_errors, all_warnings, all_info, all_structured
 
 
 # ============================================================================
@@ -319,7 +335,7 @@ def main():
         print(f"[FATAL] 目录不存在: {project_dir}", file=sys.stderr)
         sys.exit(2)
 
-    errors, warnings, info = validate_execution(project_dir)
+    errors, warnings, info, structured = validate_execution(project_dir)
 
     print("=" * 70)
     print(f"UIEngine Execution Analysis Report (Phase 9)")
@@ -341,13 +357,13 @@ def main():
     print("=" * 70)
 
     # 输出 JSON 供 HTML 联合报告消费
-    _export_phase9_json(project_dir, errors, warnings, info)
+    _export_phase9_json(project_dir, errors, warnings, info, structured)
 
     # 纯分析模式：始终 exit 0，不阻断管线
     sys.exit(0)
 
 
-def _export_phase9_json(project_dir, errors, warnings, info):
+def _export_phase9_json(project_dir, errors, warnings, info, structured):
     """导出 Phase 9 分析结果到 JSON（供 generate_issues_report.py 消费）"""
     import json as _json
 
@@ -357,6 +373,9 @@ def _export_phase9_json(project_dir, errors, warnings, info):
         'info': info,
         'error_count': len(errors),
         'warning_count': len(warnings),
+        # X-4 修复: 添加结构化失败分类数据
+        'execution_errors': structured.get('execution_errors', []),
+        'assertion_errors': structured.get('assertion_errors', []),
     }
 
     output_path = os.path.join(project_dir, '_probe', 'phase9_analysis.json')
@@ -364,8 +383,9 @@ def _export_phase9_json(project_dir, errors, warnings, info):
     try:
         with open(output_path, 'w', encoding='utf-8') as f:
             _json.dump(phase9_data, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass  # JSON 输出失败不影响主流程
+        print(f"[INFO] Phase 9 分析结果已导出: {output_path}")
+    except Exception as e:
+        print(f"[WARN] Phase 9 JSON 导出失败: {e}", file=sys.stderr)
 
 
 if __name__ == '__main__':

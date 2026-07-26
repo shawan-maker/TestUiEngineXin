@@ -191,21 +191,41 @@ def main():
     print(f"{'='*60}")
 
     module_map_path = os.path.join(probe_dir, 'module_map.json')
-    pages_dir = os.path.join(args.project, 'pages')
-    bmm_cmd = [sys.executable, os.path.join(SCRIPT_DIR, 'build_module_map.py'),
-               args.excel,
-               '--pages', pages_dir,
-               '--discovery-dir', probe_dir,
-               '--output', module_map_path]
-    if args.module_map:
-        bmm_cmd.extend(['--module-map', args.module_map])
 
-    bmm_ok = run_cmd(bmm_cmd, 'Step 1.5: build_module_map.py')
-    if not (bmm_ok and os.path.isfile(module_map_path)):
-        print("[ERROR] build_module_map.py 失败，无法生成模块映射",
-              file=sys.stderr)
-        print("[INFO] 请确保 Excel 文件和 pages/ 目录结构正确", file=sys.stderr)
-        sys.exit(1)
+    # 如果 module_map.json 已存在且有效，直接复用（避免覆盖手动映射）
+    if os.path.isfile(module_map_path):
+        try:
+            with open(module_map_path, encoding='utf-8') as f:
+                existing_map = json.load(f)
+            if isinstance(existing_map, dict) and len(existing_map) > 0:
+                print(f"[INFO] 复用已有的 module_map.json ({len(existing_map)} 个映射)")
+                # 跳过 build_module_map.py
+                with open(module_map_path, encoding='utf-8') as f:
+                    cn_to_slug = json.load(f)
+            else:
+                raise ValueError("Empty or invalid")
+        except (json.JSONDecodeError, ValueError):
+            print("[WARN] module_map.json 无效，重新生成")
+            os.remove(module_map_path)
+    else:
+        existing_map = None
+
+    if not os.path.isfile(module_map_path):
+        pages_dir = os.path.join(args.project, 'pages')
+        bmm_cmd = [sys.executable, os.path.join(SCRIPT_DIR, 'build_module_map.py'),
+                   args.excel,
+                   '--pages', pages_dir,
+                   '--discovery-dir', probe_dir,
+                   '--output', module_map_path]
+        if args.module_map:
+            bmm_cmd.extend(['--module-map', args.module_map])
+
+        bmm_ok = run_cmd(bmm_cmd, 'Step 1.5: build_module_map.py')
+        if not (bmm_ok and os.path.isfile(module_map_path)):
+            print("[ERROR] build_module_map.py 失败，无法生成模块映射",
+                  file=sys.stderr)
+            print("[INFO] 请确保 Excel 文件和 pages/ 目录结构正确", file=sys.stderr)
+            sys.exit(1)
 
     with open(module_map_path, encoding='utf-8') as f:
         cn_to_slug = json.load(f)

@@ -238,6 +238,17 @@ class PipelineExecutor:
             result = self._execute_phase(phase_id)
             self.results[phase_id] = result
 
+            # X-1 修复: phase_1b_parse 成功后刷新 context，使 excel_json_path 可用
+            if phase_id == "phase_1b_parse" and result.status == PhaseStatus.PASSED:
+                self.context.update_from_config()
+                print(f"  ✅ excel_json_path 已刷新: {self.context.excel_json_path}")
+
+            # X-3 修复: phase_4 成功后填充 module_urls_path
+            if phase_id == "phase_4_discovery" and result.status == PhaseStatus.PASSED:
+                mu_path = Path(self.project_dir) / "_probe" / "module_urls.json"
+                if mu_path.exists():
+                    self.context.module_urls_path = str(mu_path)
+
             # 运行验证器（仅当阶段通过且有验证器时）
             if result.status == PhaseStatus.PASSED and defn.get("validator"):
                 val_result = self._run_validator(phase_id)

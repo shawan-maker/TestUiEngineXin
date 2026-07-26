@@ -922,6 +922,20 @@ class CaseGenerator:
         if ptype == 'click_table_row_btn' and not args:
             print(f"  [DEBUG-F7] _is_container_open: click_table_row_btn without args → True")
             return True
+        # 点击详情链接：检查 trigger map 判断是否打开容器/导航
+        if ptype == 'click_detail_link':
+            dl_label = args[0] if args else ''
+            entry = self._discovery_trigger_map.get(dl_label)
+            if entry:
+                result_type = entry.get('result_type')
+                is_open = result_type in ('container', 'navigation')
+                print(f"  [DEBUG-F7] _is_container_open: detail_link label='{dl_label}', "
+                      f"result_type={result_type} → {is_open}")
+                return is_open
+            # trigger map 无匹配 → 保守假设不打开容器（保持列表页上下文）
+            print(f"  [DEBUG-F7] _is_container_open: detail_link label='{dl_label}' "
+                  f"no trigger_map entry → False (conservative)")
+            return False
         print(f"  [DEBUG-F7] _is_container_open: ptype='{ptype}' → False")
         return False
 
@@ -946,7 +960,7 @@ class CaseGenerator:
 
         if self._is_container_open(parsed):
             btn_label = ''
-            if parsed['type'] in ('click_btn', 'click_table_row_btn') and parsed['args']:
+            if parsed['type'] in ('click_btn', 'click_table_row_btn', 'click_detail_link') and parsed['args']:
                 btn_label = parsed['args'][0]
 
             entry = self._discovery_trigger_map.get(btn_label) if btn_label else None

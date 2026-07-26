@@ -25,9 +25,11 @@ try:
     from lib.module_keywords import register_module_keywords
     register_module_keywords()
 except ImportError:
-    pass  # 无 L3 模块关键字（_knowledge/ 为空的项目正常）
+    print("[WARN] lib/module_keywords.py 不存在，L3 关键字未注册", file=sys.stderr)
+    print("[INFO] 请运行: python .claude/skills/generate-ui-test/tools/compile_module_keywords.py <project_dir>",
+          file=sys.stderr)
 except Exception as e:
-    print(f"[WARN] L3 module_keywords 加载失败: {e}", file=sys.stderr)
+    print(f"[ERROR] L3 module_keywords 加载失败: {e}", file=sys.stderr)
 
 # 注册自动学习模块（测试运行后自动记录成功/失败模式）
 try:

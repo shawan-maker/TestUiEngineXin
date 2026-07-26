@@ -1450,7 +1450,12 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
             page.goto(baseline_url, wait_until="networkidle", timeout=30000)
             # SPA hash 路由不变时 goto 可能不触发全页面重载，
             # reload 强制销毁 Vue app，清除残留 dialog/drawer wrapper
-            page.reload(wait_until="networkidle", timeout=30000)
+            try:
+                page.reload(wait_until="networkidle", timeout=30000)
+            except Exception as e:
+                # 网络瞬态错误（如 net::ERR_NETWORK_CHANGED）时降级为 goto
+                print(f"    [WARN] reload failed ({e}), fallback to goto")
+                page.goto(baseline_url, wait_until="networkidle", timeout=30000)
             _wait_for_dom_stable(page, timeout_ms=3000, debug=True)  # 回到基线页等待 DOM 稳定（含表格行）
 
             # §9.2 P4: row button 需要绕过 el-table fixed-column overlay
@@ -1769,6 +1774,194 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                 else:
                     print(f"    -> Inline: no new elements")
 
+        def _process_detail_link(dl, is_row=False):
+            """Process a detail-link: click → detect container/navigation → discover inside.
+
+            与 _process_button 类似，但专门处理 detail-link 类型的元素。
+            这些元素通常是表格行中的链接，点击后进入详情页或打开抽屉。
+            """
+            dl_text = dl['text']
+            dl_locator = dl.get('locator')
+
+            if not dl_locator:
+                print(f"\n  [SKIP] detail-link '{dl_text}' — no locator")
+                return
+
+            print(f"\n  [DETAIL-LINK] '{dl_text}'...")
+
+            # Navigate back to list page before each click
+            page.goto(baseline_url, wait_until="networkidle", timeout=30000)
+            page.reload(wait_until="networkidle", timeout=30000)
+            _wait_for_dom_stable(page, timeout_ms=3000, debug=True)
+
+            # Click the detail-link (with JS dispatch fallback like buttons)
+            try:
+                loc = page.locator(dl_locator)
+                if loc.count() == 0:
+                    print(f"    [WARN] detail-link not found: {dl_text}")
+                    return
+
+                try:
+                    loc.first.click(timeout=10000)
+                except Exception:
+                    # JS dispatch fallback (same as button line 1601-1611)
+                    print(f"    [INFO] Playwright click timeout, trying JS dispatch fallback")
+                    page.evaluate(f"""
+                        (() => {{
+                            const el = document.evaluate(
+                                {json.dumps(dl_locator.replace('xpath=', ''))},
+                                document, null, 9, null
+                            ).singleNodeValue;
+                            if (el) el.click();
+                        }})()
+                    """)
+                    page.wait_for_timeout(500)
+
+                page.wait_for_load_state("networkidle", timeout=30000)
+                _wait_for_dom_stable(page, timeout_ms=3000)
+            except Exception as e:
+                print(f"    [WARN] click failed: {e}")
+                # Recover page state for next button detection
+                page.goto(baseline_url, wait_until="networkidle", timeout=30000)
+                page.reload(wait_until="networkidle", timeout=30000)
+                _wait_for_dom_stable(page, timeout_ms=3000, debug=True)
+                return
+
+            # Detect result type (with retry like button line 1633-1638)
+            is_new_page = check_url_change(page, baseline_url)
+            visible_containers = None
+            for _retry in range(3):
+                visible_containers = detect_visible_containers(page)
+                if visible_containers:
+                    break
+                page.wait_for_timeout(500)
+
+            if visible_containers:
+                # Container opened
+                container_type = select_priority_container(visible_containers)
+                container_selector = CONTAINER_SELECTORS.get(container_type)
+                print(f"    -> Container opened: {container_type}")
+
+                # V8a: Scroll + dual scan for lazy-loading (same as button line 1650-1689)
+                _scroll_container_js = """
+                    (() => {
+                        const selectors = ['div.el-drawer__body', 'div.el-dialog__body',
+                                           'div.el-drawer', 'div.el-dialog'];
+                        for (const sel of selectors) {
+                            const el = document.querySelector(sel);
+                            if (el && el.offsetHeight > 0) {
+                                el.scrollTo(0, el.scrollHeight);
+                                return true;
+                            }
+                        }
+                        window.scrollTo(0, document.body.scrollHeight);
+                        return false;
+                    })()
+                """
+                try:
+                    page.evaluate(_scroll_container_js)
+                except Exception:
+                    pass
+                _wait_for_dom_stable(page, timeout_ms=3000)
+                scan1 = discover_all_elements(page, container_selector)
+
+                # Second scroll + scan for deeply lazy-loaded fields
+                try:
+                    page.evaluate(_scroll_container_js)
+                except Exception:
+                    pass
+                _wait_for_dom_stable(page, timeout_ms=3000)
+                scan2 = discover_all_elements(page, container_selector)
+
+                # Merge two scans
+                container_elements = _merge_element_scans(scan1, scan2)
+                new_from_scan2 = (
+                    len(container_elements.get('inputs', []))
+                    - len(scan1.get('inputs', []))
+                )
+                if new_from_scan2 > 0:
+                    print(f"    -> V8a: scroll 二次扫描发现 {new_from_scan2} 个额外字段")
+
+                all_container_elems = (
+                    container_elements['buttons']
+                    + container_elements['row_buttons']
+                    + container_elements['inputs']
+                    + container_elements.get('tabs', [])
+                    + container_elements.get('detail_links', [])
+                    + container_elements.get('checkboxes', [])
+                    + container_elements.get('menu_items', [])
+                )
+
+                _generate_locators_for_elements(page, all_container_elems, container_type=container_type)
+
+                verified_count = sum(1 for e in all_container_elems if e.get('verified'))
+                print(f"    -> Elements: {len(all_container_elems)} ({verified_count} verified)")
+
+                containers.append({
+                    'trigger': dl_text,
+                    'trigger_scope': 'detail-link',
+                    'trigger_locator': dl_locator,
+                    'result_type': 'container',
+                    'container_type': container_type,
+                    'elements': all_container_elems,
+                    'source': 'detail_link',
+                })
+
+            elif is_new_page:
+                # Navigation to new page (detail page)
+                new_url = page.url
+                print(f"    -> Navigation: {new_url}")
+
+                new_elements = discover_all_elements(page)
+                all_new_elems = (
+                    new_elements['buttons']
+                    + new_elements['row_buttons']
+                    + new_elements['inputs']
+                    + new_elements.get('tabs', [])
+                    + new_elements.get('detail_links', [])
+                    + new_elements.get('checkboxes', [])
+                    + new_elements.get('menu_items', [])
+                )
+
+                _generate_locators_for_elements(page, all_new_elems, container_type=None)
+
+                verified_count = sum(1 for e in all_new_elems if e.get('verified'))
+                print(f"    -> Elements: {len(all_new_elems)} ({verified_count} verified)")
+
+                containers.append({
+                    'trigger': dl_text,
+                    'trigger_scope': 'detail-link',
+                    'trigger_locator': dl_locator,
+                    'result_type': 'navigation',
+                    'container_type': None,
+                    'new_url': new_url,
+                    'elements': all_new_elems,
+                    'source': 'detail_link',
+                })
+
+            else:
+                # Inline expansion or no change
+                _wait_for_dom_stable(page, timeout_ms=3000)
+                current_elements = discover_all_elements(page)
+
+                new_count = 0
+                for cat, field in [('buttons', 'buttons'), ('inputs', 'inputs'),
+                                   ('tabs', 'tabs'), ('detail_links', 'detail_links'),
+                                   ('checkboxes', 'checkboxes'), ('menu_items', 'menu_items')]:
+                    for e in current_elements.get(cat, []):
+                        key = (e.get('text', e.get('label', '')), e.get('type', ''))
+                        if key not in baseline and (key[0] or key[1]):
+                            _generate_locators_for_elements(page, [e], container_type=None)
+                            if not e.get('is_row_button'):
+                                list_page[field].append(e)
+                            baseline.add(key)
+                            new_count += 1
+
+                if new_count:
+                    print(f"    -> Inline: {new_count} new elements merged into list_page")
+                else:
+                    print(f"    -> Inline: no new elements")
+
         # 4a. Toolbar buttons first
         print(f"\n[Discover] === Toolbar buttons ({len(toolbar_unique)}) ===")
         for btn in toolbar_unique:
@@ -1778,6 +1971,12 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
         print(f"\n[Discover] === Row buttons ({len(row_unique)}) ===")
         for btn in row_unique:
             _process_button(btn, is_row=True)
+
+        # 4c. Detail links (only first one)
+        detail_links = list_page.get('detail_links', [])
+        if detail_links:
+            print(f"\n[Discover] === Detail links ({len(detail_links)}, clicking first) ===")
+            _process_detail_link(detail_links[0], is_row=False)
 
         # ================================================================
         # Step 5: Build output

@@ -695,6 +695,10 @@ class PipelineExecutor:
             return PhaseResult(phase_id, PhaseStatus.FAILED,
                              errors=[f"工具不存在: {tool_path}"])
 
+        # Phase 4/6 涉及浏览器操作，允许更长超时
+        _LONG_TIMEOUT_PHASES = {'phase_4_discovery', 'phase_6_verify'}
+        timeout = 3600 if phase_id in _LONG_TIMEOUT_PHASES else 600
+
         cmd = [sys.executable, str(tool_path)] + args
 
         try:
@@ -704,7 +708,7 @@ class PipelineExecutor:
                 text=True,
                 encoding='utf-8',
                 errors='replace',
-                timeout=600  # 10 分钟超时
+                timeout=timeout
             )
 
             if result.returncode == 0:
@@ -718,7 +722,7 @@ class PipelineExecutor:
 
         except subprocess.TimeoutExpired:
             return PhaseResult(phase_id, PhaseStatus.FAILED,
-                             errors=["工具执行超时 (600s)"])
+                             errors=[f"工具执行超时 ({timeout}s)"])
         except Exception as e:
             return PhaseResult(phase_id, PhaseStatus.FAILED,
                              errors=[f"工具执行异常: {str(e)}"])

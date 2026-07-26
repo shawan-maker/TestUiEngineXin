@@ -626,11 +626,14 @@ def check_r4_33(filepath: str, data: dict, lines: List[str], ctx: dict) -> List[
                 parts = ref.split('.')
                 if len(parts) >= 2 and _CONTAINER_OPEN_RE.search(parts[-1]):
                     in_container = True
-                    # 查找对应的容器 group（xxx_drawer_elements, xxx_dialog_elements）
+                    # 查找对应的容器 group（xxx_drawer_elements, xxx_dialog_elements,
+                    # xxx_newpage_{trigger}_elements 等）
                     field_name = parts[-1]
                     for pk in pages_keys:
                         if pk.endswith(('_drawer_elements', '_dialog_elements',
                                        '_detail_elements', '_new_elements')):
+                            container_groups.add(pk.split('.')[0])
+                        elif '_newpage_' in pk and pk.endswith('_elements'):
                             container_groups.add(pk.split('.')[0])
                     break
 

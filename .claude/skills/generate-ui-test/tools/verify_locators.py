@@ -117,22 +117,13 @@ PROBE_FILL_VALUES = {
 # KB locators — using probe_utils shared functions
 # ============================================================================
 
-def _get_kb_locators(elem_type, label):
-    """Generate all KB template locators for a given element type and label.
+# click_element 步骤可能匹配多种元素类型，按精确度降序遍历
+# 当主类型是这三个之一时，扩展查找其他类型（去重追加）
+CLICK_EXPAND_TYPES = ['button', 'table-action-button', 'detail-link']
 
-    Uses probe_utils shared functions instead of independent KB loading.
-    """
-    fmt_vars = {
-        'label': label,
-        'char1': label[0] if label else '',
-        'char2': label[-1] if label else '',
-        # BUG-4 D2: 全拆字模式（审计 4b: 三文件同步）
-        # 跳过单引号字符（XPath 语法安全）
-        'chars_all': " and ".join(f"contains(.,'{c}')" for c in label if c != "'") if label else '',
-        'tab_name': label, 'section': label,
-        'field_label': label, 'keyword': label,
-    }
 
+def _get_kb_locators_for_type(elem_type, fmt_vars):
+    """Generate KB template locators for a single element type (internal)."""
     locators = []
 
     # 1. single_step + composite direct patterns
@@ -155,6 +146,44 @@ def _get_kb_locators(elem_type, label):
             x = _safe_format(p, fmt_vars)
             if '{' not in x:
                 locators.append(x)
+
+    return locators
+
+
+def _get_kb_locators(elem_type, label):
+    """Generate all KB template locators for a given element type and label.
+
+    Uses probe_utils shared functions instead of independent KB loading.
+
+    When elem_type is in CLICK_EXPAND_TYPES (button, table-action-button,
+    detail-link), also appends locators from the other types in the list
+    (deduplicated). This ensures click_element steps can match elements
+    rendered as <a>, <span>, <button>, etc.
+    """
+    fmt_vars = {
+        'label': label,
+        'char1': label[0] if label else '',
+        'char2': label[-1] if label else '',
+        # BUG-4 D2: 全拆字模式（审计 4b: 三文件同步）
+        # 跳过单引号字符（XPath 语法安全）
+        'chars_all': " and ".join(f"contains(.,'{c}')" for c in label if c != "'") if label else '',
+        'tab_name': label, 'section': label,
+        'field_label': label, 'keyword': label,
+    }
+
+    # 1. 主类型（必查，最高优先级）
+    locators = _get_kb_locators_for_type(elem_type, fmt_vars)
+    seen = set(locators)
+
+    # 2. click_element 扩展类型（仅当主类型在 CLICK_EXPAND_TYPES 中时）
+    if elem_type in CLICK_EXPAND_TYPES:
+        for alt_type in CLICK_EXPAND_TYPES:
+            if alt_type == elem_type:
+                continue
+            for loc in _get_kb_locators_for_type(alt_type, fmt_vars):
+                if loc not in seen:
+                    locators.append(loc)
+                    seen.add(loc)
 
     return locators
 

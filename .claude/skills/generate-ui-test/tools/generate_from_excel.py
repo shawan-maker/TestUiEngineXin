@@ -515,6 +515,50 @@ def _process_single_module(module_slug, case_list, discovery_dir, output_dir,
 
 
 # ═══════════════════════════════════════════════════════════════
+# 自愈：Phase 3 补偿编译
+# ═══════════════════════════════════════════════════════════════
+
+def _ensure_module_keywords(project_dir):
+    """自愈：检测 lib/module_keywords.py 是否存在，不存在时自动补偿编译。
+
+    背景：Phase 3（compile_module_keywords.py）可能因管线跳过/编译崩溃而缺失产物。
+    Phase 5 生成的 case 会引用 L3 关键字（wait_for_loading_complete 等），
+    如果运行时 run.py 无法 import module_keywords，所有 L3 步骤都会失败。
+
+    此函数在 Phase 5 开头自动检测 + 补偿，避免静默失败。
+    如果补偿编译也失败（如 YAML 损坏），仅输出警告不阻断主流程。
+    """
+    mk_path = os.path.join(project_dir, 'lib', 'module_keywords.py')
+    if os.path.isfile(mk_path):
+        return  # 产物已存在，无需补偿
+
+    print("[SELF-HEAL] lib/module_keywords.py 不存在，自动触发 L3 关键字编译...")
+    try:
+        from compile_module_keywords import main as _compile_kw_main
+        _saved_argv = sys.argv
+        sys.argv = ['compile_module_keywords.py', project_dir]
+        try:
+            _compile_kw_main()
+        finally:
+            sys.argv = _saved_argv
+        if os.path.isfile(mk_path):
+            print("[SELF-HEAL] L3 关键字补偿编译成功")
+        else:
+            print("[SELF-HEAL][WARN] 编译未报错但产物未生成，"
+                  "L3 关键字可能在运行时失败")
+    except SystemExit as e:
+        if e.code == 0 and os.path.isfile(mk_path):
+            print("[SELF-HEAL] L3 关键字补偿编译成功")
+        else:
+            print(f"[SELF-HEAL][WARN] L3 编译退出 (exit {e.code})，"
+                  "生成的 case 中 L3 关键字可能在运行时失败")
+    except Exception as e:
+        print(f"[SELF-HEAL][WARN] L3 补偿编译失败: {e}", file=sys.stderr)
+        print("[SELF-HEAL][INFO] 生成的 case 中 L3 关键字可能在运行时失败",
+              file=sys.stderr)
+
+
+# ═══════════════════════════════════════════════════════════════
 # 主流程
 # ═══════════════════════════════════════════════════════════════
 
@@ -544,6 +588,9 @@ def main():
     print(f"[CONFIG] Discovery:  {discovery_dir}")
     print(f"[CONFIG] Output:     {output_dir}")
     print(f"[CONFIG] v2 mode:    direct import (no subprocess)")
+
+    # === SELF-HEAL: Phase 3 补偿编译（L3 关键字） ===
+    _ensure_module_keywords(output_dir)
 
     # === Step 1: 解析 Excel JSON + 按模块分组 ===
     print(f"\n{'='*60}")

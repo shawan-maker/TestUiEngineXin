@@ -367,7 +367,7 @@ check(_infer_type('规格_card', '//label...') == 'option-card',
 
 # L7-4: option-card XPath 容器前缀逻辑 (1421-1426)
 print('L7-4: option-card 容器前缀 XPath 生成:')
-base_xpath = "//label[contains(*,'架构')]//following-sibling::*[self::div or self::span]//*[contains(text(),'ARM计算型')]"
+base_xpath = "//label[contains(.,'架构')]//following-sibling::*[self::div or self::span]//*[contains(text(),'ARM计算型')]"
 drawer_xpath = f"//div[contains(@class,'el-drawer')]{base_xpath}"
 dialog_xpath = f"//div[contains(@class,'el-dialog')]{base_xpath}"
 msgbox_xpath = f"//div[contains(@class,'el-message-box')]{base_xpath}"
@@ -379,7 +379,7 @@ check(dialog_xpath.startswith("//div[contains(@class,'el-dialog')]"),
       "dialog 前缀格式错误")
 check(msgbox_xpath.startswith("//div[contains(@class,'el-message-box')]"),
       "message-box 前缀格式错误")
-check("//label[contains(*,'架构')]" in drawer_xpath,
+check("//label[contains(.,'架构')]" in drawer_xpath,
       "drawer XPath 缺少 label 选择器")
 check("contains(text(),'ARM计算型')" in drawer_xpath,
       "drawer XPath 缺少选项文本")
@@ -396,7 +396,7 @@ check(infer_elem_type('fill_value', '在"规格"选项卡中点击"16核"') == '
 print('L7-6: 容器上下文 option-card 推断:')
 for container, expected_prefix in [('drawer', 'el-drawer'), ('dialog', 'el-dialog'), ('message-box', 'el-message-box')]:
     # 模拟 _case_generator 的容器前缀逻辑
-    xpath = "//label[contains(*,'test')]"
+    xpath = "//label[contains(.,'test')]"
     if container == 'drawer':
         xpath = f"//div[contains(@class,'el-drawer')]{xpath}"
     elif container == 'dialog':

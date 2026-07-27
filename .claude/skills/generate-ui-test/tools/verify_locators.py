@@ -551,7 +551,7 @@ def _verify_count_or_first(page, locator):
     return None
 
 
-def verify_locator_candidates(page, candidates, container_type=None, discovery_ct=None, is_el_select_option=False):
+def verify_locator_candidates(page, candidates, container_type=None, discovery_ct=None, is_el_select_option=False, return_index=False):
     """Try multiple locator candidates with multiple container prefixes.
 
     Priority: discovery container_type > default priority > no prefix
@@ -562,7 +562,13 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
     P2-4: When count>1 in preferred container, fall back to (xpath)[last()]
     for dialog/drawer (last opened = topmost).
 
-    Returns: (matched_locator, matched_prefix, count) or (None, None, 0)
+    Args:
+        return_index: If True, return 4-tuple with matched candidate index.
+                     If False (default), return 3-tuple for backward compatibility.
+
+    Returns:
+        If return_index=False: (matched_locator, matched_prefix, count) or (None, None, 0)
+        If return_index=True: (matched_locator, matched_prefix, count, candidate_index) or (None, None, 0, None)
     """
     # Build prefix order
     if is_el_select_option:
@@ -575,8 +581,14 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
     else:
         prefix_order = CONTAINER_TYPES + [None]
 
+    # Helper: return result with or without candidate index
+    def _ret(xpath, pfx, cnt, cidx=None):
+        if return_index:
+            return xpath, pfx, cnt, cidx
+        return xpath, pfx, cnt
+
     for prefix in prefix_order:
-        for candidate in candidates:
+        for candidate_index, candidate in enumerate(candidates):
             xpath = candidate
             if not xpath.startswith('xpath='):
                 xpath = f"xpath={xpath}"
@@ -615,7 +627,7 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
                 try:
                     count = page.locator(full_xpath).count()
                     if count == 1:
-                        return full_xpath, test_prefix, count
+                        return _ret(full_xpath, test_prefix, count, candidate_index)
                     if count > 1:
                         # 3b: strict mode auto-fix — 无前缀时自动尝试容器前缀
                         if test_prefix is None and not is_el_select_option:
@@ -631,7 +643,7 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
                                     scoped_count = page.locator(scoped_full).count()
                                     if scoped_count == 1:
                                         print(f"    [INFO] 3b strict mode 修复: 自动添加 {try_ct} 前缀")
-                                        return scoped_full, try_ct, 1
+                                        return _ret(scoped_full, try_ct, 1, candidate_index)
                                 except Exception as _e:
                                     # H4: 记录异常（XPath语法错误/超时/其他）便于调试
                                     print(f"    [WARN] H4: 3b strict 前缀探测异常({try_ct}): {_e}")
@@ -642,7 +654,7 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
                             try:
                                 cnt_last = page.locator(full_last).count()
                                 if cnt_last == 1:
-                                    return full_last, test_prefix, 1
+                                    return _ret(full_last, test_prefix, 1, candidate_index)
                             except Exception as _e:
                                 print(f"    [WARN] H4: [last()] 探测异常: {_e}")
                         # Fallback: [1]
@@ -653,7 +665,7 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
                             full_wrapped = inject_hidden_filter(f"xpath={wrapped}")
                         count2 = page.locator(full_wrapped).count()
                         if count2 == 1:
-                            return full_wrapped, test_prefix, 1
+                            return _ret(full_wrapped, test_prefix, 1, candidate_index)
                 except Exception as _e:
                     print(f"    [WARN] H4: 候选 XPath 探测异常: {_e}")
 
@@ -666,9 +678,9 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
     # 让 KB fallback 链（D5 + M11）可达，避免静默传播 count=0 的错误 locator
     # 拆字模式在 KB fallback 中有独立的模板，不需要此处保留错误候选
     if candidates:
-        return None, None, 0
+        return _ret(None, None, 0, None)
 
-    return None, None, 0
+    return _ret(None, None, 0, None)
 
 
 # ============================================================================
@@ -1118,9 +1130,12 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         is_new_page_context: True if we're on a different page than baseline (7.10 fix)
         container_context: 上一个步骤检测到的容器类型（dialog/drawer），当本次检测失败时作为 fallback
 
-    Returns: (verified_locator, container_type, skipped, is_best_guess)
+    Returns: (verified_locator, container_type, skipped, is_best_guess, hit_source)
+             hit_source: 'discovery' | 'kb' | 'original' | 'fallback' | None
     """
     is_best_guess = False  # R5: set True when KB best-guess locator is used
+    hit_source = None  # Track which candidate source succeeded
+    hit_source = None  # Track which candidate source succeeded
     keyword = step.get('keyword', '')
     params = step.get('params', {})
     desc = step.get('desc', '')
@@ -1142,30 +1157,30 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 _smart_wait_after_action(page)
             except Exception:
                 pass
-        return None, None, False, False
+        return None, None, False, False, None
 
     # Skip assertions (Phase 9 responsibility)
     # BUG-4b: added except_element_count (assertion keyword with locator, not for Phase 6)
     if keyword in ('except_to_be_visible', 'except_to_have_text',
                    'except_to_have_value', 'except_element_count'):
-        return None, None, False, False
+        return None, None, False, False, None
 
     # P2-3: l3_call is expanded in the caller — skip here
     if keyword in L3_KEYWORDS:
-        return None, None, False, False
+        return None, None, False, False, None
 
     # V5: Custom L3 workflow names are also expanded in the caller
     if project_dir:
         _wf_cache = _load_l3_workflows(project_dir)
         if keyword in _wf_cache:
-            return None, None, False, False
+            return None, None, False, False, None
 
     # Extract locator
     locator = ''
     if isinstance(params, dict):
         locator = params.get('locator', '')
     if not locator:
-        return None, None, False, False
+        return None, None, False, False, None
 
     # BUG-7 fix: save raw locator reference before resolution for suffix detection
     raw_locator_ref = locator
@@ -1239,19 +1254,14 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         print(f"    [CONTEXT] detect_visible_containers 返回空，使用上次容器上下文: {container_context}")
 
     # Build candidate locators
+    # NEW: candidates is now list of (xpath, source) tuples
+    # Priority: Discovery → KB → Original (was KB → Discovery → Original)
     candidates = []
 
     # M9: 占位符检测 — xpath=[待确认] 不是真实 locator，跳过作为候选
     is_placeholder = locator in ('xpath=[待确认]', '[待确认]')
 
-    # 1. KB templates (highest priority)
-    if label:
-        kb_locators = _get_kb_locators(elem_type, label)
-        candidates.extend(kb_locators)
-
-    # 2. Discovery locator (M8: 第二候选，与 pages YAML 同源但直接读 discovery)
-    # BUG-1b 修复：传入 preferred_container=current_ct，先搜匹配的容器
-    # 修改 5：传入 elem_type，启用类型守卫（fill_value 不匹配 button）
+    # 优先级 0: Discovery locator (Phase 4 已验证)
     discovery_ct = None
     _discovery_verified = False  # Fix-6 条件：跟踪 discovery 是否已验证
     if discovery_data and label:
@@ -1263,8 +1273,15 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             disc_raw = (disc_locator.replace('xpath=', '')
                         if disc_locator.startswith('xpath=')
                         else disc_locator)
-            if disc_raw not in candidates:
-                candidates.append(disc_raw)
+            candidates.append((disc_raw, 'discovery'))
+
+    # 优先级 1: KB templates
+    if label:
+        kb_locators = _get_kb_locators(elem_type, label)
+        for kb_xpath in kb_locators:
+            # 去重（discovery 可能和 KB 模板一样）
+            if not any(c[0] == kb_xpath for c in candidates):
+                candidates.append((kb_xpath, 'kb'))
 
     # F2: candidates 为空时，将有效 locator 加入候选
     #
@@ -1283,14 +1300,30 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         and len(locator) > 5):             # guard 3b: 非退化值
         _resolved_bare = (locator.replace('xpath=', '', 1)
                           if locator.startswith('xpath=') else locator)
-        if _resolved_bare not in candidates:    # Fix-6: 去重
-            candidates.append(_resolved_bare)   # Fix-6: 始终加入尾部作为安全网
+        if not any(c[0] == _resolved_bare for c in candidates):    # Fix-6: 去重
+            candidates.append((_resolved_bare, 'original'))   # Fix-6: 始终加入尾部作为安全网
+
+    # Priority 3: Click-type wildcard fallback — last resort for click steps only
+    # Only applies to button/table-action-button/detail-link types.
+    # Excluded: input-generic, el-select, textarea, tab, checkbox, etc.
+    # Guarded by verify_locator_candidates count=1 + visible check.
+    if elem_type in CLICK_EXPAND_TYPES and label:
+        _click_fb = f"//*[contains(text(),'{label}')]"
+        if not any(c[0] == _click_fb for c in candidates):
+            candidates.append((_click_fb, 'kb-fallback'))
 
     # Verify candidates × prefixes (P1-2: el-select input gets container prefix normally)
-    verified_locator, matched_prefix, count = verify_locator_candidates(
-        page, candidates, container_type=current_ct, discovery_ct=discovery_ct,
-        is_el_select_option=False
+    # Split candidates into xpaths and sources for return_index lookup
+    xpaths = [c[0] for c in candidates]
+    sources = {i: c[1] for i, c in enumerate(candidates)}
+
+    verified_locator, matched_prefix, count, matched_index = verify_locator_candidates(
+        page, xpaths, container_type=current_ct, discovery_ct=discovery_ct,
+        is_el_select_option=False, return_index=True
     )
+
+    # Determine hit source
+    hit_source = sources.get(matched_index) if matched_index is not None else None
 
     # R4: Multi-type retry — collect alternative types when initial type fails
     # Sources: keyword/desc inference, DOM check (R3), locator_ref suffix
@@ -1335,11 +1368,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         for _alt_type in _alt_types[1:]:
             _alt_candidates = []
 
-            # KB locators for this type
-            _alt_kb = _get_kb_locators(_alt_type, label)
-            _alt_candidates.extend(_alt_kb)
-
-            # Discovery locator (with relaxed type guard)
+            # Discovery locator (with relaxed type guard) - Priority 0
             if discovery_data:
                 _alt_disc, _alt_disc_ct = _find_in_discovery(
                     discovery_data, label, preferred_container=current_ct,
@@ -1347,20 +1376,37 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 if _alt_disc:
                     _alt_disc_raw = (_alt_disc.replace('xpath=', '')
                                     if _alt_disc.startswith('xpath=') else _alt_disc)
-                    if _alt_disc_raw not in _alt_candidates:
-                        _alt_candidates.append(_alt_disc_raw)
+                    _alt_candidates.append((_alt_disc_raw, 'discovery'))
+
+            # KB locators for this type - Priority 1
+            _alt_kb = _get_kb_locators(_alt_type, label)
+            for _alt_kb_xpath in _alt_kb:
+                if not any(c[0] == _alt_kb_xpath for c in _alt_candidates):
+                    _alt_candidates.append((_alt_kb_xpath, 'kb'))
+
+            # Priority 3: Click-type wildcard fallback — last resort for click steps only
+            if _alt_type in CLICK_EXPAND_TYPES and label:
+                _click_fb = f"//*[contains(text(),'{label}')]"
+                if not any(c[0] == _click_fb for c in _alt_candidates):
+                    _alt_candidates.append((_click_fb, 'kb-fallback'))
 
             if not _alt_candidates:
                 continue
 
-            _alt_vl, _alt_mp, _alt_cnt = verify_locator_candidates(
-                page, _alt_candidates, container_type=current_ct,
-                discovery_ct=discovery_ct, is_el_select_option=False
+            # Split into xpaths and sources
+            _alt_xpaths = [c[0] for c in _alt_candidates]
+            _alt_sources = {i: c[1] for i, c in enumerate(_alt_candidates)}
+
+            _alt_vl, _alt_mp, _alt_cnt, _alt_idx = verify_locator_candidates(
+                page, _alt_xpaths, container_type=current_ct,
+                discovery_ct=discovery_ct, is_el_select_option=False,
+                return_index=True
             )
             if _alt_vl:
                 verified_locator = _alt_vl
                 matched_prefix = _alt_mp
                 elem_type = _alt_type  # update type for subsequent operations
+                hit_source = _alt_sources.get(_alt_idx)
                 print(f"    [TYPE-CORRECT] '{desc}' → {_alt_type} "
                       f"(corrected from initial type)")
                 break
@@ -1442,15 +1488,19 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                             if _m11_resolved:
                                 break
 
-                # KB locator 全部失败时，回退到 candidates[0]（原 M11 逻辑）
+                # KB locator 全部失败时，回退到第一个 KB candidate（原 M11 逻辑）
                 if not _m11_resolved:
-                    first_candidate = candidates[0]
-                    fallback_xpath = inject_hidden_filter(
-                        f"xpath={prefix_str}{first_candidate}")
-                    _fb_result = _verify_count_or_first(page, fallback_xpath)
-                    if _fb_result:
-                        verified_locator = _fb_result
-                        print(f"    [FALLBACK] '{desc}' → first-candidate with {_fb_prefix} prefix (M11)")
+                    # BUG-14 fix: candidates 是 list[tuple]，需解包取 c[0] xpath 和 c[1] source
+                    first_kb_candidate = next((c[0] for c in candidates if c[1] == 'kb'), None)
+                    if first_kb_candidate is None:
+                        first_kb_candidate = candidates[0][0] if candidates else None
+                    if first_kb_candidate:
+                        fallback_xpath = inject_hidden_filter(
+                            f"xpath={prefix_str}{first_kb_candidate}")
+                        _fb_result = _verify_count_or_first(page, fallback_xpath)
+                        if _fb_result:
+                            verified_locator = _fb_result
+                            print(f"    [FALLBACK] '{desc}' → first-kb-candidate with {_fb_prefix} prefix (M11)")
 
         # Fix-6: 仅当 discovery 已验证时保留 Phase 5 原始 locator
         # 设计意图（三层优先级）：
@@ -1522,11 +1572,13 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                         f"xpath={_bg_prefix_str}{_bg_raw}")
                     _bg_source = f'KB-fallback-{elem_type}'
 
-            # 优先级 3: candidates[0]（第一个候选 + 容器前缀）
+            # 优先级 3: 第一个 KB candidate 的 xpath（优先），否则第一个 candidate
             if not _bg_locator and candidates:
+                _first_kb_c = next((c[0] for c in candidates if c[1] == 'kb'), None)
+                _fallback_xpath = _first_kb_c if _first_kb_c else candidates[0][0]
                 _bg_locator = inject_hidden_filter(
-                    f"xpath={_bg_prefix_str}{candidates[0]}")
-                _bg_source = 'first-candidate'
+                    f"xpath={_bg_prefix_str}{_fallback_xpath}")
+                _bg_source = 'first-kb-candidate' if _first_kb_c else 'first-candidate'
 
             if _bg_locator:
                 # 防御性：count>1 时自动 [1] 收窄（与 M11 兜底路径一致）
@@ -1552,12 +1604,13 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             else:
                 # 真正的最后兜底：连 KB 模板都没有（类型不在 KB 覆盖范围）
                 is_best_guess = False
+                hit_source = None
                 if is_placeholder:
                     print(f"    [WARN] 占位符步骤 '{desc}' 验证失败 — "
                           f"KB 和 discovery 均未匹配，请检查前序步骤是否正确打开了容器")
                 else:
                     print(f"    [FALLBACK] '{desc}' — no candidate matched, KB 无覆盖")
-                return None, current_ct, False, False
+                return None, current_ct, False, False, hit_source
 
     # Execute the step
     try:
@@ -1578,14 +1631,14 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 page.locator("xpath=//body").click(position={'x': 10, 'y': 10})
             except Exception:
                 pass
-            return verified_locator, matched_prefix or current_ct, False, is_best_guess
+            return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
 
         if 'click' in keyword:
             # Check destructive operation protection
             if keyword in ('confirm_dialog', 'confirm_delete') or ('确' in desc and '定' in desc):
                 if should_skip_confirm(steps_so_far):
                     print(f"    [SKIP] '{desc}' — destructive operation protection")
-                    return verified_locator, matched_prefix or current_ct, True, is_best_guess
+                    return verified_locator, matched_prefix or current_ct, True, is_best_guess, hit_source
 
             # BUG-9: For row buttons (ancestor::tbody), hover the row first to reveal hidden buttons
             if 'tbody' in verified_locator:
@@ -1628,14 +1681,14 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 container_ct = _wait_for_container_after_click(page)
                 if container_ct:
                     _wait_for_dom_stable(page, timeout_ms=3000)
-                    return verified_locator, container_ct, False, is_best_guess
+                    return verified_locator, container_ct, False, is_best_guess, hit_source
             else:
                 # 快速检查已检测到容器 → 等待内部表单渲染
                 _wait_for_dom_stable(page, timeout_ms=3000)
                 for ct in CONTAINER_TYPES:
                     if ct in new_containers:
-                        return verified_locator, ct, False, is_best_guess
-            return verified_locator, matched_prefix or current_ct, False, is_best_guess
+                        return verified_locator, ct, False, is_best_guess, hit_source
+            return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
 
         elif 'fill' in keyword:
             value = params.get('value', '') if isinstance(params, dict) else ''
@@ -1652,8 +1705,8 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                     # BUG-2 修复：el-select 可能触发级联渲染
                     _wait_for_dom_stable(page, timeout_ms=2000)
                 if not ok:
-                    return None, matched_prefix or current_ct, False, is_best_guess
-                return verified_locator, matched_prefix or current_ct, False, is_best_guess
+                    return None, matched_prefix or current_ct, False, is_best_guess, hit_source
+                return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
             # 1c: iframe 填充支持 — 检测 locator 是否指向 iframe 元素
             _vl_clean = verified_locator.replace('xpath=', '') if verified_locator.startswith('xpath=') else verified_locator
             if 'iframe' in _vl_clean.lower():
@@ -1669,7 +1722,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                             if editor.count() > 0:
                                 editor.first.fill(value, timeout=5000)
                                 print(f"    [OK] 1c iframe fill: '{desc}'")
-                                return verified_locator, matched_prefix or current_ct, False, is_best_guess
+                                return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
                             else:
                                 print(f"    [WARN] iframe 内未找到可编辑元素，尝试标准 fill")
                         else:
@@ -1688,50 +1741,50 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                     )
                     if is_readonly:
                         # readonly el-select 触发器 — 验证 locator 存在即可，跳过 fill
-                        return verified_locator, matched_prefix or current_ct, False, is_best_guess
+                        return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
             except Exception:
                 pass  # 检测失败则走正常 fill 流程
 
             page.locator(verified_locator).fill(value, timeout=5000)
-            return verified_locator, matched_prefix or current_ct, False, is_best_guess
+            return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
 
         elif keyword in ('frame_fill_value', 'frame_click'):
             # iframe operations — skip for now
-            return verified_locator, matched_prefix or current_ct, False, is_best_guess
+            return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
 
         elif keyword == 'wait_for_element_visible':
             page.locator(verified_locator).first.wait_for(state='visible', timeout=5000)
-            return verified_locator, matched_prefix or current_ct, False, is_best_guess
+            return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
 
         elif keyword == 'wait_for_element_hidden':
             try:
                 page.locator(verified_locator).first.wait_for(state='hidden', timeout=5000)
             except Exception:
                 pass
-            return verified_locator, matched_prefix or current_ct, False, is_best_guess
+            return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
 
         elif keyword == 'get_text':
             try:
                 text = page.locator(verified_locator).first.text_content(timeout=3000)
             except Exception:
                 text = ''
-            return verified_locator, matched_prefix or current_ct, False, is_best_guess
+            return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
 
         elif keyword == 'get_element_count':
             try:
                 cnt = page.locator(verified_locator).count()
             except Exception:
                 cnt = 0
-            return verified_locator, matched_prefix or current_ct, False, is_best_guess
+            return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
 
         else:
             # Unknown keyword — just verify locator exists
             count = page.locator(verified_locator).count()
-            return verified_locator, matched_prefix or current_ct, False, is_best_guess
+            return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
 
     except Exception as e:
         print(f"    [ERROR] '{desc}': {str(e)[:100]}")
-        return verified_locator, matched_prefix or current_ct, False, is_best_guess
+        return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
 
 
 # ============================================================================
@@ -2267,7 +2320,7 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                         sub_steps = then_steps if cond_count > 0 else else_steps
                         for sub in sub_steps:
                             total_steps += 1
-                            v_loc, v_ct, v_skip, v_bg = execute_step(
+                            v_loc, v_ct, v_skip, v_bg, v_src = execute_step(
                                 page, sub, pages_dict, data_dict, steps_so_far,
                                 case_discovery, project_dir=project_dir,
                                 is_new_page_context=is_new_page_context,
@@ -2282,7 +2335,8 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                                 # v_skip=True 的 click（destructive protection）不清除，因为根本没执行
                                 container_context = None
                             if v_loc:
-                                _store_verified_locator(v_loc, v_ct, sub, pages_dict, verified_locators, is_best_guess=v_bg)
+                                if v_src != 'discovery':
+                                    _store_verified_locator(v_loc, v_ct, sub, pages_dict, verified_locators, is_best_guess=v_bg)
                                 if v_bg:
                                     fallback_count += 1
                                 else:
@@ -2296,7 +2350,7 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                     print(f"    [L3] {desc} → {len(sub_steps)} sub-steps")
                     for sub in sub_steps:
                         total_steps += 1
-                        v_loc, v_ct, v_skip, v_bg = execute_step(
+                        v_loc, v_ct, v_skip, v_bg, v_src = execute_step(
                             page, sub, pages_dict, data_dict, steps_so_far,
                             case_discovery, project_dir=project_dir,
                             is_new_page_context=is_new_page_context,
@@ -2310,7 +2364,8 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                             # 实际执行的 click 没检测到新容器 → 容器已关闭
                             container_context = None
                         if v_loc:
-                            _store_verified_locator(v_loc, v_ct, sub, pages_dict, verified_locators, is_best_guess=v_bg)
+                            if v_src != 'discovery':
+                                _store_verified_locator(v_loc, v_ct, sub, pages_dict, verified_locators, is_best_guess=v_bg)
                             if v_bg:
                                 fallback_count += 1
                             else:
@@ -2352,7 +2407,7 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                     print(f"    [L3] {desc} ({keyword}) → {len(sub_steps)} sub-steps")
                     for sub in sub_steps:
                         total_steps += 1
-                        v_loc, v_ct, v_skip, v_bg = execute_step(
+                        v_loc, v_ct, v_skip, v_bg, v_src = execute_step(
                             page, sub, pages_dict, data_dict, steps_so_far,
                             case_discovery, project_dir=project_dir,
                             is_new_page_context=is_new_page_context,
@@ -2366,7 +2421,8 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                             # 实际执行的 click 没检测到新容器 → 容器已关闭
                             container_context = None
                         if v_loc:
-                            _store_verified_locator(v_loc, v_ct, sub, pages_dict, verified_locators, is_best_guess=v_bg)
+                            if v_src != 'discovery':
+                                _store_verified_locator(v_loc, v_ct, sub, pages_dict, verified_locators, is_best_guess=v_bg)
                             if v_bg:
                                 fallback_count += 1
                             else:
@@ -2379,7 +2435,7 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                     continue
 
                 # Execute step
-                v_loc, v_ct, v_skip, v_bg = execute_step(
+                v_loc, v_ct, v_skip, v_bg, v_src = execute_step(
                     page, step, pages_dict, data_dict, steps_so_far,
                     case_discovery, project_dir=project_dir,
                     is_new_page_context=is_new_page_context,
@@ -2401,7 +2457,8 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                     skipped_count += 1
                     print(f"    [SKIP] Step {step_idx+1}: {desc}")
                 elif v_loc:
-                    _store_verified_locator(v_loc, v_ct, step, pages_dict, verified_locators, is_best_guess=v_bg)
+                    if v_src != 'discovery':
+                        _store_verified_locator(v_loc, v_ct, step, pages_dict, verified_locators, is_best_guess=v_bg)
                     if v_bg:
                         fallback_count += 1
                         print(f"    [UNVERIFIED] Step {step_idx+1}: {desc}")

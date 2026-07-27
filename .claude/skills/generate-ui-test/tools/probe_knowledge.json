@@ -59,14 +59,14 @@
         "name": "通用输入框",
         "patterns": [
           "//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner']",
-          "//label[contains(*,'{label}')]//following-sibling::*[self::div or self::span]//input[@class='el-input__inner']"
+          "//label[contains(.,'{label}')]//following-sibling::*[self::div or self::span]//input[@class='el-input__inner']"
         ]
       },
       "textarea-generic": {
         "name": "通用文本框",
         "patterns": [
           "//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//textarea",
-          "//label[contains(*,'{label}')]//following-sibling::*[self::div or self::span]//textarea"
+          "//label[contains(.,'{label}')]//following-sibling::*[self::div or self::span]//textarea"
         ]
       },
       "detail-link": {
@@ -89,7 +89,7 @@
       "option-card": {
         "name": "选项卡",
         "patterns": [
-          "//label[contains(*,'{label}')]//following-sibling::*[self::div or self::span]//*[contains(text(),'{option_text}')]"
+          "//label[contains(.,'{label}')]//following-sibling::*[self::div or self::span]//*[contains(text(),'{option_text}')]"
         ]
       }
     }
@@ -105,7 +105,7 @@
             "desc": "点击展开下拉框",
             "patterns": [
               "//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner']",
-              "//label[contains(*,'{label}')]//following-sibling::*[self::div or self::span]//input[@class='el-input__inner']"
+              "//label[contains(.,'{label}')]//following-sibling::*[self::div or self::span]//input[@class='el-input__inner']"
             ]
           },
           "fill": {
@@ -143,7 +143,7 @@
             "desc": "点击展开级联面板",
             "patterns": [
               "//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner']",
-              "//label[contains(*,'{label}')]//following-sibling::*[self::div or self::span]//input[@class='el-input__inner']"
+              "//label[contains(.,'{label}')]//following-sibling::*[self::div or self::span]//input[@class='el-input__inner']"
             ]
           },
           "expand-level": {
@@ -180,7 +180,7 @@
             "desc": "点击展开日期面板",
             "patterns": [
               "//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner']",
-              "//label[contains(*,'{label}')]//following-sibling::*[self::div or self::span]//input[@class='el-input__inner']"
+              "//label[contains(.,'{label}')]//following-sibling::*[self::div or self::span]//input[@class='el-input__inner']"
             ]
           },
           "select-today": {

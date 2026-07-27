@@ -1483,7 +1483,7 @@ class CaseGenerator:
 
             # KB 标准 XPath
             card_xpath = (
-                f"//label[contains(*,'{label}')]"
+                f"//label[contains(.,'{label}')]"
                 f"//following-sibling::*[self::div or self::span]"
                 f"//*[contains(text(),'{value}')]"
             )

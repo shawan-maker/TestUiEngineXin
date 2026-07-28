@@ -19,12 +19,12 @@ All legacy aliases resolve via normalize_type().
 import re
 
 # ════════════════════════════════════════════════════════════════════════
-# A. KB_TYPE_KEYS — All 22 KB canonical types + 1 reserved
+# A. KB_TYPE_KEYS — All 23 KB canonical types + 1 reserved
 # ════════════════════════════════════════════════════════════════════════
 
 KB_TYPE_KEYS = frozenset({
-    # ── single_step (12) ──
-    'button', 'search-button', 'download-button',
+    # ── single_step (13) ──
+    'button', 'search-button', 'download-button', 'close-button',
     'menu-item', 'tab',
     'checkbox', 'checkbox-all',
     'input-generic', 'textarea-generic',
@@ -65,6 +65,7 @@ STEP_TO_KB = {
     'click_btn': 'button',
     'search_btn': 'search-button',
     'download_btn': 'download-button',
+    'close_btn': 'close-button',
     'click_tab': 'tab',
     'menu_item': 'menu-item',
     'checkbox': 'checkbox',
@@ -101,6 +102,7 @@ TYPE_TO_SECTIONS = {
     'button':             ('buttons', 'row_buttons'),
     'search-button':      ('buttons', 'row_buttons'),
     'download-button':    ('buttons', 'row_buttons'),
+    'close-button':       ('buttons',),
     'dropdown-menu':      ('buttons', 'row_buttons'),
     'menu-item':          ('menu_items',),           # BUG-2 fix: was missing
     'tab':                ('tabs',),
@@ -148,6 +150,7 @@ DISCOVERY_TO_KB = {
     'menu-item':             'menu-item',
     'search-button':         'search-button',
     'download-button':       'download-button',
+    'close-button':          'close-button',
     'table-action-button':   'table-action-button',
     'tab':                   'tab',
     'rich_text':             'rich_text',            # RESERVED: iframe
@@ -177,6 +180,7 @@ KB_TO_SUFFIX = {
     'button':              '_btn',
     'search-button':       '_btn',
     'download-button':     '_btn',
+    'close-button':        '_close_btn',
     'menu-item':           '_menu',
     'tab':                 '_tab',
     'checkbox':            '_checkbox',
@@ -229,6 +233,7 @@ SUFFIX_MAP_COMPAT = {
     'date-picker':        '_select',
     'search-button':      '_btn',
     'download-button':    '_btn',
+    'close-button':       '_close_btn',
     'detail-link':        '_link',
     'table-action-button': '_btn',
     'dropdown-menu':      '_btn',
@@ -278,6 +283,7 @@ D4_RULES_DOC = [
     ('click + desc contains 编辑/删除/查看/详情', 'table-action-button'),     # BUG-3 fix
     ('click + desc contains 搜索/查询', 'search-button'),
     ('click + desc contains 导出/下载', 'download-button'),
+    ('click + desc contains 关闭按钮', 'close-button'),
     ('click + desc contains 更多', 'table-action-button'),   # Fix-2a: was dropdown-menu
     ('click + desc contains 菜单/menu', 'menu-item'),
     ('click (default)', 'button'),
@@ -443,15 +449,19 @@ def infer_elem_type(keyword, desc, locator_ref=None):
     # 1c. locator_ref suffix-based type detection — BUG-7 fix + H6 extension
     # _select/_editable → el-select; _textarea → textarea-generic; _input → input-generic
     # 类型从 discovery 通过 KB_TO_SUFFIX + label_to_key 传播到 pages YAML 后缀，零猜测
+    # BUG-FIX: 支持带容器 hash 后缀的字段名（如 _textarea_062f, _input_abcd）
     if locator_ref and isinstance(locator_ref, str):
         _m = re.match(r'^\$\{[^.]+\.([^}]+)\}$', locator_ref)
         if _m:
             _field = _m.group(1)
             if _field.endswith(('_select', '_editable')):
                 return 'el-select'
-            if _field.endswith('_textarea'):
+            # BUG-FIX: _textarea 可能后跟容器 hash（如 _textarea_062f）
+            # 使用正则匹配 _textarea 后跟 _ 或字符串结尾
+            if re.search(r'_textarea(?:_|$)', _field):
                 return 'textarea-generic'
-            if _field.endswith('_input'):
+            # BUG-FIX: _input 可能后跟容器 hash（如 _input_062f）
+            if re.search(r'_input(?:_|$)', _field):
                 return 'input-generic'
 
     # 3b. textarea (desc-based, strong hints) — R2 fix
@@ -497,7 +507,11 @@ def infer_elem_type(keyword, desc, locator_ref=None):
         # 7d. download-button
         if '导出' in desc or '下载' in desc:
             return 'download-button'
-        # 7e. table-action-button（"更多"是表格行操作按钮，触发 el-dropdown 展开）
+        # 7e-0. close-button（关闭按钮，如 el-tag closable 的 × 图标）
+        # 匹配 '关闭按钮' 或 '「关闭」按钮'
+        if '关闭' in desc and ('按钮' in desc or 'button' in keyword_lower):
+            return 'close-button'
+        # 7e-1. table-action-button（"更多"是表格行操作按钮，触发 el-dropdown 展开）
         # Fix-2a: dropdown-menu 在 KB composite 区域使用 steps 结构，
         #         get_all_patterns() 不可达 → KB 候选为零。
         #         "更多"按钮本身是 table-action-button（span），
@@ -583,23 +597,25 @@ def infer_type_from_field(field: str, locator: str = '') -> str:
     """从 field 名后缀和 locator 内容推断元素类型。
 
     优先级：
-    1. field 后缀匹配 FIELD_TYPE_SUFFIXES
+    1. field 后缀匹配 FIELD_TYPE_SUFFIXES（去除容器 hash 后缀）
     2. locator 内容特征（el-select/textarea/tab/checkbox）
     3. 默认 'button'
 
     原 probe_from_pages.py _infer_type() 迁移。
+    BUG-FIX: 去除容器 hash 后缀再检查类型后缀，支持 _textarea_062f 等字段。
 
     Args:
-        field: pages YAML 中的 field 名（如 'add_btn', 'name_input'）
+        field: pages YAML 中的 field 名（如 'add_btn', 'name_input_062f'）
         locator: locator 字符串（如 'xpath=//div[@class="el-select"]'）
 
     Returns:
         KB key 格式的元素类型（如 'button', 'el-select', 'input-generic'）
     """
-    field_lower = field.lower()
+    # BUG-FIX: 去除容器 hash 后缀（4位十六进制）再检查类型后缀
+    field_without_ct = re.sub(r'_[0-9a-f]{4}$', '', field.lower())
     # 后缀匹配（最长匹配优先）
     for suffix in sorted(FIELD_TYPE_SUFFIXES.keys(), key=len, reverse=True):
-        if field_lower.endswith(suffix):
+        if field_without_ct.endswith(suffix):
             return FIELD_TYPE_SUFFIXES[suffix]
     # locator 特征匹配
     if locator:

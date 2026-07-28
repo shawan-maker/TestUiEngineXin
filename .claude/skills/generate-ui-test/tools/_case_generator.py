@@ -731,7 +731,7 @@ class CaseGenerator:
 
     # Scheme 2: 类型守卫 — fill/textarea 步骤不兼容的元素类型
     _FILL_INCOMPATIBLE_TYPES = frozenset({
-        'button', 'row_button', 'download-button',
+        'button', 'row_button', 'download-button', 'close-button',
         'tab', 'detail_link', 'checkbox', 'menu_item',
     })
 
@@ -757,10 +757,11 @@ class CaseGenerator:
             return None, None
 
         field_key = elem.get('field_key', '')
-        field_prefix = field_key
+        field_without_ct = self._CT_HASH_RE.sub('', field_key)
+        field_prefix = field_without_ct
         for suf in ('_input', '_textarea'):
-            if field_key.endswith(suf):
-                field_prefix = field_key[:-len(suf)]
+            if field_without_ct.endswith(suf):
+                field_prefix = field_without_ct[:-len(suf)]
                 break
 
         info = {
@@ -896,6 +897,11 @@ class CaseGenerator:
     def _is_container_close(self, parsed):
         ptype = parsed['type']
         args = parsed['args']
+        # ===== 新增：处理 if_visible 包裹的关闭按钮 =====
+        # 当"确定"/"取消"按钮被 if_visible 包裹时，同样需要识别为容器关闭操作
+        if ptype == 'if_visible' and args:
+            label = args[0]
+            return any(kw in label for kw in self._CONTAINER_CLOSE_KEYWORDS)
         if ptype == 'click_btn' and args:
             label = args[0]
             return any(kw in label for kw in self._CONTAINER_CLOSE_KEYWORDS)
@@ -904,6 +910,21 @@ class CaseGenerator:
     def _is_container_open(self, parsed):
         ptype = parsed['type']
         args = parsed['args']
+        # ===== 新增：处理 if_visible 类型 =====
+        # 当按钮（如"新增"）被 if_visible 包裹时，同样需要识别为容器打开操作
+        if ptype == 'if_visible' and args:
+            label = args[0]
+            entry = self._discovery_trigger_map.get(label)
+            if entry:
+                result_type = entry.get('result_type')
+                is_open = result_type in ('container', 'navigation')
+                print(f"  [DEBUG-F7] _is_container_open: if_visible label='{label}', "
+                      f"result_type={result_type} → {is_open}")
+                return is_open
+            # if_visible 不匹配 heuristic（保守策略）
+            print(f"  [DEBUG-F7] _is_container_open: if_visible label='{label}' "
+                  f"no trigger_map entry → False")
+            return False
         if ptype in ('click_btn', 'click_table_row_btn') and args:
             label = args[0] if args else ''
             entry = self._discovery_trigger_map.get(label)
@@ -960,7 +981,7 @@ class CaseGenerator:
 
         if self._is_container_open(parsed):
             btn_label = ''
-            if parsed['type'] in ('click_btn', 'click_table_row_btn', 'click_detail_link') and parsed['args']:
+            if parsed['type'] in ('click_btn', 'click_table_row_btn', 'click_detail_link', 'if_visible') and parsed['args']:
                 btn_label = parsed['args'][0]
 
             entry = self._discovery_trigger_map.get(btn_label) if btn_label else None
@@ -987,7 +1008,7 @@ class CaseGenerator:
                       f"current_container='{self.current_container}' (from heuristic)")
                 if not dominant:
                     print(f"  [WARN] 按钮 '{btn_label}' 无 discovery 数据且无容器信息")
-        elif self._is_container_close(parsed) and parsed['type'] == 'click_btn':
+        elif self._is_container_close(parsed) and parsed['type'] in ('click_btn', 'if_visible'):
             self.current_container = None
             self._current_context = 'list_page'
             # [DEBUG-F7] 追踪容器关闭
@@ -1528,8 +1549,10 @@ class CaseGenerator:
                             prefixed_xpath = self._add_container_prefix_to_xpath(raw_xpath)
                             if prefixed_xpath != raw_xpath:
                                 # 确定字段后缀（_input 或 _textarea）
+                                # BUG-FIX: 先去除容器 hash 后缀再检测类型后缀
                                 elem_fk = disc_elem.get('field_key', '')
-                                if elem_fk.endswith('_textarea'):
+                                elem_fk_no_ct = self._CT_HASH_RE.sub('', elem_fk)
+                                if elem_fk_no_ct.endswith('_textarea'):
                                     f_suffix = '_textarea'
                                 else:
                                     f_suffix = '_input'
@@ -2464,6 +2487,35 @@ class CaseGenerator:
                 'keyword': 'click_element',
                 'params': {'locator': ref},
             })
+
+        elif ptype == 'close_btn':
+            label = args[0] if args else None
+
+            if label:
+                # 有标签：生成带标签的 XPath（KB 模板 pattern[0] + 隐藏过滤）
+                xpath = (
+                    f"//*[contains(text(),'{label}')]//following-sibling::i"
+                    f"[contains(@class,'el-icon-close')"
+                    f" and not(ancestor::*[contains(@class,'is-hidden')])"
+                    f" and not(ancestor::*[contains(@style,'display: none')])]"
+                )
+                steps.append({
+                    'desc': f'点击「{label}」的关闭按钮',
+                    'keyword': 'click_element',
+                    'params': {'locator': f'xpath={xpath}'},
+                })
+            else:
+                # 无标签：生成通用 XPath（KB 模板 pattern[1] + 隐藏过滤）
+                xpath = (
+                    "//i[contains(@class,'el-icon-close')"
+                    " and not(ancestor::*[contains(@class,'is-hidden')])"
+                    " and not(ancestor::*[contains(@style,'display: none')])]"
+                )
+                steps.append({
+                    'desc': '点击关闭按钮',
+                    'keyword': 'click_element',
+                    'params': {'locator': f'xpath={xpath}'},
+                })
 
         elif ptype == 'l3_call':
             cn_name = args[0]

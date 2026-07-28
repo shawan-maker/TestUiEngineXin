@@ -87,24 +87,29 @@ SECTION_DEFS = [
         "categories": ["download-button"],
     },
     {
-        "num": "六", "title": "搜索按钮",
+        "num": "六", "title": "关闭按钮（tag 标签关闭）",
+        "category_type": "single_step",
+        "categories": ["close-button"],
+    },
+    {
+        "num": "七", "title": "搜索按钮",
         "category_type": "single_step",
         "categories": ["search-button"],
     },
     {
-        "num": "七", "title": "页面中的普通按钮",
+        "num": "八", "title": "页面中的普通按钮",
         "category_type": "single_step",
         "categories": ["button"],
         "notes": "替换规则：按钮名称拆分为单字 contains 组合，如\"新增\" → `contains(.,\"新\") and contains(.,\"增\")`",
     },
     {
-        "num": "八", "title": "列表右侧按钮（表格行操作按钮）",
+        "num": "九", "title": "列表右侧按钮（表格行操作按钮）",
         "category_type": "composite",
         "categories": ["table-action-button"],
         "notes": "不是所有表格都有固定右侧列，必须通过 probe 确认使用哪种路径。",
     },
     {
-        "num": "九", "title": "列表右侧的\"更多\"展开按钮",
+        "num": "十", "title": "列表右侧的\"更多\"展开按钮",
         "category_type": "composite",
         "categories": ["dropdown-menu"],
         "steps_order": ["click-more", "click-action"],
@@ -118,29 +123,29 @@ SECTION_DEFS = [
         },
     },
     {
-        "num": "十", "title": "点击侧边的目录",
+        "num": "十一", "title": "点击侧边的目录",
         "category_type": "single_step",
         "categories": ["menu-item"],
     },
     {
-        "num": "十一", "title": "进入详情页",
+        "num": "十二", "title": "进入详情页",
         "category_type": "single_step",
         "categories": ["detail-link"],
     },
     {
-        "num": "十二", "title": "点击批量全选",
+        "num": "十三", "title": "点击批量全选",
         "category_type": "single_step",
         "categories": ["checkbox-all"],
     },
     {
-        "num": "十三", "title": "断言（存在即可，不用精确匹配到一个元素）",
+        "num": "十四", "title": "断言（存在即可，不用精确匹配到一个元素）",
         "category_type": "assertion",
         "categories": ["success-toast", "error-toast", "first-row-content", "field-value"],
         "no_hidden_filter": True,
         "intro": "断言定位器是隐藏过滤的例外 — `//*[contains(.,'xx')]` 通用文本匹配不需要加隐藏过滤属性。\n\n所有断言统一使用 `except_to_be_visible`，禁止使用 `except_to_have_text`/`except_to_have_value`/`except_to_have_attribute`。",
     },
     {
-        "num": "十四", "title": "多 tab 时右侧操作按钮",
+        "num": "十五", "title": "多 tab 时右侧操作按钮",
         "category_type": "composite",
         "categories": ["tab-scoped"],
         "steps_order": ["get-tab-id", "scoped-button", "scoped-input", "scoped-detail-link", "scoped-menu-item"],
@@ -154,7 +159,7 @@ SECTION_DEFS = [
         "notes": "⚠️ 多 tab 时，**所有元素**（不光是按钮）都要先切换 tab → 获取 aria-controls → 在 xpath 前加 `//div[@id='{变量}']` 前缀。",
     },
     {
-        "num": "十五", "title": "有 iframe 的情况",
+        "num": "十六", "title": "有 iframe 的情况",
         "category_type": None,  # 特殊：不对应 JSON 分类
         "categories": [],
         "intro": "同多 tab 的处理思路：如果探测发现某个元素在 iframe 下，先切换到 iframe，再进行相关操作。进入 iframe 后的元素定位或断言方法跟前面一样。",

@@ -1759,13 +1759,13 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                 new_count = 0
                 for cat, field in [('buttons', 'buttons'), ('inputs', 'inputs'),
                                    ('tabs', 'tabs'), ('detail_links', 'detail_links'),
-                                   ('checkboxes', 'checkboxes'), ('menu_items', 'menu_items')]:
+                                   ('checkboxes', 'checkboxes'), ('menu_items', 'menu_items'),
+                                   ('row_buttons', 'row_buttons')]:
                     for e in current_elements.get(cat, []):
                         key = (e.get('text', e.get('label', '')), e.get('type', ''))
                         if key not in baseline and (key[0] or key[1]):
                             _generate_locators_for_elements(page, [e], container_type=None)
-                            if not e.get('is_row_button'):
-                                list_page[field].append(e)
+                            list_page[field].append(e)
                             baseline.add(key)
                             new_count += 1
 

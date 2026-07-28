@@ -52,6 +52,10 @@ _RAW_PATTERNS = [
     (r'勾选第([一二三四五六七八九十\d]+)[个条]?(.*)',
      'check_first', ('row_num', 'item_desc')),
 
+    # ── 关闭按钮（通用，必须在 l3_call 之前，"点击关闭按钮" 6 字符会被 l3_call 拦截）──
+    (r'点击关闭按钮',
+     'close_btn', ()),
+
     # ── L3 中文关键字直调（最高优先级，必须在所有其他模式之前）──
     # Excel 中直接使用关键字名称 + 括号说明，如 "Tab页签搜索(点击任务提醒tab)"
     # 关键字名限制 2-8 字符（\w 含 Unicode word chars + digits，实际仅中英文+数字+下划线）
@@ -175,6 +179,9 @@ _RAW_PATTERNS = [
     # 如果有数据则点击"XX"区域（P-D2: 合并到 click_section）
     (rf'如果有数据则点击{Q}(.+?){Q}\s*区域',
      'click_section', ('section',)),
+    # 点击"XX"安全组关闭按钮（close_btn 专用，必须在 click_btn 之前）
+    (rf'点击{Q}(.+?){Q}\S*?关闭按钮',
+     'close_btn', ('label',)),
     # 点击/单击/点"XX"按钮（通用）
     (rf'(?:点击|单击|点){Q}(.+?){Q}\s*按钮',
      'click_btn', ('label',)),

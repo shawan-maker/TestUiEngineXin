@@ -23,6 +23,7 @@ import json
 import os
 import re
 import sys
+import hashlib
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
@@ -39,6 +40,16 @@ from _pages_writer import PagesWriter
 # ═══════════════════════════════════════════════════════════════
 # 模块映射
 # ═══════════════════════════════════════════════════════════════
+
+def _auto_generate_slug_inline(cn_name):
+    """自动生成 slug（与 build_module_map.py 保持一致）。"""
+    # 策略1: ASCII提取
+    ascii_part = re.sub(r'[^a-zA-Z0-9]', '', cn_name).lower()
+    if len(ascii_part) >= 3:
+        return ascii_part
+    # 策略2: MD5兜底
+    return 'mod_' + hashlib.md5(cn_name.encode()).hexdigest()[:8]
+
 
 def load_module_map(discovery_dir, module_map_str=''):
     """加载中文→英文模块映射。
@@ -126,11 +137,19 @@ def group_cases_by_module(excel_data, module_map_str, discovery_dir):
                     slug = disc_slug
                     break
         if not slug:
-            print(f"[FATAL] 无法匹配模块: '{cn}'")
-            print(f"  module_map.json 中的映射: {list(cn_to_slug.keys())}")
-            print(f"  可能原因: build_module_map.py 未运行或映射不完整")
-            print(f"  解决: 运行 Phase 4（自动生成 module_map.json），或使用 --module-map \"{cn}=<slug>\"")
-            sys.exit(1)
+            # 自动生成 slug 作为后备（与 build_module_map.py 保持一致）
+            slug = _auto_generate_slug_inline(cn)
+            # 碰撞检测：如果 slug 已存在（不同 cn 生成相同 hash），追加后缀
+            if slug in mapping.values():
+                original = slug
+                for suffix in range(2, 100):
+                    candidate = f'{original}_{suffix}'
+                    if candidate not in mapping.values():
+                        slug = candidate
+                        break
+                print(f"[WARN] 碰撞检测: '{cn}' → '{slug}' (原值 '{original}' 与已有模块冲突)")
+            print(f"[WARN] 模块 '{cn}' 无映射，自动生成 slug: '{slug}'")
+            print(f"  建议: 运行 Phase 4 自动生成 module_map.json，或使用 --module-map \"{cn}={slug}\"")
         mapping[cn] = slug
 
     # 按模块分组 cases
@@ -457,7 +476,9 @@ def _process_single_module(module_slug, case_list, discovery_dir, output_dir,
 
     # 2g. PagesWriter 生成 pages YAML
     if not args.skip_pages:
-        pages_dir = os.path.join(output_dir, 'pages', module_slug)
+        # 统一使用 hyphen 格式（与 Phase 4 run_phase4.py:327 保持一致）
+        pages_dir_name = module_slug.replace('_', '-')
+        pages_dir = os.path.join(output_dir, 'pages', pages_dir_name)
         os.makedirs(pages_dir, exist_ok=True)
         pages_path = os.path.join(pages_dir, 'elements.yaml')
 

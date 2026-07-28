@@ -40,6 +40,7 @@ def _extract_excel_modules(excel_path):
     """从 Excel 提取所有唯一的中文模块名（模块列值）。
 
     遍历所有 sheet，检测"模块"列（自动适配列标题变体），收集非空值。
+    如果 sheet 没有"模块"列，回退到 sheet 名称（与 read_excel.py extract_urls 修改7b 一致）。
     """
     wb = openpyxl.load_workbook(excel_path, read_only=True, data_only=True)
     modules = set()
@@ -48,6 +49,10 @@ def _extract_excel_modules(excel_path):
         col_map = detect_columns(headers)
         module_idx = col_map.get('module')
         if module_idx is None:
+            # 回退到 sheet 名称（与 read_excel.py extract_urls 修改7b 一致）
+            sheet_name = ws.title
+            if sheet_name and sheet_name != 'Sheet':
+                modules.add(sheet_name)
             continue
         for row in ws.iter_rows(min_row=2, values_only=True):
             if module_idx >= len(row):
@@ -134,7 +139,56 @@ def _scan_discovery_json(discovery_dir):
     return mapping
 
 
-def _build_mapping(cn_modules, en_slugs, yaml_comments, discovery_map, cli_overrides):
+def _auto_generate_slug(cn_name):
+    """从中文模块名自动生成英文 slug（首次运行兜底）。
+
+    策略链（与 generate_from_excel.py _auto_generate_slug_inline 完全一致）:
+      1. 提取 ASCII 部分（如 "PMO管理" → "pmo"），长度 >= 3 才采用
+      2. MD5 hash 兜底（mod_ 前缀 + 8 位 hex）
+
+    Returns: 合法 slug 字符串（永不为 None/空，确保首次运行不阻断）。
+    """
+    # 策略 1: ASCII 部分
+    ascii_part = re.sub(r'[^a-zA-Z0-9]', '', cn_name).lower()
+    if len(ascii_part) >= 3:
+        return ascii_part
+
+    # 策略 2: MD5 hash 兜底
+    import hashlib
+    return 'mod_' + hashlib.md5(cn_name.encode('utf-8')).hexdigest()[:8]
+
+
+def _extract_slug_from_url(cn_name, module_urls):
+    """从 module_urls.json 的 URL 路径第一段提取 slug。
+
+    例: "站内信查看" → URLs 含 "#/instation-mail/read-list" → "instation-mail"
+
+    Args:
+        cn_name: 中文模块名
+        module_urls: module_urls.json 内容 {中文名: {urls: [...]}}
+
+    Returns: slug 字符串或 None
+    """
+    if not module_urls or cn_name not in module_urls:
+        return None
+    urls = module_urls[cn_name].get('urls', [])
+    if not urls:
+        return None
+    url = urls[0]
+    # 优先匹配 #/path 格式（hash 路由），回退到普通 /path
+    match = re.search(r'#/([^/]+)', url)
+    if not match:
+        # 回退: 取域名后的第一个路径段
+        match = re.search(r'https?://[^/]+/([^/]+)', url)
+    if match:
+        segment = match.group(1)
+        # 基本校验: 全英文+连字符+数字，长度 2-30
+        if re.match(r'^[a-z][a-z0-9-]{1,29}$', segment):
+            return segment
+    return None
+
+
+def _build_mapping(cn_modules, en_slugs, yaml_comments, discovery_map, cli_overrides, module_urls=None):
     """构建中文模块名→英文 slug 映射。
 
     匹配优先级:
@@ -143,7 +197,8 @@ def _build_mapping(cn_modules, en_slugs, yaml_comments, discovery_map, cli_overr
     3. YAML 注释精确匹配 (cn_name == comment)
     4. YAML 注释子串匹配 (cn_name ⊂ comment 或 comment ⊂ cn_name)
     5. 中文名本身是英文 slug (cn_name in en_slugs)
-    6. 未匹配 → 报错退出
+    6. URL 路径第一段提取（如 #/instation-mail/... → instation-mail）
+    7. 自动 slug 生成（ASCII提取/MD5兜底）
     """
     result = OrderedDict()
     unmatched = []
@@ -181,7 +236,44 @@ def _build_mapping(cn_modules, en_slugs, yaml_comments, discovery_map, cli_overr
             result[cn] = cn
             continue
 
-        # Priority 6: unmatched
+        # Priority 6: URL path segment extraction
+        if module_urls:
+            url_slug = _extract_slug_from_url(cn, module_urls)
+            if url_slug:
+                # 碰撞检测
+                if url_slug in result.values():
+                    original = url_slug
+                    for suffix in range(2, 100):
+                        candidate = f'{original}-{suffix}'
+                        if candidate not in result.values():
+                            url_slug = candidate
+                            break
+                    print(f"[URL-SLUG] 碰撞检测: {cn} → {url_slug} (原值 {original} 与已有模块冲突)",
+                          file=sys.stderr)
+                result[cn] = url_slug
+                print(f"[URL-SLUG] {cn} → {url_slug}（从 URL 路径提取）",
+                      file=sys.stderr)
+                continue
+
+        # Priority 7: 自动 slug 生成（首次运行兜底，永不阻断）
+        auto_slug = _auto_generate_slug(cn)
+        if auto_slug:
+            # 碰撞检测：如果 auto_slug 已存在（不同 cn 生成相同 hash），追加后缀
+            if auto_slug in result.values():
+                original = auto_slug
+                for suffix in range(2, 100):
+                    candidate = f'{original}_{suffix}'
+                    if candidate not in result.values():
+                        auto_slug = candidate
+                        break
+                print(f"[AUTO-SLUG] 碰撞检测: {cn} → {auto_slug} (原值 {original} 与已有模块冲突)",
+                      file=sys.stderr)
+            result[cn] = auto_slug
+            print(f"[AUTO-SLUG] {cn} → {auto_slug}（自动生成，建议用 --module-map 确认）",
+                  file=sys.stderr)
+            continue
+
+        # Priority 7: unmatched
         unmatched.append(cn)
 
     if unmatched:
@@ -214,6 +306,8 @@ def main():
                         help='输出 JSON 文件路径')
     parser.add_argument('--module-map', default='',
                         help='手动覆盖映射，格式: 中文名1=slug1,中文名2=slug2')
+    parser.add_argument('--module-urls', default=None,
+                        help='module_urls.json 路径（可选，用于从 URL 提取 slug）')
 
     args = parser.parse_args()
 
@@ -249,8 +343,18 @@ def main():
         discovery_map = _scan_discovery_json(args.discovery_dir)
         print(f"[INFO] discovery JSON cn_name 映射: {discovery_map}")
 
+    # Step 4.5: 加载 module_urls.json（可选，用于 URL 路径提取）
+    module_urls = None
+    if args.module_urls and os.path.isfile(args.module_urls):
+        try:
+            with open(args.module_urls, encoding='utf-8') as f:
+                module_urls = json.load(f)
+            print(f"[INFO] 已加载 module_urls.json: {len(module_urls)} 个模块")
+        except Exception as e:
+            print(f"[WARN] 无法加载 module_urls.json: {e}", file=sys.stderr)
+
     # Step 5: 构建映射
-    mapping = _build_mapping(cn_modules, en_slugs, yaml_comments, discovery_map, cli_overrides)
+    mapping = _build_mapping(cn_modules, en_slugs, yaml_comments, discovery_map, cli_overrides, module_urls)
 
     # Step 6: 输出
     os.makedirs(os.path.dirname(args.output) or '.', exist_ok=True)

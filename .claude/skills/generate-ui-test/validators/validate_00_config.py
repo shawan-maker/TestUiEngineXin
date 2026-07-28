@@ -8,6 +8,7 @@
 5. 文件路径存在性（R0.4）
 6. 模块名命名规范（R0.5）
 7. 运行时认证验证 + UI 框架检测（R0.6，--runtime-check）
+8. YAML 格式规范（R0.6，禁止 Python docstring/shebang）
 
 用法：
     python validate_00_config.py <config_file>
@@ -99,10 +100,38 @@ def validate_discovery_files(project_dir):
     return True, f"OK ({len(discovery_files)} 个 discovery 文件)"
 
 
+def validate_yaml_format(config_file):
+    """R0.8: 验证 config.yaml 使用纯 YAML 格式，禁止 Python docstring 和 shebang"""
+    with open(config_file, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    errors = []
+
+    # 检查 Python docstring (""")
+    if '"""' in content:
+        errors.append('config.yaml 包含 Python docstring (""")，YAML 不支持此语法')
+
+    # 检查 shebang (#!/usr/bin/env python)
+    lines = content.split('\n')
+    if lines and lines[0].startswith('#!/usr/bin/env python'):
+        errors.append('config.yaml 第一行包含 Python shebang，YAML 文件不需要解释器指令')
+
+    if errors:
+        return False, '；'.join(errors)
+
+    return True, "OK"
+
+
 def validate_config(config_file):
     """主验证入口"""
     errors = []
     warnings = []
+
+    # R0.8: YAML 格式规范（最先检查，如果格式错误则后续无法解析）
+    if os.path.exists(config_file):
+        ok, msg = validate_yaml_format(config_file)
+        if not ok:
+            errors.append(f"[R0.8] YAML 格式: {msg}")
 
     # 加载配置文件
     if os.path.exists(config_file):

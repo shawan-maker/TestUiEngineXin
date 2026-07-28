@@ -203,10 +203,17 @@ def main():
             with open(module_map_path, encoding='utf-8') as f:
                 existing_map = json.load(f)
             if isinstance(existing_map, dict) and len(existing_map) > 0:
-                print(f"[INFO] 复用已有的 module_map.json ({len(existing_map)} 个映射)")
-                # 跳过 build_module_map.py
-                with open(module_map_path, encoding='utf-8') as f:
-                    cn_to_slug = json.load(f)
+                # 检查缓存覆盖率：是否覆盖当前 module_urls 的所有模块
+                missing_modules = set(module_urls.keys()) - set(existing_map.keys())
+                if missing_modules:
+                    print(f"[WARN] module_map.json 缺少 {len(missing_modules)} 个模块: {list(missing_modules)[:3]}{'...' if len(missing_modules) > 3 else ''}")
+                    print("[INFO] 删除旧缓存，重新生成")
+                    os.remove(module_map_path)
+                else:
+                    print(f"[INFO] 复用已有的 module_map.json ({len(existing_map)} 个映射)")
+                    # 跳过 build_module_map.py
+                    with open(module_map_path, encoding='utf-8') as f:
+                        cn_to_slug = json.load(f)
             else:
                 raise ValueError("Empty or invalid")
         except (json.JSONDecodeError, ValueError):
@@ -221,7 +228,8 @@ def main():
                    args.excel,
                    '--pages', pages_dir,
                    '--discovery-dir', probe_dir,
-                   '--output', module_map_path]
+                   '--output', module_map_path,
+                   '--module-urls', module_urls_path]
         if args.module_map:
             bmm_cmd.extend(['--module-map', args.module_map])
 
@@ -265,6 +273,20 @@ def main():
             if local_storage:
                 cmd.extend(['--local-storage', local_storage])
             ok = run_cmd(cmd, f'Step 2: 探测 {slug} ({cn_name})')
+
+            # 探测成功后立即回写 cn_name（不等 Step 2.5）
+            if ok and os.path.isfile(output_path) and cn_name and cn_name != slug:
+                try:
+                    with open(output_path, encoding='utf-8') as f:
+                        disc = json.load(f)
+                    if disc.get('cn_name') != cn_name:
+                        disc['cn_name'] = cn_name
+                        with open(output_path, 'w', encoding='utf-8') as f:
+                            json.dump(disc, f, ensure_ascii=False, indent=2)
+                        print(f"[INFO] {slug}: cn_name 已回写 → {cn_name}")
+                except Exception as e:
+                    print(f"[WARN] {slug}: cn_name 立即回写失败 — {e}", file=sys.stderr)
+
             results[slug] = {
                 'success': ok,
                 'output': output_path,
@@ -313,6 +335,64 @@ def main():
                     json.dump(disc, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"[WARN] {slug}: cn_name 回写失败 — {e}", file=sys.stderr)
+
+    # ── Step 2.6: 生成统一 discovery.json（多模块聚合）──
+    # 将所有模块的 per-module discovery 文件合并为一个统一的 discovery.json
+    # 解决问题 B: 多模块项目中 discovery.json 只保留最后一个模块的数据
+    if results:
+        print(f"\n{'='*60}")
+        print("Step 2.6: 生成统一 discovery.json（多模块聚合）")
+        print(f"{'='*60}")
+        all_discovery = []
+        for slug, res in results.items():
+            if not res.get('success'):
+                continue
+            disc_path = res.get('output', '')
+            if not os.path.isfile(disc_path):
+                # 尝试 merged 版本
+                merged = _merge_discovery_files(probe_dir, slug)
+                if merged:
+                    disc_path = merged
+            if os.path.isfile(disc_path):
+                with open(disc_path, encoding='utf-8') as f:
+                    data = json.load(f)
+                all_discovery.append(data)
+
+        unified_path = os.path.join(probe_dir, 'discovery.json')
+        if len(all_discovery) == 1:
+            # 单模块: 直接复制（与现有行为一致）
+            import shutil
+            src_path = results[list(results.keys())[0]].get('output', '')
+            if os.path.isfile(src_path):
+                shutil.copy2(src_path, unified_path)
+            print(f"  [OK] 单模块 → {os.path.basename(unified_path)}")
+        elif len(all_discovery) > 1:
+            # 多模块: 聚合为 modules[] 格式，同时展平 list_page/containers 保持向后兼容
+            _sections = ('buttons', 'row_buttons', 'inputs', 'tabs',
+                         'detail_links', 'checkboxes', 'menu_items')
+            flat_lp = {}
+            flat_containers = []
+            for disc in all_discovery:
+                lp = disc.get('list_page', {})
+                for sec in _sections:
+                    if sec in lp:
+                        flat_lp.setdefault(sec, []).extend(lp[sec])
+                for c in disc.get('containers', []):
+                    c_copy = dict(c)
+                    c_copy['_source_module'] = disc.get('module', '')
+                    flat_containers.append(c_copy)
+            unified = {
+                'modules': all_discovery,
+                'module_count': len(all_discovery),
+                'list_page': flat_lp,
+                'containers': flat_containers,
+            }
+            with open(unified_path, 'w', encoding='utf-8') as f:
+                json.dump(unified, f, ensure_ascii=False, indent=2)
+            total_elems = sum(len(v) for v in flat_lp.values()) + sum(
+                len(c.get('elements', [])) for c in flat_containers)
+            print(f"  [OK] {len(all_discovery)} 模块聚合 → {os.path.basename(unified_path)} "
+                  f"({total_elems} 元素, {len(flat_containers)} 容器)")
 
     # ── Step 3: 生成 pages YAML（v2: direct import — G17）──
     if not args.skip_generate:

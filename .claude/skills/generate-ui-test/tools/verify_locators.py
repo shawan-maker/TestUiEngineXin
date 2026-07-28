@@ -50,6 +50,7 @@ sys.path.insert(0, SCRIPT_DIR)
 from probe_element import (
     parse_cookie, detect_visible_containers,
     _xpath_escape_label, _safe_format, safe_count,
+    probe_element,
 )
 from probe_utils import (
     load_knowledge, get_kb_patterns, get_all_patterns,
@@ -1029,10 +1030,11 @@ _TAG_TO_KB_TYPE = {
 # 类型兼容性检查才能插入 _alt_types，否则同名表单字段会污染按钮类型。
 _R3_TYPE_COMPAT = {
     # 按钮类：只允许按钮子类型之间互转
-    'button':                {'button', 'search-button', 'download-button', 'table-action-button'},
+    'button':                {'button', 'search-button', 'download-button', 'close-button', 'table-action-button'},
     'table-action-button':   {'table-action-button', 'button'},
     'search-button':         {'search-button', 'button'},
     'download-button':       {'download-button', 'button'},
+    'close-button':          {'close-button', 'button'},
     # 输入类：input ↔ textarea 互转
     'input-generic':         {'input-generic', 'textarea-generic'},
     'textarea-generic':      {'textarea-generic', 'input-generic'},
@@ -1253,15 +1255,32 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         current_ct = container_context
         print(f"    [CONTEXT] detect_visible_containers 返回空，使用上次容器上下文: {container_context}")
 
+    # ── 统一兜底前缀计算（M11/R5 共用）──
+    # 规则：确认类按钮 → el-dialog | 新页面 → 无前缀 | 其他 → current_ct 优先，默认 drawer
+    if is_new_page_context:
+        _fallback_prefix = 'none'
+        _fallback_prefix_str = ''
+    elif label in DIALOG_CONFIRM_LABELS:
+        _fallback_prefix = 'dialog'
+        _fallback_prefix_str = CONTAINER_XPATH.get('dialog', '')
+    else:
+        _fallback_prefix = current_ct if current_ct else 'drawer'
+        _fallback_prefix_str = CONTAINER_XPATH.get(_fallback_prefix, '')
+
     # Build candidate locators
-    # NEW: candidates is now list of (xpath, source) tuples
-    # Priority: Discovery → KB → Original (was KB → Discovery → Original)
+    # Priority: KB → Discovery → Original (stable order, reverted from Discovery-first)
     candidates = []
 
     # M9: 占位符检测 — xpath=[待确认] 不是真实 locator，跳过作为候选
     is_placeholder = locator in ('xpath=[待确认]', '[待确认]')
 
-    # 优先级 0: Discovery locator (Phase 4 已验证)
+    # 优先级 0: KB templates (highest priority — stable, universal XPath patterns)
+    if label:
+        kb_locators = _get_kb_locators(elem_type, label)
+        for kb_xpath in kb_locators:
+            candidates.append((kb_xpath, 'kb'))
+
+    # 优先级 1: Discovery locator (Phase 4 verified)
     discovery_ct = None
     _discovery_verified = False  # Fix-6 条件：跟踪 discovery 是否已验证
     if discovery_data and label:
@@ -1273,15 +1292,9 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             disc_raw = (disc_locator.replace('xpath=', '')
                         if disc_locator.startswith('xpath=')
                         else disc_locator)
-            candidates.append((disc_raw, 'discovery'))
-
-    # 优先级 1: KB templates
-    if label:
-        kb_locators = _get_kb_locators(elem_type, label)
-        for kb_xpath in kb_locators:
-            # 去重（discovery 可能和 KB 模板一样）
-            if not any(c[0] == kb_xpath for c in candidates):
-                candidates.append((kb_xpath, 'kb'))
+            # 去重（KB 可能和 discovery 一样）
+            if not any(c[0] == disc_raw for c in candidates):
+                candidates.append((disc_raw, 'discovery'))
 
     # F2: candidates 为空时，将有效 locator 加入候选
     #
@@ -1306,9 +1319,9 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
     # Priority 3: Click-type wildcard fallback — last resort for click steps only
     # Only applies to button/table-action-button/detail-link types.
     # Excluded: input-generic, el-select, textarea, tab, checkbox, etc.
-    # Guarded by verify_locator_candidates count=1 + visible check.
+    # Guarded by [1] to avoid count>1 strict mode violation.
     if elem_type in CLICK_EXPAND_TYPES and label:
-        _click_fb = f"//*[contains(text(),'{label}')]"
+        _click_fb = f"(//*[contains(text(),'{label}')])[1]"
         if not any(c[0] == _click_fb for c in candidates):
             candidates.append((_click_fb, 'kb-fallback'))
 
@@ -1360,7 +1373,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         # 当 _infer_elem_type 返回子类型（如 table-action-button）但 KB 和 discovery
         # 均未验证通过时，尝试基类 button 作为安全网。
         # 与 Fix-2b-A 互补：A 在入口处修正类型，B 在 R4 重试时兜底。
-        elif elem_type in ('table-action-button', 'search-button', 'download-button'):
+        elif elem_type in ('table-action-button', 'search-button', 'download-button', 'close-button'):
             if 'button' not in _alt_types:
                 _alt_types.append('button')
 
@@ -1368,7 +1381,12 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         for _alt_type in _alt_types[1:]:
             _alt_candidates = []
 
-            # Discovery locator (with relaxed type guard) - Priority 0
+            # KB locators for this type - Priority 0 (highest)
+            _alt_kb = _get_kb_locators(_alt_type, label)
+            for _alt_kb_xpath in _alt_kb:
+                _alt_candidates.append((_alt_kb_xpath, 'kb'))
+
+            # Discovery locator (with relaxed type guard) - Priority 1
             if discovery_data:
                 _alt_disc, _alt_disc_ct = _find_in_discovery(
                     discovery_data, label, preferred_container=current_ct,
@@ -1376,17 +1394,13 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 if _alt_disc:
                     _alt_disc_raw = (_alt_disc.replace('xpath=', '')
                                     if _alt_disc.startswith('xpath=') else _alt_disc)
-                    _alt_candidates.append((_alt_disc_raw, 'discovery'))
-
-            # KB locators for this type - Priority 1
-            _alt_kb = _get_kb_locators(_alt_type, label)
-            for _alt_kb_xpath in _alt_kb:
-                if not any(c[0] == _alt_kb_xpath for c in _alt_candidates):
-                    _alt_candidates.append((_alt_kb_xpath, 'kb'))
+                    # 去重
+                    if not any(c[0] == _alt_disc_raw for c in _alt_candidates):
+                        _alt_candidates.append((_alt_disc_raw, 'discovery'))
 
             # Priority 3: Click-type wildcard fallback — last resort for click steps only
             if _alt_type in CLICK_EXPAND_TYPES and label:
-                _click_fb = f"//*[contains(text(),'{label}')]"
+                _click_fb = f"(//*[contains(text(),'{label}')])[1]"
                 if not any(c[0] == _click_fb for c in _alt_candidates):
                     _alt_candidates.append((_click_fb, 'kb-fallback'))
 
@@ -1449,13 +1463,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                     print(f"    [FALLBACK] '{desc}' → dialog-confirm")
             elif candidates:
                 # M11: KB locator优先兜底，candidates[0] 最后回退
-                if is_new_page_context:
-                    _fb_prefix = 'none'
-                    prefix_str = ''
-                else:
-                    # H5: 用 detect_visible_containers 结果替代硬编码 'drawer'
-                    _fb_prefix = current_ct if current_ct else 'drawer'
-                    prefix_str = CONTAINER_XPATH.get(_fb_prefix, '')
+                # 使用函数开头计算的统一前缀变量 _fallback_prefix / _fallback_prefix_str
 
                 # M11 修复: 优先用 KB locator 兜底，不用 candidates[0]
                 _m11_resolved = False
@@ -1463,11 +1471,11 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                     kb_locators = _get_kb_locators(elem_type, label)
                     for kb_loc in kb_locators:
                         fallback_xpath = inject_hidden_filter(
-                            f"xpath={prefix_str}{kb_loc}")
+                            f"xpath={_fallback_prefix_str}{kb_loc}")
                         _fb_result = _verify_count_or_first(page, fallback_xpath)
                         if _fb_result:
                             verified_locator = _fb_result
-                            print(f"    [FALLBACK] '{desc}' → KB-{elem_type} with {_fb_prefix} prefix (M11)")
+                            print(f"    [FALLBACK] '{desc}' → KB-{elem_type} with {_fallback_prefix} prefix (M11)")
                             _m11_resolved = True
                             break
 
@@ -1477,12 +1485,12 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                             cross_kb_locators = _get_kb_locators(_cross_type, label)
                             for kb_loc in cross_kb_locators:
                                 fallback_xpath = inject_hidden_filter(
-                                    f"xpath={prefix_str}{kb_loc}")
+                                    f"xpath={_fallback_prefix_str}{kb_loc}")
                                 _fb_result = _verify_count_or_first(page, fallback_xpath)
                                 if _fb_result:
                                     verified_locator = _fb_result
                                     print(f"    [FALLBACK] '{desc}' → KB-{_cross_type} "
-                                          f"with {_fb_prefix} prefix (M11 cross-type)")
+                                          f"with {_fallback_prefix} prefix (M11 cross-type)")
                                     _m11_resolved = True
                                     break
                             if _m11_resolved:
@@ -1496,11 +1504,11 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                         first_kb_candidate = candidates[0][0] if candidates else None
                     if first_kb_candidate:
                         fallback_xpath = inject_hidden_filter(
-                            f"xpath={prefix_str}{first_kb_candidate}")
+                            f"xpath={_fallback_prefix_str}{first_kb_candidate}")
                         _fb_result = _verify_count_or_first(page, fallback_xpath)
                         if _fb_result:
                             verified_locator = _fb_result
-                            print(f"    [FALLBACK] '{desc}' → first-kb-candidate with {_fb_prefix} prefix (M11)")
+                            print(f"    [FALLBACK] '{desc}' → first-kb-candidate with {_fallback_prefix} prefix (M11)")
 
         # Fix-6: 仅当 discovery 已验证时保留 Phase 5 原始 locator
         # 设计意图（三层优先级）：
@@ -1548,19 +1556,14 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             _bg_locator = None
             _bg_source = None
 
-            # 计算兜底前缀（与 M11 逻辑对齐）
-            if is_new_page_context:
-                _bg_prefix_str = ''
-            else:
-                _bg_ct = current_ct if current_ct else 'drawer'
-                _bg_prefix_str = CONTAINER_XPATH.get(_bg_ct, '')
+            # 使用函数开头计算的统一前缀变量 _fallback_prefix_str
 
             # 优先级 1: KB 模板 locator（推断类型 + 容器前缀）
             if label:
                 kb_locs = _get_kb_locators(elem_type, label)
                 if kb_locs:
                     _bg_locator = inject_hidden_filter(
-                        f"xpath={_bg_prefix_str}{kb_locs[0]}")
+                        f"xpath={_fallback_prefix_str}{kb_locs[0]}")
                     _bg_source = f'KB-{elem_type}'
 
             # 优先级 2: KB fallback 函数
@@ -1569,7 +1572,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 if fb and fb.get('locator'):
                     _bg_raw = fb['locator'].replace('xpath=', '') if fb['locator'].startswith('xpath=') else fb['locator']
                     _bg_locator = inject_hidden_filter(
-                        f"xpath={_bg_prefix_str}{_bg_raw}")
+                        f"xpath={_fallback_prefix_str}{_bg_raw}")
                     _bg_source = f'KB-fallback-{elem_type}'
 
             # 优先级 3: 第一个 KB candidate 的 xpath（优先），否则第一个 candidate
@@ -1577,7 +1580,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 _first_kb_c = next((c[0] for c in candidates if c[1] == 'kb'), None)
                 _fallback_xpath = _first_kb_c if _first_kb_c else candidates[0][0]
                 _bg_locator = inject_hidden_filter(
-                    f"xpath={_bg_prefix_str}{_fallback_xpath}")
+                    f"xpath={_fallback_prefix_str}{_fallback_xpath}")
                 _bg_source = 'first-kb-candidate' if _first_kb_c else 'first-candidate'
 
             if _bg_locator:
@@ -1602,15 +1605,66 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 print(f"    [UNVERIFIED] '{desc}' → {_bg_source} "
                       f"({_bg_note}, 兜底回写)")
             else:
-                # 真正的最后兜底：连 KB 模板都没有（类型不在 KB 覆盖范围）
-                is_best_guess = False
-                hit_source = None
-                if is_placeholder:
-                    print(f"    [WARN] 占位符步骤 '{desc}' 验证失败 — "
-                          f"KB 和 discovery 均未匹配，请检查前序步骤是否正确打开了容器")
-                else:
-                    print(f"    [FALLBACK] '{desc}' — no candidate matched, KB 无覆盖")
-                return None, current_ct, False, False, hit_source
+                # ── R6: probe_element() 深度 DOM 探测（最后兜底）──
+                # 仅当以下条件全部满足时触发：
+                #   1. R5 兜底失败（_bg_locator 为 None）
+                #   2. 原始 locator 是占位符（is_placeholder == True）
+                #   3. 有 label 可以提取
+                #   4. 有浏览器页面可用
+                if is_placeholder and label and page is not None:
+                    print(f"    [R6-PROBE] '{desc}' → 调用 probe_element() 深度 DOM 探测...")
+
+                    try:
+                        # 推断容器类型（从 current_ct 或步骤上下文）
+                        _r6_container_types = None
+                        if current_ct and current_ct in ('el-drawer', 'el-dialog', 'el-message-box'):
+                            _r6_container_types = [current_ct]
+
+                        # 调用 probe_element() 进行深度探测
+                        _r6_result = probe_element(
+                            page,
+                            elem_type,      # 推断的元素类型
+                            label,          # 提取的标签
+                            None,           # key（不需要）
+                            container_types=_r6_container_types
+                        )
+
+                        if _r6_result and _r6_result.get('locator'):
+                            _r6_locator = _r6_result['locator']
+
+                            # 验证 probe_element 生成的 XPath
+                            _r6_narrowed = _verify_count_or_first(page, _r6_locator)
+                            if _r6_narrowed:
+                                verified_locator = _r6_narrowed
+                                is_best_guess = True
+                                hit_source = 'R6-probe_element'
+                                _r6_count_note = 'count=1' if _r6_narrowed == _r6_locator else 'count>1 [1]'
+                                print(f"    [R6-OK] '{desc}' → probe_element() 成功 ({_r6_count_note})")
+                            else:
+                                # count==0：加 [1] 防御
+                                _r6_raw = (_r6_locator.replace('xpath=', '', 1)
+                                           if _r6_locator.startswith('xpath=')
+                                           else _r6_locator)
+                                verified_locator = f"xpath=({_r6_raw})[1]"
+                                is_best_guess = True
+                                hit_source = 'R6-probe_element-count0'
+                                print(f"    [R6-WARN] '{desc}' → probe_element() count=0, [1] 防御")
+                        else:
+                            print(f"    [R6-SKIP] '{desc}' → probe_element() 未生成 locator")
+
+                    except Exception as _r6_err:
+                        print(f"    [R6-ERROR] '{desc}' → probe_element() 调用失败: {_r6_err}")
+
+                # 如果 R6 也未解决，走原有逻辑
+                if not verified_locator:
+                    is_best_guess = False
+                    hit_source = None
+                    if is_placeholder:
+                        print(f"    [WARN] 占位符步骤 '{desc}' 验证失败 — "
+                              f"KB 和 discovery 均未匹配，请检查前序步骤是否正确打开了容器")
+                    else:
+                        print(f"    [FALLBACK] '{desc}' — no candidate matched, KB 无覆盖")
+                    return None, current_ct, False, False, hit_source
 
     # Execute the step
     try:
@@ -2112,9 +2166,56 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
     discovery_data = None
     _v7_flat = None  # G7: V7 展平回退数据（None = 非 V7 或未加载）
     _discovery_pages_by_url = {}  # V7: URL → discovery page mapping
+
+    # C: 自动发现 discovery 文件（如果未提供 --discovery 参数）
+    if discovery_path is None:
+        probe_dir = os.path.join(project_dir, '_probe')
+        if os.path.isdir(probe_dir):
+            # 优先级 1: 统一的多模块 discovery.json
+            unified_path = os.path.join(probe_dir, 'discovery.json')
+            if os.path.isfile(unified_path):
+                discovery_path = unified_path
+                print(f"[INFO] Auto-discover: {unified_path}")
+
+            # 优先级 2: 模块专属的 discovery 文件
+            if discovery_path is None and module:
+                module_path = os.path.join(probe_dir, f'discovery_{module}.json')
+                module_merged_path = os.path.join(probe_dir, f'discovery_{module}_merged.json')
+                if os.path.isfile(module_merged_path):
+                    discovery_path = module_merged_path
+                    print(f"[INFO] Auto-discover: {module_merged_path}")
+                elif os.path.isfile(module_path):
+                    discovery_path = module_path
+                    print(f"[INFO] Auto-discover: {module_path}")
+
     if discovery_path and os.path.isfile(discovery_path):
         with open(discovery_path, encoding='utf-8') as f:
             discovery_data = json.load(f)
+
+        # C: 处理统一的多模块 discovery 格式
+        if 'modules' in discovery_data and isinstance(discovery_data['modules'], list):
+            if module:
+                # 提取指定模块的数据
+                for mod_data in discovery_data['modules']:
+                    if mod_data.get('module') == module:
+                        discovery_data = mod_data
+                        print(f"[INFO] 从统一 discovery 提取模块: {module}")
+                        break
+                else:
+                    # 未找到指定模块，使用展平的容器数据
+                    discovery_data = {
+                        'list_page': discovery_data.get('list_page', {}),
+                        'containers': discovery_data.get('containers', []),
+                    }
+                    print(f"[WARN] 模块 {module} 未在统一 discovery 中找到，使用展平数据")
+            else:
+                # 未指定模块，使用展平的容器数据
+                discovery_data = {
+                    'list_page': discovery_data.get('list_page', {}),
+                    'containers': discovery_data.get('containers', []),
+                }
+                print(f"[INFO] 使用统一 discovery 的展平数据")
+
         # V7: detect multi-page discovery format
         if 'pages' in discovery_data and isinstance(discovery_data['pages'], list):
             for dp in discovery_data['pages']:
@@ -2331,12 +2432,17 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                                 container_context = v_ct
                             elif (v_ct is None and not v_skip
                                   and sub.get('keyword', '') in ('click_element', 'click')):
-                                # 实际执行的 click 没检测到新容器 → 容器已关闭（任何 click 都可能关闭容器）
-                                # v_skip=True 的 click（destructive protection）不清除，因为根本没执行
-                                container_context = None
+                                # 双重确认：检测容器是否真的消失了
+                                if container_context:
+                                    current_containers = detect_visible_containers(page)
+                                    if container_context not in current_containers:
+                                        old_ct = container_context
+                                        container_context = None
+                                        print(f"    [CONTEXT] 容器 {old_ct} 已关闭，清除上下文")
+                                    else:
+                                        print(f"    [CONTEXT] 容器 {container_context} 仍然存在，保持上下文")
                             if v_loc:
-                                if v_src != 'discovery':
-                                    _store_verified_locator(v_loc, v_ct, sub, pages_dict, verified_locators, is_best_guess=v_bg)
+                                _store_verified_locator(v_loc, v_ct, sub, pages_dict, verified_locators, is_best_guess=v_bg)
                                 if v_bg:
                                     fallback_count += 1
                                 else:
@@ -2361,11 +2467,17 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                             container_context = v_ct
                         elif (v_ct is None and not v_skip
                               and sub.get('keyword', '') in ('click_element', 'click')):
-                            # 实际执行的 click 没检测到新容器 → 容器已关闭
-                            container_context = None
+                            # 双重确认：检测容器是否真的消失了
+                            if container_context:
+                                current_containers = detect_visible_containers(page)
+                                if container_context not in current_containers:
+                                    old_ct = container_context
+                                    container_context = None
+                                    print(f"    [CONTEXT] 容器 {old_ct} 已关闭，清除上下文")
+                                else:
+                                    print(f"    [CONTEXT] 容器 {container_context} 仍然存在，保持上下文")
                         if v_loc:
-                            if v_src != 'discovery':
-                                _store_verified_locator(v_loc, v_ct, sub, pages_dict, verified_locators, is_best_guess=v_bg)
+                            _store_verified_locator(v_loc, v_ct, sub, pages_dict, verified_locators, is_best_guess=v_bg)
                             if v_bg:
                                 fallback_count += 1
                             else:
@@ -2418,11 +2530,17 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                             container_context = v_ct
                         elif (v_ct is None and not v_skip
                               and sub.get('keyword', '') in ('click_element', 'click')):
-                            # 实际执行的 click 没检测到新容器 → 容器已关闭
-                            container_context = None
+                            # 双重确认：检测容器是否真的消失了
+                            if container_context:
+                                current_containers = detect_visible_containers(page)
+                                if container_context not in current_containers:
+                                    old_ct = container_context
+                                    container_context = None
+                                    print(f"    [CONTEXT] 容器 {old_ct} 已关闭，清除上下文")
+                                else:
+                                    print(f"    [CONTEXT] 容器 {container_context} 仍然存在，保持上下文")
                         if v_loc:
-                            if v_src != 'discovery':
-                                _store_verified_locator(v_loc, v_ct, sub, pages_dict, verified_locators, is_best_guess=v_bg)
+                            _store_verified_locator(v_loc, v_ct, sub, pages_dict, verified_locators, is_best_guess=v_bg)
                             if v_bg:
                                 fallback_count += 1
                             else:
@@ -2447,8 +2565,15 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                     container_context = v_ct
                 elif (v_ct is None and not v_skip
                       and keyword in ('click_element', 'click')):
-                    # 实际执行的 click 没检测到新容器 → 容器已关闭
-                    container_context = None
+                    # 双重确认：检测容器是否真的消失了
+                    if container_context:
+                        current_containers = detect_visible_containers(page)
+                        if container_context not in current_containers:
+                            old_ct = container_context
+                            container_context = None
+                            print(f"    [CONTEXT] 容器 {old_ct} 已关闭，清除上下文")
+                        else:
+                            print(f"    [CONTEXT] 容器 {container_context} 仍然存在，保持上下文")
                 # open_url/refresh 后清除容器上下文（页面跳转）
                 if keyword in ('open_url', 'refresh'):
                     container_context = None
@@ -2457,8 +2582,7 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                     skipped_count += 1
                     print(f"    [SKIP] Step {step_idx+1}: {desc}")
                 elif v_loc:
-                    if v_src != 'discovery':
-                        _store_verified_locator(v_loc, v_ct, step, pages_dict, verified_locators, is_best_guess=v_bg)
+                    _store_verified_locator(v_loc, v_ct, step, pages_dict, verified_locators, is_best_guess=v_bg)
                     if v_bg:
                         fallback_count += 1
                         print(f"    [UNVERIFIED] Step {step_idx+1}: {desc}")

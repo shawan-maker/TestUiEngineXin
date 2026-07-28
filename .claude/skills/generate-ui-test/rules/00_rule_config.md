@@ -44,3 +44,25 @@ Excel/CSV 输入文件路径必须存在且可读。
 - 下划线：`problem_manage`
 - 中文字符：`问题管理`
 - 特殊字符：`problem@manage`
+
+## R0.8 config.yaml 格式规范
+
+`config.yaml` 是 YAML 文件，**注释必须用 `#` 开头**，禁止 Python docstring `"""` 和 shebang `#!/usr/bin/env python3`。
+
+**正确**：
+```yaml
+# 环境配置文件 — 被测系统
+# 认证方式：Cookie + localStorage
+browser_type: chromium
+```
+
+**禁止**：
+```yaml
+#!/usr/bin/env python3
+"""
+环境配置文件
+"""
+browser_type: chromium
+```
+
+YAML 不识别 `"""` 语法，会导致解析错误。文件头注释参考 `templates/config.yaml.tpl` 的格式（`# ============` 分隔线 + `# 说明`）。

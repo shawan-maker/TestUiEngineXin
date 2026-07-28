@@ -33,7 +33,7 @@ from _element_types import (
 
 STANDARD_SUFFIXES = (
     '_select', '_input', '_option', '_editable', '_first_option',
-    '_btn', '_text', '_textarea', '_link', '_area', '_field',
+    '_btn', '_close_btn', '_text', '_textarea', '_link', '_area', '_field',
     '_count', '_tab', '_cascader', '_level', '_checkbox',
     '_iframe', '_body', '_row_link', '_row', '_menu', '_card',
 )
@@ -44,7 +44,7 @@ STANDARD_SUFFIXES = (
 # _FIELD_RE 从 YAML 字段行提取前缀，只匹配核心后缀
 
 FIELD_RE_SUFFIXES = (
-    'select', 'input', 'option', 'btn', 'text', 'textarea',
+    'select', 'input', 'option', 'btn', 'close_btn', 'text', 'textarea',
     'link', 'area', 'field', 'count', 'editable', 'iframe', 'body', 'row',
     'cascader', 'checkbox', 'checkbox_all', 'menu', 'card',
 )
@@ -218,7 +218,11 @@ def label_to_key(label, elem_type, container_type=None, skip_container_prefix=Fa
     # 通用按钮（所有项目共享）
     if normalized in UNIVERSAL_BUTTONS:
         base = UNIVERSAL_BUTTONS[normalized]
-        key = f'{base}{suffix}'
+        # close-button 类型的"关闭"标签，直接用 suffix（避免 close_close_btn）
+        if base == 'close' and suffix == '_close_btn':
+            key = 'close_btn'
+        else:
+            key = f'{base}{suffix}'
     else:
         # ASCII 优先提取（如 PMO更新 → pmo、GO → go）
         ascii_part = re.sub(r'[^a-zA-Z0-9]', '', normalized)

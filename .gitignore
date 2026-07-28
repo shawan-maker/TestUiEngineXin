@@ -28,6 +28,7 @@ build/
 !.claude/skills/
 .claude/skills/generate-ui-test-v2/
 .claude/skills/generate-ui-test（v6）/
+.claude/skills/bak/
 
 # ===== 示例项目（独立管理，引擎不依赖） =====
 examples/

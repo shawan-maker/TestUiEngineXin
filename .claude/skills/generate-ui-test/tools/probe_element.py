@@ -302,7 +302,7 @@ def probe_element(page, etype, label, key, container_types=None):
         return probe_el_select(page, label, key, container_types=container_types)
     elif actual_type == "el-cascader":
         return probe_el_cascader(page, label, key, container_types=container_types)
-    elif actual_type in ("button", "search-button", "download-button"):
+    elif actual_type in ("button", "search-button", "download-button", "close-button"):
         return probe_button(page, label, key, container_types=container_types)
     elif actual_type == "table-action-button":
         return probe_table_action_button(page, label, key, container_types=container_types)
@@ -364,6 +364,8 @@ def _detect_subtype(page, etype, label, key):
             return 'search-button'
         if any(kw in key_lower for kw in ('download', 'export', 'daochu')):
             return 'download-button'
+        if any(kw in key_lower for kw in ('close', 'guanbi')):
+            return 'close-button'
         # 表格上下文检测
         if _has_table_context(page):
             return 'table-action-button'

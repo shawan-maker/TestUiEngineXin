@@ -31,6 +31,13 @@
           "//div[@role='tabpanel' and not(contains(@style,'display: none'))]//i[@class='el-icon-download']"
         ]
       },
+      "close-button": {
+        "name": "关闭按钮",
+        "patterns": [
+          "//*[contains(text(),'{label}')]//following-sibling::i[contains(@class,'el-icon-close')]",
+          "//i[contains(@class,'el-icon-close')]"
+        ]
+      },
       "menu-item": {
         "name": "侧边目录",
         "patterns": [

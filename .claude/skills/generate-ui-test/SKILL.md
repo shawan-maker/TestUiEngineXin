@@ -32,10 +32,15 @@
 
 1. **项目名称** — 可从目录名推断
 2. **目标系统 URL** — 必填
-3. **模块名称** — 默认 `common`
-4. **浏览器类型** — 默认 chromium
-5. **输入来源** — 自然语言 / Excel / CSV
+3. **输入来源** — 自然语言 / Excel / CSV
+4. **模块名称** — 仅在输入来源为自然语言或 CSV 时询问，默认 `common`。**Excel 输入时不问**，自动从"模块"列提取
+5. **浏览器类型** — 默认 chromium
 6. **认证方式**（默认 none）：none / cookie（推荐）/ header / localStorage
+
+**Excel 模块自动提取规则**：
+- 优先从"模块"列逐行读取中文模块名
+- 无"模块"列时回退到 Sheet 名称
+- 提取后展示给用户确认（不询问）
 
 **Cookie 收集**：选择 `cookie` 时直接输出提示：
 > 请在下方发送 Cookie 字符串：F12 → Network → 任意请求 → Headers → Cookie → 整串复制
@@ -53,6 +58,9 @@ case 中 locator 引用 `${group.field}`（pages/），value 引用 `${group.fie
 
 ### ④ pages YAML 工具生成
 必须通过 `generate_from_excel.py` 生成。例外：`common_elements` 和 `detail_page_elements` 可手动追加。
+
+### ⑤ config.yaml 纯 YAML 格式
+config.yaml 是 YAML 文件，注释**只能用 `#`**，禁止 Python docstring `"""` 和 shebang `#!/usr/bin/env python3`。文件头格式参考 `templates/config.yaml.tpl`。
 
 ## 工程结构
 

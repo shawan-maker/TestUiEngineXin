@@ -325,13 +325,16 @@ def extract_urls_from_excel(filepath, output_path, pages_dir=None, config_path=N
         steps_idx = col_map['step_desc']
         module_idx = col_map.get('module')
 
-        if module_idx is None:
-            continue
+        # 无"模块"列时回退到 sheet 名称（而非跳过整个 sheet）
+        fallback_module = sheet_name if module_idx is None else None
 
         for row in ws.iter_rows(min_row=2, values_only=True):
-            if module_idx >= len(row):
-                continue
-            cn_module = str(row[module_idx] or '').strip()
+            if module_idx is not None:
+                if module_idx >= len(row):
+                    continue
+                cn_module = str(row[module_idx] or '').strip()
+            else:
+                cn_module = fallback_module
             if not cn_module:
                 continue
 

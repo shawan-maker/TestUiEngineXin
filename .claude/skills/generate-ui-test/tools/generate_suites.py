@@ -275,6 +275,10 @@ def main():
     with open(config_file, encoding='utf-8') as f:
         config = yaml.safe_load(f) or {}
 
+    # ── 管线自愈：Phase 2/3 缺失时自动补全，其余记日志不阻断 ──
+    from _pipeline_guard import check_pipeline_state
+    check_pipeline_state(project_dir, ["phase_5"], "generate_suites.py")
+
     # 确保 common_data.yaml 存在（供 suite 的 ${common_data.target_url} 引用）
     _ensure_common_data(project_dir, config)
 

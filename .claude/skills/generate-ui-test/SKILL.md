@@ -7,24 +7,74 @@
 - `/generate-ui-test`
 - "生成UI测试脚本" / "创建自动化测试" / "从Excel生成测试"
 
+## ⚠️ 最佳实践（强烈建议遵守）
+
+1. **使用管线编排器**：所有阶段应通过 `python pipeline.py` 执行，避免直接调用 `run_phase4.py`、`generate_from_excel.py`、`verify_locators.py`、`generate_suites.py` 等单个工具。
+   - 例外：工具内置自愈机制会自动补全 Phase 2/3，无需手动调用
+2. **脚手架文件由管线生成**：`run.py`、`lib/auth_keywords.py`、`lib/module_keywords.py` 应由管线生成，避免手动创建或修改。
+   - 例外：如果缺失，工具会自动触发 Phase 2/3 自愈
+3. **完整执行所有阶段**：即使 Excel 输入简单，也应执行完整管线（Phase 0 → Phase 9），确保所有产物完整。
+4. **模块目录结构由管线生成**：`pages/{module}/`、`cases/{module}/`、`data/{module}/`、`suites/{module}/` 应由管线 Phase 2 生成。
+
+## 🔧 自愈机制
+
+管线工具内置了自愈机制，减少运行时试错：
+
+**自动自愈（Phase 2/3）**：
+- 检测到 `config.yaml` 存在但 `run.py` 不存在 → 自动补全 Phase 2（生成脚手架）
+- 检测到 `run.py` 存在但 `module_keywords.py` 不存在 → 自动补全 Phase 3（编译关键字）
+- 自愈失败不阻断，记录日志，AI 可在运行时自行修复
+
+**阻断（仅 cookie 错误）**：
+- 检测到 Phase 4/6 FAILED 且错误包含 `cookie/401/403/unauthorized/登录/认证失败` → exit(2) 阻断
+- Cookie 错误需要人工介入，AI 无法自行获取
+
+**日志记录（其余情况）**：
+- 其他阶段缺失或失败 → 记录警告日志，不阻断
+- AI 可根据日志在运行时自行修复（如补充缺失的定位器、修复数据格式等）
+
+**正确做法**：始终使用 `python pipeline.py run` 执行完整管线，避免依赖自愈机制。
+
 ## 管线阶段（Phase 0-9）
 
 管线编排器自动按依赖顺序执行，AI 只需在 Phase 0 收集用户输入：
 
-| Phase | 名称 | 工具 | 验证器 | AI 职责 |
-|-------|------|------|--------|---------|
-| 0 | 配置确认 | — | validate_00_config.py | 逐项询问用户 |
-| 1 | Excel 预检 | validate_excel.py | — | 询问是否执行（仅 Excel） |
-| 2 | 脚手架生成 | — | validate_02_scaffold.py | 自动 |
-| 3 | 模块关键字编译 | compile_module_keywords.py | validate_03_keywords.py | 自动 |
-| 4 | 全自动探测 | run_phase4.py | validate_04_probe.py | 自动 |
-| 5 | cases+pages+data 生成 | generate_from_excel.py | — | 自动 |
-| 6 | 运行时定位器验证 | verify_locators.py | validate_04_probe.py | 自动 |
-| 7 | suites 生成 | generate_suites.py | — | 自动 |
-| 8 | 跨文件验证 | — | validate_08_scripts.py | 自动（gate） |
-| 9 | 运行验证 | — | validate_09_execution.py | 自动 |
+| Phase | 名称 | 工具 | AI 职责 |
+|-------|------|------|---------|
+| 0 | 配置确认 | — | 逐项询问用户 |
+| 1 | Excel 预检 | validate_excel.py | 自动（仅 Excel） |
+| 1b | Excel 解析 | read_excel.py | 自动 |
+| 2 | 脚手架生成 | — | 自动（生成 run.py、auth_keywords） |
+| 3 | 模块关键字编译 | compile_module_keywords.py | 自动（生成 module_keywords） |
+| 4 | 全自动探测 | run_phase4.py | 自动 |
+| 5 | cases+pages+data 生成 | generate_from_excel.py | 自动 |
+| 6 | 运行时定位器验证 | verify_locators.py | 自动 |
+| 7 | suites 生成 | generate_suites.py | 自动 |
+| 8 | 跨文件验证 | — | 自动（gate，失败阻断） |
+| 9 | 运行验证 | — | 自动 |
+
+**⚠️ 上表"工具"列仅供理解内部实现。AI 禁止直接调用这些工具，必须通过 `python pipeline.py run` 执行。**
 
 **阶段门禁**：验证器 error > 0 时阻断，必须修复后才能继续。
+
+## 管线执行命令
+
+```bash
+# 完整执行（Phase 0 → Phase 9）
+python tools/pipeline.py run --project {项目目录} --excel {Excel文件} --cookie "{cookie}"
+
+# 从指定阶段恢复（用于修复后重跑）
+python tools/pipeline.py run --project {项目目录} --from-phase phase_4
+
+# 查看阶段状态
+python tools/pipeline.py status --project {项目目录}
+```
+
+**参数说明**：
+- `--project`：项目目录（必填）
+- `--excel`：Excel 文件路径（Excel 输入时必填）
+- `--cookie`：认证 Cookie（可选，也可在 Phase 0 由用户提供）
+- `--from-phase`：从指定阶段开始恢复（前置阶段的 artifact 已存在时自动跳过）
 
 ## Phase 0 用户输入收集
 
@@ -57,60 +107,23 @@
 case 中 locator 引用 `${group.field}`（pages/），value 引用 `${group.field}`（data/），禁止硬编码。
 
 ### ④ pages YAML 工具生成
-必须通过 `generate_from_excel.py` 生成。例外：`common_elements` 和 `detail_page_elements` 可手动追加。
+必须通过 `generate_from_excel.py` 生成（由管线自动调用）。例外：`common_elements` 和 `detail_page_elements` 可手动追加。
 
 ### ⑤ config.yaml 纯 YAML 格式
 config.yaml 是 YAML 文件，注释**只能用 `#`**，禁止 Python docstring `"""` 和 shebang `#!/usr/bin/env python3`。文件头格式参考 `templates/config.yaml.tpl`。
 
-## 工程结构
+## 错误恢复
 
-```
-{project}/
-├── run.py / config.yaml
-├── pages/{module}/    # 定位器（工具生成）
-├── data/{module}/     # 测试数据
-├── cases/{module}/    # 测试用例
-├── suites/{module}/   # 测试套件
-├── lib/               # auth_keywords + module_keywords（L3）
-├── _knowledge/        # workflow YAML → 编译为 L3
-├── _probe/            # 探测结果（自动生成）
-└── report/            # HTML 报告
-```
+如果管线某阶段失败：
+1. 查看错误日志（`_probe/pipeline_state.json`）
+2. 修复问题（如修改 Excel、补充配置）
+3. 使用 `--from-phase {失败阶段}` 恢复执行：
+   ```bash
+   python tools/pipeline.py run --project {目录} --from-phase phase_4
+   ```
 
-## 关键字分层
-
-L0 引擎原子操作 > L1 知识库 XPath 模板 > L3 _knowledge/ 编译复合流程
-
-## el-select 条件分支法
-
-```yaml
-- desc: "选择{字段名} - 点击下拉框"
-  keyword: click_element
-  params: {locator: "${pages_group}.{field}_select"}
-- desc: "判断{字段名}输入框是否可编辑"
-  keyword: if_element_visible
-  params:
-    locator: "${pages_group}.{field}_editable"
-    timeout: 500
-    then_steps:
-      - keyword: fill_value
-        params: {locator: "${pages_group}.{field}_select", value: "${data_group}.{field}_search"}
-      - keyword: wait_for_time
-        params: {timeout: 1500}
-      - keyword: click_element
-        params: {locator: "xpath=(//div[(@x-placement='bottom-start' or @x-placement='top-start') and not(ancestor::*[contains(@style,'display: none')])]//li[not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])][contains(.,'${data_group}.{field}_option')])[1]"}
-    else_steps:
-      - keyword: wait_for_time
-        params: {timeout: 1000}
-      - keyword: click_element
-        params: {locator: "${pages_group}.{field}_first_option"}
-      - keyword: wait_for_time
-        params: {timeout: 1000}
-```
+**禁止**：直接调用失败阶段的工具（如 `python tools/run_phase4.py`）。必须通过管线恢复。
 
 ## 参考文档
 
-- `knowledge/keyword_spec.md` — 关键字规范
-- `knowledge/locator-patterns.md` — 16 类 XPath 定位模式
-- `knowledge/param_extract_rule.md` — 数据提取规则
-- `USER_GUIDE.md` — 用户操作手册
+知识文档位于 `docs/`，详见各阶段规则文件（`rules/`）。

@@ -146,6 +146,11 @@ def main():
     if sys.stderr.encoding and sys.stderr.encoding.lower() != 'utf-8':
         sys.stderr.reconfigure(encoding='utf-8')
 
+    # ── 管线自愈：Phase 2/3 缺失时自动补全，其余记日志不阻断 ──
+    from _pipeline_guard import check_pipeline_state
+    check_pipeline_state(args.project, ["phase_0", "phase_2"], "run_phase4.py",
+                          {"excel_path": args.excel, "cookie": args.cookie})
+
     # ── Step 0: 准备 ──
     probe_dir = os.path.join(args.project, '_probe')
     os.makedirs(probe_dir, exist_ok=True)
@@ -244,13 +249,17 @@ def main():
         cn_to_slug = json.load(f)
 
     if args.module:
-        # --module 可以是 slug 或中文名
-        matched = {k: v for k, v in module_urls.items()
-                   if cn_to_slug.get(k) == args.module or k == args.module}
-        if not matched:
-            print(f"[ERROR] 模块 {args.module} 不在 module_urls.json 中", file=sys.stderr)
-            print(f"  可用模块: {', '.join(module_urls.keys())}", file=sys.stderr)
-            sys.exit(1)
+        # --module 可以是 slug 或中文名，支持逗号分隔多个模块
+        module_names = [m.strip() for m in args.module.split(',')]
+        matched = {}
+        for module_name in module_names:
+            module_matched = {k: v for k, v in module_urls.items()
+                             if cn_to_slug.get(k) == module_name or k == module_name}
+            if not module_matched:
+                print(f"[ERROR] 模块 {module_name} 不在 module_urls.json 中", file=sys.stderr)
+                print(f"  可用模块: {', '.join(module_urls.keys())}", file=sys.stderr)
+                sys.exit(1)
+            matched.update(module_matched)
         module_urls = matched
 
     print(f"\n[Phase 4] 共 {len(module_urls)} 个模块待探测:")

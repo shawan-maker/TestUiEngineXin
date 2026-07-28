@@ -612,6 +612,11 @@ def main():
     print(f"[CONFIG] Output:     {output_dir}")
     print(f"[CONFIG] v2 mode:    direct import (no subprocess)")
 
+    # ── 管线自愈：Phase 2/3 缺失时自动补全，其余记日志不阻断 ──
+    from _pipeline_guard import check_pipeline_state
+    check_pipeline_state(output_dir, ["phase_4_discovery", "phase_1b_parse"], "generate_from_excel.py",
+                          {"excel_path": excel_json_path})
+
     # === SELF-HEAL: Phase 3 补偿编译（L3 关键字） ===
     _ensure_module_keywords(output_dir)
 

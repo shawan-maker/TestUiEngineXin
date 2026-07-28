@@ -77,6 +77,16 @@ _OLD_MARKER_RE = re.compile(
 # Token keys for cookie -> localStorage auto-sync (imported from probe_element)
 from probe_element import TOKEN_KEYS
 
+# R6: AI 兜底探测模块（可选，缺失不影响现有逻辑）
+try:
+    from _ai_probe import init as _ai_probe_init
+    from _ai_probe import ai_probe_locator as _ai_probe_locator
+    from _ai_probe import flush_diagnostics as _ai_probe_flush
+    from _ai_probe import MARKER_MAP as _AI_MARKER_MAP
+    _HAS_AI_PROBE = True
+except ImportError:
+    _HAS_AI_PROBE = False
+
 # Destructive operation triggers — confirm after these is skipped
 DESTRUCTIVE_TRIGGERS = {'删除', '移除', '清空', '重置'}
 
@@ -1528,6 +1538,17 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                     print(f"    [WARN] '{desc}' → KB 已穷尽，locator 仍为 [待确认]，"
                           f"请检查前序步骤是否正确打开了容器")
 
+                # ── R6: AI 兜底探测（新增）──
+                if (_HAS_AI_PROBE and is_placeholder and label
+                        and page is not None):
+                    _r6 = _ai_probe_locator(
+                        page, step, label, elem_type, current_ct,
+                        steps_so_far, container_context, inject_hidden_filter)
+                    if _r6:
+                        verified_locator = _r6['locator']
+                        is_best_guess = _r6['is_best_guess']
+                        hit_source = _r6['hit_source']
+
                 # 走原有逻辑
                 if not verified_locator:
                     is_best_guess = False
@@ -1737,7 +1758,7 @@ def _get_original_xpath(ref, pages_dict):
 
 
 def _store_verified_locator(v_loc, v_ct, step, pages_dict, verified_locators,
-                            is_best_guess=False):
+                            is_best_guess=False, marker_override=None):
     """P3f-1: 存储验证通过的 locator 到 verified_locators 字典
 
     修复: Issue 2b — 当原 locator 有容器前缀但验证版本无前缀时，
@@ -1784,7 +1805,7 @@ def _store_verified_locator(v_loc, v_ct, step, pages_dict, verified_locators,
             return
         verified_locators[ref] = {
             'locator': v_loc,
-            'marker': '[UNVERIFIED]' if is_best_guess else None,
+            'marker': marker_override or ('[UNVERIFIED]' if is_best_guess else None),
             'container_type': v_ct,
         }
 
@@ -2155,6 +2176,10 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                 if isinstance(cfg.get('local_storage'), dict):
                     for k, v in cfg['local_storage'].items():
                         local_storage[str(k)] = str(v)
+                # R6: 读取 AI probe 配置并初始化
+                if _HAS_AI_PROBE and cfg.get('ai_probe'):
+                    _ai_probe_init(cfg['ai_probe'])
+                    print(f"  R6: AI probe enabled (model: {cfg['ai_probe'].get('model', 'gpt-4o-mini')})")
             except Exception:
                 pass
 
@@ -2306,7 +2331,8 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                                     else:
                                         print(f"    [CONTEXT] 容器 {container_context} 仍然存在，保持上下文")
                             if v_loc:
-                                _store_verified_locator(v_loc, v_ct, sub, pages_dict, verified_locators, is_best_guess=v_bg)
+                                _marker = (_AI_MARKER_MAP.get(v_src) if _HAS_AI_PROBE and v_src else None)
+                                _store_verified_locator(v_loc, v_ct, sub, pages_dict, verified_locators, is_best_guess=v_bg, marker_override=_marker)
                                 if v_bg:
                                     fallback_count += 1
                                 else:
@@ -2341,7 +2367,8 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                                 else:
                                     print(f"    [CONTEXT] 容器 {container_context} 仍然存在，保持上下文")
                         if v_loc:
-                            _store_verified_locator(v_loc, v_ct, sub, pages_dict, verified_locators, is_best_guess=v_bg)
+                            _marker = (_AI_MARKER_MAP.get(v_src) if _HAS_AI_PROBE and v_src else None)
+                            _store_verified_locator(v_loc, v_ct, sub, pages_dict, verified_locators, is_best_guess=v_bg, marker_override=_marker)
                             if v_bg:
                                 fallback_count += 1
                             else:
@@ -2404,7 +2431,8 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                                 else:
                                     print(f"    [CONTEXT] 容器 {container_context} 仍然存在，保持上下文")
                         if v_loc:
-                            _store_verified_locator(v_loc, v_ct, sub, pages_dict, verified_locators, is_best_guess=v_bg)
+                            _marker = (_AI_MARKER_MAP.get(v_src) if _HAS_AI_PROBE and v_src else None)
+                            _store_verified_locator(v_loc, v_ct, sub, pages_dict, verified_locators, is_best_guess=v_bg, marker_override=_marker)
                             if v_bg:
                                 fallback_count += 1
                             else:
@@ -2446,7 +2474,8 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                     skipped_count += 1
                     print(f"    [SKIP] Step {step_idx+1}: {desc}")
                 elif v_loc:
-                    _store_verified_locator(v_loc, v_ct, step, pages_dict, verified_locators, is_best_guess=v_bg)
+                    _marker = (_AI_MARKER_MAP.get(v_src) if _HAS_AI_PROBE and v_src else None)
+                    _store_verified_locator(v_loc, v_ct, step, pages_dict, verified_locators, is_best_guess=v_bg, marker_override=_marker)
                     if v_bg:
                         fallback_count += 1
                         print(f"    [UNVERIFIED] Step {step_idx+1}: {desc}")
@@ -2498,6 +2527,10 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
     print(f"  Failed: {fallback_count}")
     print(f"  Writeback pending: {len(verified_locators)}")
     print(f"{'='*60}\n")
+
+    # R6: Flush AI probe diagnostics
+    if _HAS_AI_PROBE:
+        _ai_probe_flush(project_dir)
 
     return {
         'total_steps': total_steps,
@@ -2748,12 +2781,19 @@ def main():
                         help='额外 localStorage 注入（JSON 对象字符串），合并 config.yaml 的 local_storage')
     parser.add_argument('--dry-run', action='store_true',
                         help='只报告需要验证的 locator，不执行浏览器')
+    parser.add_argument('--ai-probe', default=None,
+                        help='AI 探测配置（JSON 字符串，由 pipeline 传入）')
 
     args = parser.parse_args()
 
     if not os.path.isdir(args.project_dir):
         print(f"[ERROR] 项目目录不存在: {args.project_dir}")
         sys.exit(1)
+
+    # ── 管线自愈：Phase 2/3 缺失时自动补全，其余记日志不阻断 ──
+    from _pipeline_guard import check_pipeline_state
+    check_pipeline_state(args.project_dir, ["phase_5"], "verify_locators.py",
+                          {"cookie": args.cookie})
 
     if args.dry_run:
         cases = load_cases(args.project_dir, args.module)

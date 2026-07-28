@@ -867,6 +867,17 @@ class PipelineExecutor:
                     self.context.discovery_path = str(discovery_file)
                     module_args.extend(["--discovery", str(discovery_file)])
 
+                # R6: 传递 AI probe 配置到 verify_locators.py
+                config_path = Path(self.project_dir) / 'config.yaml'
+                if config_path.exists():
+                    try:
+                        config = yaml.safe_load(config_path.read_text(encoding='utf-8'))
+                        ai_probe_cfg = config.get('ai_probe')
+                        if ai_probe_cfg and ai_probe_cfg.get('enabled'):
+                            module_args.extend(['--ai-probe', json.dumps(ai_probe_cfg)])
+                    except Exception:
+                        pass  # 配置读取失败不影响主线
+
             # D方案: Phase 4 自动注入 --module-map（解决新项目中文模块名→slug 映射问题）
             if phase_id == "phase_4_discovery" and self.context.module_map_str:
                 module_args.extend(["--module-map", self.context.module_map_str])

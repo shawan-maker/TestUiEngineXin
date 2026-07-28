@@ -107,14 +107,14 @@ def _safe_format(template, variables):
     return re.sub(r'\{(\w+)\}', replacer, template)
 
 
-    return None, False
-
-
-    return result
-
-
 # ============================================================
 # 二级子类型检测（方案 B）
+# ============================================================
+
+def _detect_component_type(page, etype, label):
+    """检测组件的二级子类型（如 el-select 是否为可编辑模式）"""
+    if etype != 'el-select':
+        return etype
     return etype
 
 

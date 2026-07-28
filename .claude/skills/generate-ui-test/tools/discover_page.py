@@ -45,9 +45,7 @@ from probe_utils import (
 from xpath_utils import inject_hidden_filter, has_hidden_filter, CONTAINER_XPATH
 from _wait_utils import wait_for_dom_stable as _wait_for_dom_stable
 from _element_types import normalize_type as _normalize_type
-
-# Token keys for cookie -> localStorage auto-sync
-TOKEN_KEYS = {'ud_token', 'token', 'access_token', 'auth_token', 'jwt_token'}
+from probe_element import TOKEN_KEYS
 
 # Container priority for select_priority_container
 CONTAINER_TYPE_PRIORITY = ['dialog', 'drawer', 'message-box']

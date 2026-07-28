@@ -24,6 +24,14 @@ import sys
 import yaml
 from collections import defaultdict
 
+# ─── DEBUG-F7 控制 ───
+_DEBUG_F7 = os.environ.get('DEBUG_F7', '')
+
+def _debug_f7(*args, **kwargs):
+    """条件化 DEBUG-F7 输出"""
+    if _DEBUG_F7:
+        print(*args, **kwargs)
+
 # ─── 共享导入 ───
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -37,16 +45,7 @@ from xpath_utils import _unwrap_positional, _rewrap_positional
 from xpath_utils import apply_container_prefix, detect_container_type
 from _element_resolver import ElementResolver, ElementEntry
 from probe_element import _get_expand_patterns, _safe_format, load_knowledge
-from _pages_writer import _make_editable_locator
-
-# ─── common_elements 常量（与 _pages_writer.DEFAULT_COMMON_ELEMENTS 保持一致）───
-COMMON_ELEMENTS = {
-    'loading_mask': "xpath=//div[contains(@class,'el-loading-mask')]",
-    'success_text': "xpath=//*[contains(.,'成功')]",
-    'error_text': "xpath=//*[contains(.,'失败') or contains(.,'错误')]",
-    'confirm_btn': "xpath=//button[contains(.,'确') and contains(.,'定') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]",
-    'cancel_btn': "xpath=//button[contains(.,'取') and contains(.,'消') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]",
-}
+from _pages_writer import _make_editable_locator, DEFAULT_COMMON_ELEMENTS as COMMON_ELEMENTS
 
 # ═══════════════════════════════════════════════════════════════
 # 独立辅助函数
@@ -345,6 +344,7 @@ class CaseGenerator:
         self._random_name_counter = 0
         self.required_fields = {}  # {(group, field): {locator, label, comment}}
         self._compat_groups_cache = None  # H2: _compat_groups() 内存缓存
+        self._compat_groups_mtime = 0  # M5: pages 目录 mtime 缓存
 
         # 兼容属性（供外部访问）
         self.field_meta = {}  # (group, field) -> {type, keyword, frame, body}
@@ -369,15 +369,15 @@ class CaseGenerator:
         self._current_context = 'list_page'
 
         # [DEBUG-F7] 显示 trigger_map 内容
-        print(f"\n[DEBUG-F7] CaseGenerator 初始化: module='{module_name}'")
-        print(f"[DEBUG-F7] _discovery_trigger_map ({len(self._discovery_trigger_map)} 个触发器):")
+        _debug_f7(f"\n[DEBUG-F7] CaseGenerator 初始化: module='{module_name}'")
+        _debug_f7(f"[DEBUG-F7] _discovery_trigger_map ({len(self._discovery_trigger_map)} 个触发器):")
         for trigger, entry in self._discovery_trigger_map.items():
             ct = entry.get('container_type', '?')
             rt = entry.get('result_type', '?')
             elem_count = len(entry.get('elements', []))
-            print(f"[DEBUG-F7]   '{trigger}' → container_type='{ct}', result_type='{rt}', elements={elem_count}")
-        print(f"[DEBUG-F7] _discovery_element_map ({len(self._discovery_element_map)} 个元素)")
-        print(f"[DEBUG-F7] _current_context = '{self._current_context}'\n")
+            _debug_f7(f"[DEBUG-F7]   '{trigger}' → container_type='{ct}', result_type='{rt}', elements={elem_count}")
+        _debug_f7(f"[DEBUG-F7] _discovery_element_map ({len(self._discovery_element_map)} 个元素)")
+        _debug_f7(f"[DEBUG-F7] _current_context = '{self._current_context}'\n")
 
     # ─── 兼容适配层 ───────────────────────────────────────────
 
@@ -386,7 +386,19 @@ class CaseGenerator:
 
         H2: 增加内存缓存，避免每次调用都从磁盘重读所有 YAML 文件。
         缓存在 _track_field() 注册新字段时自动失效。
+        M5: 增加 mtime 检查，检测外部修改。
         """
+        import time
+
+        # 检查缓存是否过期
+        if self._compat_groups_cache is not None:
+            if self._project_dir:
+                pages_dir = os.path.join(self._project_dir, 'pages')
+                if os.path.isdir(pages_dir):
+                    current_mtime = os.path.getmtime(pages_dir)
+                    if current_mtime > self._compat_groups_mtime:
+                        self._compat_groups_cache = None  # 外部修改，强制刷新
+
         if self._compat_groups_cache is not None:
             return self._compat_groups_cache
 
@@ -418,8 +430,10 @@ class CaseGenerator:
                                 # 只合并 resolver 中没有的字段（companion 等）
                                 if fkey not in result[gname] and isinstance(locator, str):
                                     result[gname][fkey] = locator
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        print(f"  [WARN] 加载 pages YAML 失败: {yaml_path}: {_e}")
+                # 记录 mtime
+                self._compat_groups_mtime = os.path.getmtime(pages_dir)
 
         self._compat_groups_cache = result
         return result
@@ -451,7 +465,7 @@ class CaseGenerator:
         与 find_input / find_button 统一（BUG-14 一致性修复）。
         注：当前已被 _emit_el_select_steps 绕过，保留以备未来使用。
         """
-        elem = self._discovery_lookup(label)
+        elem = self._discovery_lookup(label, type_hint='el-select')
         if not elem:
             return None
 
@@ -512,11 +526,13 @@ class CaseGenerator:
         #    由 _update_container_context_post() 在上一步按钮点击后设置
         group = self.resolver.get_group_name(
             self.module,
+            page_slug=self._get_current_page_slug(),
             container_type=self.current_container,
             trigger=self._current_context)
         if not group:
             group = self.resolver.construct_pending_group(
                 self.current_container, self.module,
+                page_slug=self._get_current_page_slug(),
                 trigger=self._current_context)
 
         # 3. KB 标准 XPath（来自 probe_knowledge.json el-select multi_step）
@@ -667,7 +683,7 @@ class CaseGenerator:
         与 find_input / find_button 统一：直接取 discovery 的 group+key，
         不做 suffix stripping + key 重建（BUG-14 修复）。
         """
-        elem = self._discovery_lookup(label)
+        elem = self._discovery_lookup(label, type_hint='el-cascader')
         if not elem:
             return None
 
@@ -682,24 +698,24 @@ class CaseGenerator:
         }
 
     def find_button(self, label, preferred_container=None, prefer_row=False):
-        """根据按钮标签查找 locator 引用。"""
-        # [DEBUG-F7] 追踪 find_button 调用
-        print(f"  [DEBUG-F7] find_button: label='{label}', "
+        """根据按钮标签查找 locator 引用。
+        L2: 传入 type_hint='button' 启用类型过滤。
+        """
+        _debug_f7(f"  [DEBUG-F7] find_button: label='{label}', "
               f"preferred_container='{preferred_container}', "
               f"current_context='{self._current_context}'")
 
-        elem = self._discovery_lookup(label)
+        elem = self._discovery_lookup(label, type_hint='button')
         if not elem:
-            print(f"  [DEBUG-F7] find_button: 未找到 '{label}'")
+            _debug_f7(f"  [DEBUG-F7] find_button: 未找到 '{label}'")
             return None
 
         ref = self._elem_to_ref(elem)
         if not ref:
-            print(f"  [DEBUG-F7] find_button: _elem_to_ref 返回 None")
+            _debug_f7(f"  [DEBUG-F7] find_button: _elem_to_ref 返回 None")
             return None
 
-        # [DEBUG-F7] 追踪找到的引用
-        print(f"  [DEBUG-F7] find_button: → {ref}")
+        _debug_f7(f"  [DEBUG-F7] find_button: → {ref}")
 
         if prefer_row:
             group = ref.split('.')[0].strip('${')
@@ -708,7 +724,7 @@ class CaseGenerator:
             row_key = f"{field}_row"
             if row_key in fields:
                 row_ref = f"${{{group}.{row_key}}}"
-                print(f"  [DEBUG-F7] find_button: prefer_row → {row_ref}")
+                _debug_f7(f"  [DEBUG-F7] find_button: prefer_row → {row_ref}")
                 return row_ref
 
         return ref
@@ -740,8 +756,9 @@ class CaseGenerator:
 
         Scheme 2: 类型守卫 — fill/textarea 步骤不应匹配 button/row_button。
         防止 "在「进展更新」中输入" 误匹配到 "进展更新" 行按钮。
+        L2: 传入 type_hint='input' 启用类型过滤。
         """
-        elem = self._discovery_lookup(label)
+        elem = self._discovery_lookup(label, type_hint='input')
         if not elem:
             return None, None
 
@@ -817,27 +834,44 @@ class CaseGenerator:
                 return e
         return None
 
-    def _discovery_lookup(self, label, context=None):
+    def _discovery_lookup(self, label, context=None, type_hint=None):
         """discovery 四步查找链 — 精确→别名→子串→None"""
         ctx = context or self._current_context or 'list_page'
-        # [DEBUG-F7] 追踪查找上下文
-        print(f"  [DEBUG-F7] _discovery_lookup: label='{label}', "
+        _debug_f7(f"  [DEBUG-F7] _discovery_lookup: label='{label}', "
               f"context_param='{context}', current_context='{self._current_context}', "
               f"effective_ctx='{ctx}'")
 
         elem = self._lookup_discovery_element(label, ctx)
         if elem:
-            # [DEBUG-F7] 精确匹配成功
             group = elem.get('group_name', '?')
             field = elem.get('field_key', '?')
-            print(f"  [DEBUG-F7] → 精确匹配: {group}.{field}")
+            _debug_f7(f"  [DEBUG-F7] → 精确匹配: {group}.{field}")
             return elem
 
         best_elem = None
         best_score = 0.4
         is_container_ctx = ctx in self._discovery_trigger_map
-        # [DEBUG-F7] 追踪子串搜索
-        print(f"  [DEBUG-F7] 精确匹配失败，开始子串搜索 (is_container_ctx={is_container_ctx})")
+        _debug_f7(f"  [DEBUG-F7] 精确匹配失败，开始子串搜索 (is_container_ctx={is_container_ctx})")
+
+        # L2: 类型兼容性映射（子串搜索时过滤不兼容类型）
+        _TYPE_COMPAT = {
+            'button': {'button', 'table-action-button', 'close-button', 'search-button'},
+            'input': {'input', 'textarea'},
+            'el-select': {'el-select', 'el-cascader'},
+            'textarea': {'textarea', 'input'},
+            'el-cascader': {'el-cascader', 'el-select'},
+        }
+
+        def _type_ok(elem):
+            if not type_hint:
+                return True
+            elem_type = elem.get('type', '')
+            if not elem_type:
+                return True  # 无类型信息时不过滤
+            compat = _TYPE_COMPAT.get(type_hint)
+            if compat:
+                return elem_type in compat
+            return elem_type == type_hint
 
         # 多URL场景：子串搜索也只搜当前 page_slug 的元素
         page_slug = self._get_current_page_slug()
@@ -849,31 +883,34 @@ class CaseGenerator:
                     continue
                 if is_container_ctx and c == 'list_page':
                     continue
+                if not _type_ok(e):
+                    continue  # L2: 类型不兼容，跳过
                 score = self._substring_similarity(label, disc_label)
                 if score >= best_score:
                     best_score = score
                     best_elem = e
-                    print(f"  [DEBUG-F7]   候选: ps='{ps}', ctx='{c}', disc_label='{disc_label}', score={score:.2f}")
+                    _debug_f7(f"  [DEBUG-F7]   候选: ps='{ps}', ctx='{c}', disc_label='{disc_label}', score={score:.2f}")
         else:
             for (c, disc_label), e in self._discovery_element_map.items():
                 if c != ctx and c != 'list_page':
                     continue
                 if is_container_ctx and c == 'list_page':
                     continue
+                if not _type_ok(e):
+                    continue  # L2: 类型不兼容，跳过
                 score = self._substring_similarity(label, disc_label)
                 if score >= best_score:
                     best_score = score
                     best_elem = e
-                    # [DEBUG-F7] 追踪候选匹配
-                    print(f"  [DEBUG-F7]   候选: ctx='{c}', disc_label='{disc_label}', score={score:.2f}")
+                    _debug_f7(f"  [DEBUG-F7]   候选: ctx='{c}', disc_label='{disc_label}', score={score:.2f}")
 
         if best_elem and best_elem.get('locator'):
             group = best_elem.get('group_name', '?')
             field = best_elem.get('field_key', '?')
-            print(f"  [DEBUG-F7] → 子串匹配: {group}.{field} (score={best_score:.2f})")
+            _debug_f7(f"  [DEBUG-F7] → 子串匹配: {group}.{field} (score={best_score:.2f})")
             return best_elem
 
-        print(f"  [DEBUG-F7] → 未找到匹配")
+        _debug_f7(f"  [DEBUG-F7] → 未找到匹配")
         return None
 
     @staticmethod
@@ -918,30 +955,29 @@ class CaseGenerator:
             if entry:
                 result_type = entry.get('result_type')
                 is_open = result_type in ('container', 'navigation')
-                print(f"  [DEBUG-F7] _is_container_open: if_visible label='{label}', "
+                _debug_f7(f"  [DEBUG-F7] _is_container_open: if_visible label='{label}', "
                       f"result_type={result_type} → {is_open}")
                 return is_open
             # if_visible 不匹配 heuristic（保守策略）
-            print(f"  [DEBUG-F7] _is_container_open: if_visible label='{label}' "
+            _debug_f7(f"  [DEBUG-F7] _is_container_open: if_visible label='{label}' "
                   f"no trigger_map entry → False")
             return False
         if ptype in ('click_btn', 'click_table_row_btn') and args:
             label = args[0] if args else ''
             entry = self._discovery_trigger_map.get(label)
-            # [DEBUG-F7] 追踪容器触发器识别
-            print(f"  [DEBUG-F7] _is_container_open: label='{label}', "
+            _debug_f7(f"  [DEBUG-F7] _is_container_open: label='{label}', "
                   f"trigger_map_hit={entry is not None}, "
                   f"result_type={entry.get('result_type') if entry else 'N/A'}")
             if entry:
                 result_type = entry.get('result_type')
                 is_open = result_type in ('container', 'navigation')
-                print(f"  [DEBUG-F7] → returns {is_open} (from trigger_map)")
+                _debug_f7(f"  [DEBUG-F7] → returns {is_open} (from trigger_map)")
                 return is_open
             heuristic_hit = any(kw in label for kw in self._CONTAINER_OPEN_KEYWORDS)
-            print(f"  [DEBUG-F7] → returns {heuristic_hit} (from heuristic: {self._CONTAINER_OPEN_KEYWORDS})")
+            _debug_f7(f"  [DEBUG-F7] → returns {heuristic_hit} (from heuristic: {self._CONTAINER_OPEN_KEYWORDS})")
             return heuristic_hit
         if ptype == 'click_table_row_btn' and not args:
-            print(f"  [DEBUG-F7] _is_container_open: click_table_row_btn without args → True")
+            _debug_f7(f"  [DEBUG-F7] _is_container_open: click_table_row_btn without args → True")
             return True
         # 点击详情链接：检查 trigger map 判断是否打开容器/导航
         if ptype == 'click_detail_link':
@@ -950,14 +986,14 @@ class CaseGenerator:
             if entry:
                 result_type = entry.get('result_type')
                 is_open = result_type in ('container', 'navigation')
-                print(f"  [DEBUG-F7] _is_container_open: detail_link label='{dl_label}', "
+                _debug_f7(f"  [DEBUG-F7] _is_container_open: detail_link label='{dl_label}', "
                       f"result_type={result_type} → {is_open}")
                 return is_open
             # trigger map 无匹配 → 保守假设不打开容器（保持列表页上下文）
-            print(f"  [DEBUG-F7] _is_container_open: detail_link label='{dl_label}' "
+            _debug_f7(f"  [DEBUG-F7] _is_container_open: detail_link label='{dl_label}' "
                   f"no trigger_map entry → False (conservative)")
             return False
-        print(f"  [DEBUG-F7] _is_container_open: ptype='{ptype}' → False")
+        _debug_f7(f"  [DEBUG-F7] _is_container_open: ptype='{ptype}' → False")
         return False
 
     def _is_button_action(self, parsed):
@@ -974,8 +1010,7 @@ class CaseGenerator:
             self.current_container = None
 
     def _update_container_context_post(self, parsed):
-        # [DEBUG-F7] 追踪上下文更新
-        print(f"  [DEBUG-F7] _update_container_context_post: "
+        _debug_f7(f"  [DEBUG-F7] _update_container_context_post: "
               f"type='{parsed['type']}', args={parsed['args']}, "
               f"current_context='{self._current_context}'")
 
@@ -996,26 +1031,22 @@ class CaseGenerator:
                 elif result_type == 'inline':
                     pass
                 self._current_context = btn_label
-                # [DEBUG-F7] 追踪上下文更新结果
-                print(f"  [DEBUG-F7] → 更新 _current_context='{btn_label}', "
+                _debug_f7(f"  [DEBUG-F7] → 更新 _current_context='{btn_label}', "
                       f"current_container='{self.current_container}' (from trigger_map)")
             else:
                 dominant = self._detect_dominant_container()
                 self.current_container = dominant
                 self._current_context = btn_label or 'unknown'
-                # [DEBUG-F7] 追踪启发式更新
-                print(f"  [DEBUG-F7] → 更新 _current_context='{self._current_context}', "
+                _debug_f7(f"  [DEBUG-F7] → 更新 _current_context='{self._current_context}', "
                       f"current_container='{self.current_container}' (from heuristic)")
                 if not dominant:
                     print(f"  [WARN] 按钮 '{btn_label}' 无 discovery 数据且无容器信息")
         elif self._is_container_close(parsed) and parsed['type'] in ('click_btn', 'if_visible'):
             self.current_container = None
             self._current_context = 'list_page'
-            # [DEBUG-F7] 追踪容器关闭
-            print(f"  [DEBUG-F7] → 容器关闭，重置 _current_context='list_page'")
+            _debug_f7(f"  [DEBUG-F7] → 容器关闭，重置 _current_context='list_page'")
         else:
-            # [DEBUG-F7] 未触发上下文更新
-            print(f"  [DEBUG-F7] → 未触发上下文更新 (is_close={self._is_container_close(parsed)})")
+            _debug_f7(f"  [DEBUG-F7] → 未触发上下文更新 (is_close={self._is_container_close(parsed)})")
 
     def _detect_dominant_container(self):
         """从 resolver groups 推断当前模块的主要容器类型。"""
@@ -1150,8 +1181,8 @@ class CaseGenerator:
                     cn = wf.get('chinese_name')
                     if cn:
                         cache[cn] = wf
-            except Exception:
-                pass
+            except Exception as _e:
+                print(f"  [WARN] L3 workflow 加载失败: {sys_path}: {_e}")
 
         skill_knowledge_dir = os.path.join(skill_dir, 'lib', '_knowledge')
         if os.path.isdir(skill_knowledge_dir):
@@ -1214,7 +1245,15 @@ class CaseGenerator:
 
     def _track_field(self, group, field, locator='', label='', comment=''):
         """记录被引用的字段（供 PagesWriter 按需生成 pages YAML）。"""
-        self.required_fields[(group, field)] = {
+        key = (group, field)
+        if key in self.required_fields:
+            existing = self.required_fields[key]
+            existing_locator = existing.get('locator', '')
+            if existing_locator and locator and existing_locator != locator:
+                print(f"  [WARN] _track_field 冲突: {group}.{field}")
+                print(f"         已有: {existing_locator}")
+                print(f"         新增: {locator}")
+        self.required_fields[key] = {
             'locator': locator,
             'label': label,
             'comment': comment,
@@ -1246,7 +1285,7 @@ class CaseGenerator:
             if not is_container:
                 return gname
         # 兜底：构造标准列表页 group 名
-        return self.resolver.get_group_name(self.module)
+        return self.resolver.get_group_name(self.module, page_slug=self._get_current_page_slug())
 
     def get_required_fields(self):
         """返回所有被引用的字段。
@@ -1281,8 +1320,18 @@ class CaseGenerator:
                                       f"${{{group}.{field}}} → "
                                       f"${{{_r6_new_group}.{field}}}")
                                 if (_r6_new_group, field) not in self.required_fields:
+                                    # H1: 从 resolver 查找新 group 中该 field 的 locator
+                                    _r6_loc = ''
+                                    _r6_gm = self.resolver.get_groups().get(_r6_new_group, {})
+                                    _r6_entry = _r6_gm.get(field)
+                                    if _r6_entry:
+                                        _r6_loc = _r6_entry.locator or ''
+                                    if not _r6_loc:
+                                        _r6_loc = 'xpath=[待确认]'
+                                        print(f"    [WARN R6] 跨模块改写无 locator: "
+                                              f"${{{_r6_new_group}.{field}}} → [待确认]")
                                     self._track_field(_r6_new_group, field,
-                                                      locator='', label='',
+                                                      locator=_r6_loc, label='',
                                                       comment='R6: cross-module rewrite')
                                 continue  # skip registering original cross-module ref
                         # Normal registration
@@ -1495,11 +1544,13 @@ class CaseGenerator:
             # 确定 group
             group = self.resolver.get_group_name(
                 self.module,
+                page_slug=self._get_current_page_slug(),
                 container_type=self.current_container,
                 trigger=self._current_context)
             if not group:
                 group = self.resolver.construct_pending_group(
                     self.current_container, self.module,
+                    page_slug=self._get_current_page_slug(),
                     trigger=self._current_context)
 
             # KB 标准 XPath
@@ -1530,6 +1581,12 @@ class CaseGenerator:
 
         elif ptype in ('fill', 'textarea'):
             label, value = args[0], args[1]
+
+            # N8: fill/el-select 冲突警告
+            if any(kw in label for kw in ('下拉', '选择', 'select', '下拉框')):
+                print(f"    [WARN N8] fill 步骤字段 '{label}' 疑似下拉框，"
+                      f"建议改用 el-select 语法（如：在「{label}」中选择「{value}」）")
+
             locator_ref, field_info = self.find_input(label, preferred_container=self.current_container)
             if locator_ref:
                 field = field_info.get('field_prefix', label) if field_info else label
@@ -2625,7 +2682,8 @@ def _load_l3_trigger_patterns(project_dir):
                 if data and data.get('workflows'):
                     has_workflows = True
                     break
-            except Exception:
+            except Exception as _e:
+                print(f"  [WARN] knowledge YAML 解析失败: {f}: {_e}")
                 continue
         if has_workflows:
             print(f"[WARN] _knowledge/ 有 workflows 但 lib/module_keywords.py 不存在",
@@ -2637,7 +2695,8 @@ def _load_l3_trigger_patterns(project_dir):
     for f in glob.glob(os.path.join(knowledge_dir, "*.yaml")):
         try:
             data = yaml.safe_load(open(f, encoding='utf-8'))
-        except Exception:
+        except Exception as _e:
+            print(f"  [WARN] knowledge YAML 加载失败: {f}: {_e}")
             continue
         if not data or not isinstance(data, dict):
             continue
@@ -3572,7 +3631,7 @@ def generate_case_file(case_data, generator, seq, output_dir, module='', project
         parsed = parse_step(step_text)
 
         # [DEBUG-F7] 追踪步骤处理
-        print(f"\n[DEBUG-F7] === 处理步骤 [{i+1}/{len(raw_steps)}]: '{step_text}' ===")
+        _debug_f7(f"\n[DEBUG-F7] === 处理步骤 [{i+1}/{len(raw_steps)}]: '{step_text}' ===")
 
         generator._update_container_context_pre(parsed)
         steps = generator.generate_step(parsed)

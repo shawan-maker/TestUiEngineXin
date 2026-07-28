@@ -36,6 +36,7 @@ STANDARD_SUFFIXES = (
     '_btn', '_close_btn', '_text', '_textarea', '_link', '_area', '_field',
     '_count', '_tab', '_cascader', '_level', '_checkbox',
     '_iframe', '_body', '_row_link', '_row', '_menu', '_card',
+    '_date', '_picker', '_search',
 )
 
 # ============================================================================

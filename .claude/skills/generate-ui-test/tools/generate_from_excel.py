@@ -483,8 +483,9 @@ def _process_single_module(module_slug, case_list, discovery_dir, output_dir,
         pages_path = os.path.join(pages_dir, 'elements.yaml')
 
         writer = PagesWriter(resolver)
+        # N4: 使用 append=True 合并而非覆盖 Phase 4 的 pages YAML
         writer.write_pages_yaml(required_fields, pages_path,
-                                 module_slug, cn_name)
+                                 module_slug, cn_name, append=True)
         writer.write_common_elements(pages_path)
 
         page_url_map = resolver.get_page_url_map()
@@ -658,10 +659,11 @@ def main():
 
     if _module_errors:
         print(f"\n{'='*60}")
-        print(f"[WARN] H8: {len(_module_errors)} 个模块处理失败:")
+        print(f"[ERROR] N9: {len(_module_errors)} 个模块处理失败:")
         for slug, err in _module_errors:
             print(f"  - {slug}: {err}")
         print('='*60)
+        sys.exit(1)  # N9: 非零退出码 → 管线标记 Phase 5 为 FAILED
 
     # === Step 3: 安全网过滤（v1 遗留，v2 中通常无效果）===
     if not args.skip_filter:

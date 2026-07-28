@@ -72,7 +72,7 @@ _FIRST_OPTION_XPATH = (
 DEFAULT_COMMON_ELEMENTS = OrderedDict([
     ('loading_mask', "xpath=//div[contains(@class,'el-loading-mask')]"),
     ('success_text', "xpath=//*[contains(.,'成功')]"),
-    ('error_text', "xpath=//*[contains(.,'失败')]"),
+    ('error_text', "xpath=//*[contains(.,'失败') or contains(.,'错误')]"),
     ('confirm_btn', "xpath=//button[contains(.,'确') and contains(.,'定') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]"),
     ('cancel_btn', "xpath=//button[contains(.,'取') and contains(.,'消') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]"),
 ])
@@ -258,17 +258,25 @@ class PagesWriter:
                     if new_locator != locator:
                         fields[field_key] = (new_locator, comment)
 
-        # 6. append 模式
+        # 6. append 模式 — 字段级合并（N4 修复）
         if append and os.path.exists(output_path):
             try:
                 with open(output_path, encoding='utf-8') as f:
                     existing = yaml.safe_load(f) if yaml else {}
                 if isinstance(existing, dict):
                     for grp_name, grp_data in existing.items():
-                        if grp_name not in groups and isinstance(grp_data, dict):
+                        if not isinstance(grp_data, dict):
+                            continue
+                        if grp_name not in groups:
+                            # 新 group，整体合并
                             groups[grp_name] = OrderedDict(
                                 (k, (v, '')) for k, v in grp_data.items()
                             )
+                        else:
+                            # 已有 group，字段级合并（只添加不存在的字段）
+                            for fkey, fval in grp_data.items():
+                                if fkey not in groups[grp_name]:
+                                    groups[grp_name][fkey] = (fval, '')
             except Exception:
                 pass
 
@@ -298,12 +306,18 @@ class PagesWriter:
                 f.write(f'  {key}: {scalar}\n')
 
     def write_page_urls(self, output_path, page_url_map):
-        """追加 page_urls 元数据组（仅多 URL 模块）。"""
+        """追加 page_urls 元数据组（仅多 URL 模块）。幂等保护：已存在则跳过。"""
         if not page_url_map or len(page_url_map) <= 1:
             return  # 单 URL 模块不需要
 
         if not os.path.exists(output_path):
             return
+
+        # N5: 幂等保护 — 检查是否已存在 page_urls 段
+        with open(output_path, encoding='utf-8') as f:
+            content = f.read()
+        if 'page_urls:' in content:
+            return  # 已存在，跳过
 
         with open(output_path, 'a', encoding='utf-8') as f:
             f.write('\n# === 页面 URL 映射 ===\npage_urls:\n')

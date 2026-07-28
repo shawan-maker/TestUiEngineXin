@@ -415,8 +415,8 @@ def strip_not_ancestor_from_pages(pages_data: dict, source_files: dict, pages_di
                 # 行级精准替换：只在 YAML 值位置（冒号后）替换，避免污染注释或其他字段
                 if ':' in line and old_val in line:
                     key_part, sep, val_part = line.partition(':')
-                    # 检查字段名匹配
-                    if old_val in val_part and key_part.strip().endswith(field_name):
+                    # 检查字段名精确匹配（防止后缀重叠的误替换）
+                    if old_val in val_part and key_part.strip() == field_name:
                         lines[i] = key_part + sep + val_part.replace(old_val, new_val, 1)
         with open(filepath, 'w', encoding='utf-8') as f:
             f.writelines(lines)

@@ -67,10 +67,12 @@ class PipelineContext:
     """管线执行上下文，存储阶段间共享数据"""
 
     def __init__(self, project_dir: str, excel_path: Optional[str] = None,
-                 cookie: Optional[str] = None, modules: Optional[list] = None):
+                 cookie: Optional[str] = None, modules: Optional[list] = None,
+                 local_storage: Optional[dict] = None):
         self.project_dir = project_dir
         self.excel_path = excel_path
         self.cookie = cookie
+        self.local_storage = local_storage or {}
         self.config_path = os.path.join(project_dir, "config.yaml")
         self.excel_json_path = None
         self.module_urls_path = None
@@ -102,11 +104,19 @@ class PipelineContext:
                     self.target_url = config.get('target_url')
                     self.cookie = self.cookie or config.get('cookie')
 
+                    # H1: 从 config.yaml 加载 local_storage
+                    ls = config.get('local_storage')
+                    if ls and isinstance(ls, dict) and not self.local_storage:
+                        self.local_storage = ls
+
                     # 加载模块列表（从 page_urls）
                     page_urls = config.get('page_urls', {})
                     if isinstance(page_urls, dict) and not self.modules:
                         for slug, urls in page_urls.items():
                             cn_name = slug  # 默认用 slug
+                            # N3: 归一化 slug（确保一致性）
+                            if '-' in slug:
+                                slug = slug.replace('-', '_')
                             self.modules.append({
                                 "slug": slug,
                                 "cn_name": cn_name,
@@ -288,6 +298,10 @@ class PipelineContext:
         if probe_dir.exists():
             for f in probe_dir.glob("discovery_*.json"):
                 slug = f.stem.replace("discovery_", "")
+                # N1: 过滤 merged 文件，N3: 归一化 slug 为下划线格式
+                if slug.endswith("_merged"):
+                    continue
+                slug = slug.replace('-', '_')
                 self.modules.append({"slug": slug, "cn_name": slug, "urls": []})
 
         return self.modules
@@ -371,6 +385,13 @@ class PipelineExecutor:
                 # 级联跳过
                 self._cascade_skip(phase_id)
                 continue
+
+            # 检查软依赖（仅警告，不阻断）
+            soft_deps = defn.get("soft_deps", [])
+            for soft_dep in soft_deps:
+                soft_result = self.results.get(soft_dep)
+                if soft_result and soft_result.status == PhaseStatus.FAILED:
+                    print(f"  ⚠️  软依赖 {soft_dep} 失败，继续执行但功能可能不完整")
 
             # 检查产物是否已存在（幂等跳过）
             if self._artifacts_exist(phase_id):
@@ -517,6 +538,7 @@ class PipelineExecutor:
         if not artifacts:
             return False
 
+        checked = 0
         for artifact_pattern in artifacts:
             # 替换模板变量（安全方式，缺失变量跳过检查）
             try:
@@ -528,6 +550,7 @@ class PipelineExecutor:
                 # 产物模式包含其他变量（如 {module_slug}），跳过此检查
                 continue
 
+            checked += 1
             # 处理通配符
             if "*" in pattern:
                 matches = glob.glob(pattern)
@@ -537,7 +560,8 @@ class PipelineExecutor:
                 if not Path(pattern).exists():
                     return False
 
-        return True
+        # 如果所有模式都因变量缺失被跳过，保守返回 False
+        return checked > 0
 
     def _validate_artifacts(self, phase_id: str) -> tuple[bool, str]:
         """验证产物完整性"""
@@ -833,8 +857,13 @@ class PipelineExecutor:
 
             # BUG-7 fix: Phase 6 需要 --discovery 参数（直接追加，不用字符串替换）
             if phase_id == "phase_6_verify":
+                # N2: 优先使用 merged 版本（与 Phase 5 保持一致）
+                discovery_file_merged = Path(self.project_dir) / "_probe" / f"discovery_{slug}_merged.json"
                 discovery_file = Path(self.project_dir) / "_probe" / f"discovery_{slug}.json"
-                if discovery_file.exists():
+                if discovery_file_merged.exists():
+                    self.context.discovery_path = str(discovery_file_merged)
+                    module_args.extend(["--discovery", str(discovery_file_merged)])
+                elif discovery_file.exists():
                     self.context.discovery_path = str(discovery_file)
                     module_args.extend(["--discovery", str(discovery_file)])
 
@@ -955,12 +984,15 @@ class PipelineExecutor:
     def _resolve_args(self, args: list[str]) -> list[str]:
         """解析参数模板"""
         resolved = []
+        import json
+        ls_str = json.dumps(self.context.local_storage, ensure_ascii=False) if self.context.local_storage else ""
         for arg in args:
             try:
                 resolved_arg = arg.format(
                     project_dir=self.project_dir,
                     config_path=self.context.config_path,
                     cookie=self.context.cookie or "",
+                    local_storage=ls_str,
                     target_url=self.context.target_url or "",
                     excel_path=self.context.excel_path or "",
                     excel_json_path=self.context.excel_json_path or "",

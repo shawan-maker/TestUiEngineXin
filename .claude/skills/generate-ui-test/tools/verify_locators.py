@@ -50,7 +50,6 @@ sys.path.insert(0, SCRIPT_DIR)
 from probe_element import (
     parse_cookie, detect_visible_containers,
     _xpath_escape_label, _safe_format, safe_count,
-    probe_element,
 )
 from probe_utils import (
     load_knowledge, get_kb_patterns, get_all_patterns,
@@ -75,8 +74,8 @@ _OLD_MARKER_RE = re.compile(
     r'(?::\s*[\w-]+)?\]'
 )
 
-# Token keys for cookie -> localStorage auto-sync
-TOKEN_KEYS = {'ud_token', 'token', 'access_token', 'auth_token', 'jwt_token'}
+# Token keys for cookie -> localStorage auto-sync (imported from probe_element)
+from probe_element import TOKEN_KEYS
 
 # Destructive operation triggers — confirm after these is skipped
 DESTRUCTIVE_TRIGGERS = {'删除', '移除', '清空', '重置'}
@@ -423,8 +422,9 @@ def load_pages(project_dir, module=None):
                         continue
                     if isinstance(fields, dict):
                         # F5: skip groups not belonging to the target module
+                        # 使用 startswith(p + '_') + 精确匹配，防止前缀相似的模块误匹配
                         if _allowed and not any(
-                            group.startswith(p) or group == p + '_elements'
+                            group.startswith(p + '_') or group == p + '_elements' or group == p
                             for p in _allowed
                         ):
                             continue
@@ -911,7 +911,7 @@ def _wait_for_container_after_click(page, timeout_ms=2000):
         for ct in CONTAINER_TYPES:
             if ct in visible:
                 return ct
-        return list(visible.keys())[0] if visible else None
+        return visible[0] if visible else None
 
     # wait_for 检测到了但 detect_visible_containers 返回空（极罕见：动画中间态）
     # 短重试
@@ -923,87 +923,6 @@ def _wait_for_container_after_click(page, timeout_ms=2000):
                 if ct in visible:
                     return ct
     return None
-
-
-def _execute_el_select_flow(page, verified_locator, step, data_dict, desc):
-    """P1-3: Full el-select three-step flow.
-
-    1. Click input → 2. Wait dropdown panel → 3. Click option (no container prefix)
-    Returns True on success, False on failure.
-    """
-    params = step.get('params', {}) or {}
-    value = params.get('value', '')
-    if isinstance(value, str):
-        value = resolve_var(value, data_dict)
-    # Extract option label from desc or value
-    # BUG-4 D1 fix (审计 4a): 增加「」匹配
-    opt_match = None
-    if desc:
-        for q_open, q_close in [('"', '"'), ('“', '”'), ('"', '"'), ('「', '」')]:
-            pat = re.escape(q_open) + r'([^' + re.escape(q_close) + r']+)' + re.escape(q_close)
-            m = re.search(pat, desc)
-            if m:
-                opt_match = m
-                break
-    option_text = opt_match.group(1) if opt_match else value
-    if not option_text:
-        print(f"    [WARN] el-select: no option text in '{desc}'")
-        return False
-
-    # Step 1: click input
-    try:
-        page.locator(verified_locator).click(timeout=5000)  # 方案 B: 严格模式
-    except Exception as e:
-        print(f"    [ERROR] el-select click failed: {str(e)[:80]}")
-        return False
-
-    # Step 2: wait dropdown panel (C-3: no hidden filter)
-    panel_xpath = "xpath=//div[contains(@class,'el-select-dropdown') and not(contains(@style,'display: none'))]"
-    try:
-        page.locator(panel_xpath).first.wait_for(state='visible', timeout=3000)
-    except Exception:
-        pass
-
-    # Step 3: locate + click option (统一标准格式：x-placement + contains + hidden filter)
-    escaped_label = _xpath_escape_label(option_text)
-    option_xpath = (
-        f"(//div[(@x-placement='bottom-start' or @x-placement='top-start')]"
-        f"//li[contains(.,{escaped_label})"
-        f" and not(ancestor::*[contains(@class,'is-hidden')])"
-        f" and not(ancestor::*[contains(@style,'display: none')])])[1]"
-    )
-    option_locator = f"xpath={option_xpath}"
-    try:
-        if page.locator(option_locator).count() < 1:
-            option_locator = None
-    except Exception:
-        option_locator = None
-
-    if not option_locator:
-        # Force close dropdown
-        try:
-            page.locator("xpath=//body").click(position={'x': 10, 'y': 10})
-        except Exception:
-            pass
-        print(f"    [FAIL] el-select option not found: '{option_text}'")
-        return False
-
-    # Click option
-    try:
-        page.locator(option_locator).first.click(timeout=3000)
-        _smart_wait_after_action(page)
-    except Exception as e:
-        print(f"    [ERROR] el-select option click failed: {str(e)[:80]}")
-        return False
-
-    # Verify dropdown closed
-    try:
-        page.wait_for_timeout(300)
-        if page.locator(panel_xpath).count() > 0:
-            page.locator("xpath=//body").click(position={'x': 10, 'y': 10})
-    except Exception:
-        pass
-    return True
 
 
 def should_skip_confirm(steps_so_far):
@@ -1137,7 +1056,6 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
     """
     is_best_guess = False  # R5: set True when KB best-guess locator is used
     hit_source = None  # Track which candidate source succeeded
-    hit_source = None  # Track which candidate source succeeded
     keyword = step.get('keyword', '')
     params = step.get('params', {})
     desc = step.get('desc', '')
@@ -1157,8 +1075,8 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             try:
                 page.reload(wait_until='domcontentloaded', timeout=30000)
                 _smart_wait_after_action(page)
-            except Exception:
-                pass
+            except Exception as _e:
+                print(f"    [WARN] page.reload 失败: {_e}")
         return None, None, False, False, None
 
     # Skip assertions (Phase 9 responsibility)
@@ -1237,8 +1155,6 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                   f"table-action-button → button "
                   f"(discovery: in buttons, not in row_buttons)")
             elem_type = 'button'
-
-    is_el_select = elem_type == 'el-select'
 
     # Detect current visible containers (7.10: skip if on new page — no container context)
     # BUG-1b 修复：容器检测提前到 discovery 查找之前，传入 preferred_container
@@ -1605,57 +1521,14 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 print(f"    [UNVERIFIED] '{desc}' → {_bg_source} "
                       f"({_bg_note}, 兜底回写)")
             else:
-                # ── R6: probe_element() 深度 DOM 探测（最后兜底）──
-                # 仅当以下条件全部满足时触发：
-                #   1. R5 兜底失败（_bg_locator 为 None）
-                #   2. 原始 locator 是占位符（is_placeholder == True）
-                #   3. 有 label 可以提取
-                #   4. 有浏览器页面可用
-                if is_placeholder and label and page is not None:
-                    print(f"    [R6-PROBE] '{desc}' → 调用 probe_element() 深度 DOM 探测...")
+                # ── R6: KB 已穷尽，打印警告 ──
+                # R5 失败意味着 KB 模板 + KB fallback + 第一个 candidate 全部 count=0
+                # probe_element() 深度探测与 R5 的 KB 遍历重复，不再调用
+                if is_placeholder:
+                    print(f"    [WARN] '{desc}' → KB 已穷尽，locator 仍为 [待确认]，"
+                          f"请检查前序步骤是否正确打开了容器")
 
-                    try:
-                        # 推断容器类型（从 current_ct 或步骤上下文）
-                        _r6_container_types = None
-                        if current_ct and current_ct in ('el-drawer', 'el-dialog', 'el-message-box'):
-                            _r6_container_types = [current_ct]
-
-                        # 调用 probe_element() 进行深度探测
-                        _r6_result = probe_element(
-                            page,
-                            elem_type,      # 推断的元素类型
-                            label,          # 提取的标签
-                            None,           # key（不需要）
-                            container_types=_r6_container_types
-                        )
-
-                        if _r6_result and _r6_result.get('locator'):
-                            _r6_locator = _r6_result['locator']
-
-                            # 验证 probe_element 生成的 XPath
-                            _r6_narrowed = _verify_count_or_first(page, _r6_locator)
-                            if _r6_narrowed:
-                                verified_locator = _r6_narrowed
-                                is_best_guess = True
-                                hit_source = 'R6-probe_element'
-                                _r6_count_note = 'count=1' if _r6_narrowed == _r6_locator else 'count>1 [1]'
-                                print(f"    [R6-OK] '{desc}' → probe_element() 成功 ({_r6_count_note})")
-                            else:
-                                # count==0：加 [1] 防御
-                                _r6_raw = (_r6_locator.replace('xpath=', '', 1)
-                                           if _r6_locator.startswith('xpath=')
-                                           else _r6_locator)
-                                verified_locator = f"xpath=({_r6_raw})[1]"
-                                is_best_guess = True
-                                hit_source = 'R6-probe_element-count0'
-                                print(f"    [R6-WARN] '{desc}' → probe_element() count=0, [1] 防御")
-                        else:
-                            print(f"    [R6-SKIP] '{desc}' → probe_element() 未生成 locator")
-
-                    except Exception as _r6_err:
-                        print(f"    [R6-ERROR] '{desc}' → probe_element() 调用失败: {_r6_err}")
-
-                # 如果 R6 也未解决，走原有逻辑
+                # 走原有逻辑
                 if not verified_locator:
                     is_best_guess = False
                     hit_source = None
@@ -1752,15 +1625,6 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             # P2-6: prepend isolation prefix if not already present
             if not value.startswith(PROBE_ISOLATION_PREFIX):
                 value = PROBE_ISOLATION_PREFIX + value
-            # P1-3: el-select flow (click → wait panel → click option)
-            if is_el_select:
-                ok = _execute_el_select_flow(page, verified_locator, step, data_dict, desc)
-                if ok:
-                    # BUG-2 修复：el-select 可能触发级联渲染
-                    _wait_for_dom_stable(page, timeout_ms=2000)
-                if not ok:
-                    return None, matched_prefix or current_ct, False, is_best_guess, hit_source
-                return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
             # 1c: iframe 填充支持 — 检测 locator 是否指向 iframe 元素
             _vl_clean = verified_locator.replace('xpath=', '') if verified_locator.startswith('xpath=') else verified_locator
             if 'iframe' in _vl_clean.lower():
@@ -1908,7 +1772,7 @@ def _store_verified_locator(v_loc, v_ct, step, pages_dict, verified_locators,
             upgrade_ct = None
             for cm in CONTAINER_MARKERS:
                 if cm in v_xpath:
-                    upgrade_ct = cm.replace('el-', '').replace('-', '-')
+                    upgrade_ct = cm.replace('el-', '')
                     break
             marker = f'[UPGRADED: {upgrade_ct}]' if upgrade_ct else '[UPGRADED]'
             verified_locators[ref] = {
@@ -2613,8 +2477,8 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                 # reload 强制销毁 Vue app，清除残留 dialog/drawer wrapper
                 page.reload(wait_until="domcontentloaded", timeout=30000)
                 _wait_for_dom_stable(page, timeout_ms=2000)  # case 间重置
-            except Exception:
-                pass
+            except Exception as _e:
+                print(f"  [WARN] case 间 page.reload 失败: {_e}")
 
     finally:
         try:

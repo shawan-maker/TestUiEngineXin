@@ -121,6 +121,7 @@ PHASE_DEFINITIONS: dict[str, dict[str, Any]] = {
             "--config", "{config_path}",
             "--project", "{project_dir}",
             "--cookie", "{cookie}",
+            "--local-storage", "{local_storage}",
             "--module", "{module_slug}",
         ],
         "validator": "validate_04_probe.py",
@@ -162,6 +163,7 @@ PHASE_DEFINITIONS: dict[str, dict[str, Any]] = {
         "tool_args": [
             "{project_dir}",
             "--cookie", "{cookie}",
+            "--local-storage", "{local_storage}",
             "--url", "{target_url}",
             "--module", "{module_slug}",
         ],

@@ -95,14 +95,17 @@ def _infer_auth_keyword(config: dict) -> str:
           inject_local_storage 会自动从 cookie 提取 token 写入 localStorage，
           同时注入 config.local_storage 中的其他字段。
           这是天枢等系统的标准做法：cookie + localStorage 双重认证。
+      local_storage (无 cookie)      → 'inject_local_storage'
+          SPA 前端需要 localStorage 注入才能认证。
       token                 → 'inject_token_header'
       none                  → ''
     """
     has_cookie = bool(config.get('cookie'))
     has_token = bool(config.get('token'))
+    has_local_storage = bool(config.get('local_storage'))
 
-    if has_cookie:
-        return 'inject_local_storage'  # cookie 模式：自动提取 token 注入 localStorage
+    if has_cookie or has_local_storage:
+        return 'inject_local_storage'  # cookie 或 localStorage 模式
     if has_token:
         return 'inject_token_header'   # header token 模式
     return ''

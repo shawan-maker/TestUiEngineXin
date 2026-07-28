@@ -32,6 +32,7 @@ from field_suffixes import (
     normalize_label as _normalize_label,
     SUFFIX_MAP as _SUFFIX_MAP,
     _STEP_TYPE_ALIASES as _STEP_TYPE_ALIASES,
+    STANDARD_SUFFIXES as _STANDARD_SUFFIXES,
 )
 
 # 待确认占位 locator
@@ -470,13 +471,6 @@ class ElementResolver:
                         })
 
         # R4.58: 字段名标准后缀校验
-        _STANDARD_SUFFIXES = (
-            '_select', '_input', '_btn', '_textarea', '_option', '_card',
-            '_first_option', '_link', '_tab', '_checkbox', '_editable',
-            '_iframe', '_body', '_cascader', '_date', '_picker',
-            '_search', '_row', '_menu', '_text', '_field', '_count',
-            '_area', '_level', '_row_link',
-        )
         for gname, gfields in self._group_map.items():
             for field in gfields:
                 if field.startswith(('common_', 'detail_', '_')):

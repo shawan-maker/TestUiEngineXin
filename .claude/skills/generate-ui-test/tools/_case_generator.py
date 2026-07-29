@@ -45,7 +45,7 @@ from xpath_utils import _unwrap_positional, _rewrap_positional
 from xpath_utils import apply_container_prefix, detect_container_type
 from _element_resolver import ElementResolver, ElementEntry
 from probe_element import _get_expand_patterns, _safe_format, load_knowledge
-from _pages_writer import _make_editable_locator, DEFAULT_COMMON_ELEMENTS as COMMON_ELEMENTS
+from _pages_writer import _make_editable_locator, _make_editable_locator_postfix, DEFAULT_COMMON_ELEMENTS as COMMON_ELEMENTS
 
 # ═══════════════════════════════════════════════════════════════
 # 独立辅助函数
@@ -545,12 +545,12 @@ class CaseGenerator:
         # 4. 容器前缀（在 drawer/dialog 内时限定范围，避免跨容器误匹配）
         select_xpath_base = apply_container_prefix(select_xpath_base, self.current_container)
 
-        # 4.5. _editable 从 base 生成（在 [nth] 包裹之前，避免 _make_editable_locator 误解析 [N]）
-        editable_xpath_base = _make_editable_locator(select_xpath_base)
-
-        # 4.6. 序号后缀：(xpath)[nth] — 默认 [1]，兼容多同名下拉框场景
+        # 4.5. 序号后缀：(xpath)[nth] — 默认 [1]，兼容多同名下拉框场景
         select_xpath = f"({select_xpath_base})[{nth}]"
-        editable_xpath = f"({editable_xpath_base})[{nth}]"
+
+        # 4.6. _editable 从 select_xpath 后置追加（确保与 _select 指向同一个 DOM 元素）
+        #      后置 [not(@readonly)] 先锁定第 N 个 input，再检查该元素是否非 readonly
+        editable_xpath = _make_editable_locator_postfix(select_xpath)
 
         # 5. 注册 _select 到 required_fields（原始 XPath，无 hidden filter）
         #    PagesWriter Stage 2 注入 hidden filter
@@ -573,7 +573,8 @@ class CaseGenerator:
         first_option_xpath = (
             "(//div[(@x-placement='bottom-start' "
             "or @x-placement='top-start')]//li"
-            "[not(ancestor::*[contains(@class,'is-hidden')])"
+            "[contains(@class,'el-select-dropdown__item')"
+            " and not(ancestor::*[contains(@class,'is-hidden')])"
             " and not(ancestor::*[contains(@style,'display: none')])])[1]"
         )
         self._track_field(group, f'{field}_first_option',
@@ -1238,8 +1239,18 @@ class CaseGenerator:
         self._random_name_counter = 0
 
     def add_data(self, field, value):
+        """添加数据字段，同 case 内同 field 自动添加 _2, _3 后缀避免覆盖"""
         self.data_entries.setdefault(self.data_group_name, {})
         actual_field = f"{self.current_case_prefix}{field}"
+        # 同 case 内同 field 自动后缀（如"架构"两次选择不同值）
+        if actual_field in self.data_entries[self.data_group_name]:
+            existing_val = self.data_entries[self.data_group_name][actual_field]
+            if existing_val != value:
+                # 值不同才添加后缀，值相同则复用（幂等）
+                suffix = 2
+                while f"{actual_field}_{suffix}" in self.data_entries[self.data_group_name]:
+                    suffix += 1
+                actual_field = f"{actual_field}_{suffix}"
         self.data_entries[self.data_group_name][actual_field] = value
         return f"${{{self.data_group_name}.{actual_field}}}"
 
@@ -1533,15 +1544,17 @@ class CaseGenerator:
 
         elif ptype == 'option_card':
             label, value = args[0], args[1]
-            # 选项卡：单次点击选项文本
-            # 生成 field prefix（hash-based）
+            # 选项卡：单次点击选项文本（数据分离模式）
+            # pages 存容器 XPath（不含选项值），data 存选项值，case 用内联 XPath
+
+            # ── Step 1: 生成 field prefix（hash-based，只含 label）──
             field_with_suffix = _shared_label_to_key(
                 label, 'option_card',
                 container_type=self.current_container,
                 skip_container_prefix=True)
             field = field_with_suffix[:-len('_card')] if field_with_suffix.endswith('_card') else field_with_suffix
 
-            # 确定 group
+            # ── Step 2: 确定 group ──
             group = self.resolver.get_group_name(
                 self.module,
                 page_slug=self._get_current_page_slug(),
@@ -1553,30 +1566,39 @@ class CaseGenerator:
                     page_slug=self._get_current_page_slug(),
                     trigger=self._current_context)
 
-            # KB 标准 XPath
-            card_xpath = (
+            # ── Step 3: 注册 pages 字段（通用容器 XPath，不含 value）──
+            # 用途：文档存档 + probe 验证（R4.43）
+            container_xpath = (
                 f"//label[contains(.,'{label}')]"
                 f"//following-sibling::*[self::div or self::span]"
-                f"//*[contains(text(),'{value}')]"
             )
+            container_xpath = apply_container_prefix(container_xpath, self.current_container)
 
-            # 容器前缀
-            card_xpath = apply_container_prefix(card_xpath, self.current_container)
-
-            # 注册到 required_fields
             self._track_field(group, f'{field}_card',
-                              locator=f'xpath={card_xpath}',
+                              locator=f'xpath={container_xpath}',
                               label=label,
-                              comment='option-card KB 标准模式')
+                              comment='option-card 容器定位（不含选项值）')
 
-            # 生成引用
-            card_ref = f'${{{group}.{field}_card}}'
+            # ── Step 4: 注册 data 字段（选项值）──
+            card_value_ref = self.add_data(f'{field}_card_value', value)
+            # 生成: ${compute_data.case01_field_0eaa6a_card_value} = "ARM 计算"
 
-            # 单步点击
+            # ── Step 5: 生成内联 XPath（模板 + data 引用）──
+            # Python 层完成参数替换，运行时 UIEngine 只做 ${data} → 字符串替换
+            inline_xpath = (
+                f"(//label[contains(.,'{label}')]"
+                f"//following-sibling::*[self::div or self::span]"
+                f"//*[contains(text(),'{card_value_ref}')"
+                f" and not(ancestor::*[contains(@class,'is-hidden')])"
+                f" and not(ancestor::*[contains(@style,'display: none')])])[1]"
+            )
+            inline_xpath = apply_container_prefix(inline_xpath, self.current_container)
+
+            # ── Step 6: 生成 case step（内联 XPath）──
             steps.append({
                 'desc': f"在「{label}」选项卡中选择「{value}」",
                 'keyword': 'click_element',
-                'params': {'locator': card_ref},
+                'params': {'locator': f'xpath={inline_xpath}'},
             })
 
         elif ptype in ('fill', 'textarea'):

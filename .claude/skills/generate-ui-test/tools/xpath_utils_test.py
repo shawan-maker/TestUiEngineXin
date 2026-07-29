@@ -148,12 +148,13 @@ expected = "//div[contains(@class,'el-drawer')]" + xpath_el_select
 assert result == expected
 print("✓ 2.7.1 el-select KB 标准模式 XPath")
 
-# 2.8 复杂 XPath — option-card KB 标准模式
-xpath_option_card = "//label[contains(.,'架构')]//following-sibling::*[self::div or self::span]//*[contains(text(),'ARM计算型')]"
+# 2.8 复杂 XPath — option-card 容器定位（数据分离模式）
+# 新实现：容器 XPath 不含选项值，选项值存储在 data 中
+xpath_option_card = "//label[contains(.,'架构')]//following-sibling::*[self::div or self::span]"
 result = apply_container_prefix(xpath_option_card, 'dialog')
 expected = "//div[contains(@class,'el-dialog')]" + xpath_option_card
 assert result == expected
-print("✓ 2.8.1 option-card KB 标准模式 XPath")
+print("✓ 2.8.1 option-card 容器 XPath")
 
 print()
 

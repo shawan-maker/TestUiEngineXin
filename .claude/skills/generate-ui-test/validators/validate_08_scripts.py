@@ -943,7 +943,7 @@ _R4_43_CORE_SUFFIXES = ('_btn', '_button', '_select', '_input', '_textarea',
 _R4_43_EXEMPT_GROUPS = ('common_elements', 'detail_page_elements')
 
 # 豁免 companion 字段后缀 — 这些是主字段的附属，不需要单独探测
-_R4_43_EXEMPT_SUFFIXES = ('_editable', '_first_option', '_iframe', '_body')
+_R4_43_EXEMPT_SUFFIXES = ('_editable', '_first_option', '_iframe', '_body', '_card')
 
 
 def check_r4_43(filepath: str, data: dict, lines: List[str], ctx: dict) -> List[Violation]:

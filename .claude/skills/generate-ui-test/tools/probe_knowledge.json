@@ -95,9 +95,11 @@
       },
       "option-card": {
         "name": "选项卡",
+        "description": "探测用模式（非生成用）。case generator 使用容器 XPath + data 分离模式。",
         "patterns": [
           "//label[contains(.,'{label}')]//following-sibling::*[self::div or self::span]//*[contains(text(),'{option_text}')]"
-        ]
+        ],
+        "note": "此模式用于 probe 验证元素存在性，不用于 case 生成。实际生成时 pages 存容器 XPath，data 存选项值，case 用内联 XPath + ${data} 引用。"
       }
     }
   },
@@ -136,7 +138,7 @@
           "first-option": {
             "desc": "readonly 时选择第一个可见项（else_steps，带 hidden filter）",
             "patterns": [
-              "(//div[(@x-placement='bottom-start' or @x-placement='top-start')]//li[not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])])[1]"
+              "(//div[(@x-placement='bottom-start' or @x-placement='top-start')]//li[contains(@class,'el-select-dropdown__item') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])])[1]"
             ]
           }
         }

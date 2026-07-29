@@ -552,6 +552,86 @@ _tab作用域内的侧边目录_
 
 ---
 
+## 十七、选项卡（option-card）数据分离模式
+
+选项卡（如"计费方式"选择"按量计费"、"架构"选择"ARM计算型"）采用数据分离模式：pages 存容器 XPath，data 存选项值，case 用内联 XPath + `${data}` 引用。
+
+### 架构对比
+
+| 维度 | el-select | option-card |
+|------|-----------|-------------|
+| **pages 字段** | `_select`（触发器） | `_card`（容器） |
+| **data 字段** | `_option` + `_search` | `_card_value` |
+| **case 引用** | 内联 XPath + `${data.option}` | 内联 XPath + `${data.card_value}` |
+
+### pages YAML
+
+pages 中只存容器 XPath（不含选项值）：
+
+```yaml
+compute_vm_newpage_listpage_elements:
+  field_0eaa6a_card: 'xpath=//label[contains(.,"架构")]//following-sibling::*[self::div or self::span]'
+  # 注释: option-card 容器定位（不含选项值）
+```
+
+容器 XPath 定位到"架构"标签后的 div/span 容器，不包含具体的选项文本。
+
+### data YAML
+
+data 中存储选项值（会随场景变化的测试数据）：
+
+```yaml
+compute_data:
+  case01_field_0eaa6a_card_value: "ARM 计算"
+  case01_field_0eaa6a_card_value_2: "ARM计算型"  # 同 case 内第二个同 label 步骤
+```
+
+### case YAML
+
+case 中用内联 XPath + `${data}` 引用：
+
+```yaml
+- desc: 在「架构」选项卡中选择「ARM 计算」
+  keyword: click_element
+  params:
+    locator: 'xpath=(//label[contains(.,"架构")]//following-sibling::*[self::div or self::span]//*[contains(.,"${compute_data.case01_field_0eaa6a_card_value}") and not(ancestor::*[contains(@class,"is-hidden")]) and not(ancestor::*[contains(@style,"display: none")])])[1]'
+
+- desc: 在「架构」选项卡中选择「ARM计算型」
+  keyword: click_element
+  params:
+    locator: 'xpath=(//label[contains(.,"架构")]//following-sibling::*[self::div or self::span]//*[contains(.,"${compute_data.case01_field_0eaa6a_card_value_2}") and not(ancestor::*[contains(@class,"is-hidden")]) and not(ancestor::*[contains(@style,"display: none")])])[1]'
+```
+
+### 同 label 多值处理
+
+当同一个 case 内对同一个选项卡选择多个不同的值时（如"架构"先选"ARM 计算"再选"ARM计算型"），data 字段自动添加后缀 `_2`、`_3`：
+
+- `case01_field_0eaa6a_card_value` = "ARM 计算"
+- `case01_field_0eaa6a_card_value_2` = "ARM计算型"
+
+每个步骤引用自己的 data key，运行时点击不同元素。这解决了旧实现中"同 label 多值覆盖"的问题。
+
+### 容器定位器 XPath
+
+```xpath
+//label[contains(.,'{label}')]//following-sibling::*[self::div or self::span]
+```
+
+定位到 `{label}`（如"架构"）标签后的 div/span 容器。选项值通过 data 引用注入到内联 XPath 中。
+
+### 完整内联 XPath
+
+```xpath
+(//label[contains(.,'{label}')]//following-sibling::*[self::div or self::span]//*[contains(.,'{card_value_ref}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])])[1]
+```
+
+其中 `{card_value_ref}` 是 `${compute_data.case01_field_xxx_card_value}` 形式的 data 引用。
+
+> ⚠️ pages 中的 `_card` 字段是容器定位器（文档存档 + probe 验证），实际点击通过 case 中的内联 XPath 完成。
+> 这与 el-select 的 `_select`（触发器）不同：el-select 的 `_select` 用于点击展开，而 option-card 的 `_card` 仅用于文档和验证。
+
+---
+
 ## 速查表
 
 | # | 元素类型 | 关键字 | 操作步数 | 对应 probe_knowledge.json 路径 |

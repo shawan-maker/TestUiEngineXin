@@ -64,7 +64,8 @@ _OPTION_XPATH_TEMPLATE = (
 # el-select _first_option 通用 XPath（带 hidden filter，排除虚拟滚动隐藏项）
 _FIRST_OPTION_XPATH = (
     "(//div[(@x-placement='bottom-start' or @x-placement='top-start')]//"
-    "li[not(ancestor::*[contains(@class,'is-hidden')])"
+    "li[contains(@class,'el-select-dropdown__item')"
+    " and not(ancestor::*[contains(@class,'is-hidden')])"
     " and not(ancestor::*[contains(@style,'display: none')])])[1]"
 )
 
@@ -145,6 +146,27 @@ def _make_editable_locator(sel_locator):
     return (sel_locator[:abs_close]
             + " and not(@readonly)"
             + sel_locator[abs_close:])
+
+
+def _make_editable_locator_postfix(sel_locator):
+    """从 _select locator 生成 _editable locator（后置 not(@readonly) 检查）。
+
+    与 _make_editable_locator() 的区别：
+    - _make_editable_locator: 注入到 input 谓词内部 → (//input[...and not(@readonly)])[1]
+    - _make_editable_locator_postfix: 追加到末尾 → (//input[...])[1][not(@readonly)]
+
+    后置模式确保 _editable 与 _select 始终指向同一个 DOM 元素（第 N 个），
+    再检查该元素是否可编辑。解决了同一 label 下多个 input 时，
+    前置过滤导致 _editable 跳到后面 input 的问题。
+
+    :param sel_locator: _select 字段的完整 locator（已包含 [nth] 包裹）
+    :return: 追加 [not(@readonly)] 后的 locator
+    """
+    if not sel_locator or not isinstance(sel_locator, str):
+        return sel_locator
+    if 'not(@readonly)' in sel_locator:
+        return sel_locator  # 幂等：已包含则不重复追加
+    return sel_locator + "[not(@readonly)]"
 
 
 def _unwrap_positional(xpath):
@@ -447,7 +469,7 @@ class PagesWriter:
                 if editable_key not in fields and editable_key not in new_fields:
                     if isinstance(sel_loc, str) and sel_loc:
                         new_fields[editable_key] = (
-                            _make_editable_locator(sel_loc),
+                            _make_editable_locator_postfix(sel_loc),  # 后置模式：(xpath)[N][not(@readonly)]
                             f'{base_comment}（可编辑状态）'
                         )
 

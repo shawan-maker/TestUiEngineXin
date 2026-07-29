@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-端到端测试：验证 _emit_el_select_steps 的 nth 序号 + hidden filter + else 分支重构
+端到端测试：验证 _emit_el_select_steps 的 nth 序号 + hidden filter + else 分支重构 + not(@readonly) 后置注入
 """
 import sys
 sys.stdout.reconfigure(encoding='utf-8')
 import json
 
-from _pages_writer import _make_editable_locator
+from _pages_writer import _make_editable_locator, _make_editable_locator_postfix
 
 print("=" * 60)
 print("端到端验证: el-select 增强方案")
@@ -87,7 +87,8 @@ print("\n测试 4: first_option_xpath hidden filter")
 first_option_xpath = (
     "(//div[(@x-placement='bottom-start' "
     "or @x-placement='top-start')]//li"
-    "[not(ancestor::*[contains(@class,'is-hidden')])"
+    "[contains(@class,'el-select-dropdown__item')"
+    " and not(ancestor::*[contains(@class,'is-hidden')])"
     " and not(ancestor::*[contains(@style,'display: none')])])[1]"
 )
 
@@ -162,7 +163,68 @@ print(f"  PagesWriter._FIRST_OPTION_XPATH: {_FIRST_OPTION_XPATH[:60]}...")
 print(f"  CaseGen first_option_xpath:        {first_option_xpath[:60]}...")
 print("  ✓ 一致")
 
+# ── 测试 8: _make_editable_locator_postfix 基本功能 ──
+print("\n测试 8: _make_editable_locator_postfix 基本功能")
+
+test_xpath_1 = "(//input[@class='el-input__inner'])[1]"
+result_1 = _make_editable_locator_postfix(test_xpath_1)
+expected_1 = "(//input[@class='el-input__inner'])[1][not(@readonly)]"
+assert result_1 == expected_1, f"期望: {expected_1}\n实际: {result_1}"
+print(f"  输入: {test_xpath_1}")
+print(f"  输出: {result_1}")
+print("  ✓ 通过")
+
+# ── 测试 9: _make_editable_locator_postfix 幂等性 ──
+print("\n测试 9: _make_editable_locator_postfix 幂等性")
+
+test_xpath_2 = "(//input[@class='el-input__inner'])[2][not(@readonly)]"
+result_2 = _make_editable_locator_postfix(test_xpath_2)
+assert result_2 == test_xpath_2, f"已包含 not(@readonly) 时不应重复添加"
+print(f"  输入: {test_xpath_2}")
+print(f"  输出: {result_2}")
+print("  ✓ 通过")
+
+# ── 测试 10: 对比 inline vs postfix 在多 input 场景的差异 ──
+print("\n测试 10: inline vs postfix 在多 input 场景的差异")
+
+base_xpath = "//label[.='系统盘']/following-sibling::div//input[@class='el-input__inner']"
+nth = 1
+
+# Inline 模式（旧）：先加 not(@readonly)，再加 [nth]
+editable_inline_base = _make_editable_locator(base_xpath)
+editable_inline = f"({editable_inline_base})[{nth}]"
+
+# Postfix 模式（新）：先加 [nth]，再加 [not(@readonly)]
+select_xpath = f"({base_xpath})[{nth}]"
+editable_postfix = _make_editable_locator_postfix(select_xpath)
+
+print(f"  基础 XPath: {base_xpath}")
+print(f"  Inline 模式: {editable_inline[:80]}...")
+print(f"  Postfix 模式: {editable_postfix[:80]}...")
+
+# 关键断言：postfix 模式的 not(@readonly) 在 [1] 之后
+assert "])[1][not(@readonly)]" in editable_postfix, "Postfix 模式应在 [1] 之后添加 [not(@readonly)]"
+# Inline 模式的 not(@readonly) 在 input 谓词内部
+assert "and not(@readonly)" in editable_inline, "Inline 模式应在 input 谓词内添加"
+# 两者结构不同
+assert editable_inline != editable_postfix, "两种模式应产生不同的 XPath 结构"
+
+print("  ✓ 两种模式结构正确区分")
+
+# ── 测试 11: Postfix 模式确保与 _select 指向同一元素 ──
+print("\n测试 11: Postfix 模式确保 _editable 与 _select 指向同一元素")
+
+select_xpath_11 = "(//label[.='系统盘']/following-sibling::div//input[@class='el-input__inner'])[1]"
+editable_xpath_11 = _make_editable_locator_postfix(select_xpath_11)
+
+# 提取基础部分（不含 [not(@readonly)]）
+editable_base_part = editable_xpath_11.replace("[not(@readonly)]", "")
+assert editable_base_part == select_xpath_11, f"Postfix 模式应基于 _select 的完整 XPath"
+print(f"  _select:   {select_xpath_11[:70]}...")
+print(f"  _editable: {editable_xpath_11[:80]}...")
+print("  ✓ _editable 与 _select 指向同一 DOM 元素（第 1 个）")
+
 print()
 print("=" * 60)
-print("✅ 端到端验证全部通过（7/7）")
+print("✅ 端到端验证全部通过（11/11）")
 print("=" * 60)

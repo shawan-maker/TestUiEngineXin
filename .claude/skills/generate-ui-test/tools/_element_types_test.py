@@ -365,9 +365,10 @@ check(_infer_type('架构_card', 'xpath=//label...') == 'option-card',
 check(_infer_type('规格_card', '//label...') == 'option-card',
       f"_infer_type('规格_card', ...) = {_infer_type('规格_card', '//label...')!r}")
 
-# L7-4: option-card XPath 容器前缀逻辑 (1421-1426)
-print('L7-4: option-card 容器前缀 XPath 生成:')
-base_xpath = "//label[contains(.,'架构')]//following-sibling::*[self::div or self::span]//*[contains(text(),'ARM计算型')]"
+# L7-4: option-card 容器 XPath 前缀逻辑（数据分离模式）
+print('L7-4: option-card 容器 XPath 前缀生成:')
+# 新实现：容器 XPath 不含选项值（选项值存储在 data 中）
+base_xpath = "//label[contains(.,'架构')]//following-sibling::*[self::div or self::span]"
 drawer_xpath = f"//div[contains(@class,'el-drawer')]{base_xpath}"
 dialog_xpath = f"//div[contains(@class,'el-dialog')]{base_xpath}"
 msgbox_xpath = f"//div[contains(@class,'el-message-box')]{base_xpath}"
@@ -381,8 +382,6 @@ check(msgbox_xpath.startswith("//div[contains(@class,'el-message-box')]"),
       "message-box 前缀格式错误")
 check("//label[contains(.,'架构')]" in drawer_xpath,
       "drawer XPath 缺少 label 选择器")
-check("contains(text(),'ARM计算型')" in drawer_xpath,
-      "drawer XPath 缺少选项文本")
 
 # L7-5: infer_elem_type 死代码删除验证 (L2 fix)
 print('L7-5: infer_elem_type 无重复分支 (L2 fix):')
@@ -405,6 +404,87 @@ for container, expected_prefix in [('drawer', 'el-drawer'), ('dialog', 'el-dialo
         xpath = f"//div[contains(@class,'el-message-box')]{xpath}"
     check(f"el-{container.replace('-box', '')}" in xpath,
           f"{container} 容器前缀缺失")
+
+
+# ================================================================
+# Part 6: option_card 数据分离测试
+# ================================================================
+print('\n' + '=' * 60)
+print('Part 6: option_card 数据分离测试')
+print('=' * 60)
+
+def test_option_card_data_separation():
+    """验证 option_card 生成器正确分离数据和定位器"""
+    import sys as _sys
+    _sys.path.insert(0, os.path.dirname(__file__))
+    from _case_generator import CaseGenerator
+
+    # Mock resolver — 最小化实现
+    class MockResolver:
+        def get_group_name(self, *args, **kwargs):
+            return "test_group"
+        def construct_pending_group(self, *args, **kwargs):
+            return "test_group"
+        def get_trigger_map(self):
+            return {}
+        def get_element_map(self):
+            return {}
+        def get_page_element_map(self):
+            return {}
+
+    gen = CaseGenerator(
+        resolver=MockResolver(),
+        module_name="test_module",
+    )
+    gen.data_group_name = "test_data"
+    gen.current_case_prefix = "case01_"
+    gen.current_container = None
+    gen._current_context = None
+    gen._current_page_url = None
+
+    # 测试场景：同 label 两个不同 value
+    steps1 = gen.generate_step({'type': 'option_card', 'args': ('架构', 'ARM 计算')})
+    steps2 = gen.generate_step({'type': 'option_card', 'args': ('架构', 'ARM计算型')})
+
+    # 验证 1: data_entries 中有两个不同的 value
+    data = gen.data_entries.get('test_data', {})
+    check('case01_field_0eaa6a_card_value' in data,
+          "应有第一个 value (case01_field_0eaa6a_card_value)")
+    check('case01_field_0eaa6a_card_value_2' in data,
+          "应有第二个 value（自动后缀 _2）")
+    if 'case01_field_0eaa6a_card_value' in data:
+        check(data['case01_field_0eaa6a_card_value'] == 'ARM 计算',
+              f"第一个 value 应为 'ARM 计算'，实际 {data['case01_field_0eaa6a_card_value']!r}")
+    if 'case01_field_0eaa6a_card_value_2' in data:
+        check(data['case01_field_0eaa6a_card_value_2'] == 'ARM计算型',
+              f"第二个 value 应为 'ARM计算型'，实际 {data['case01_field_0eaa6a_card_value_2']!r}")
+    print('  ✓ 6.1 data_entries 正确存储两个不同的 value')
+
+    # 验证 2: steps 中有两个内联 XPath，引用不同的 data key
+    check(len(steps1) == 1, f"步骤 1 应有 1 个 step，实际 {len(steps1)}")
+    check(len(steps2) == 1, f"步骤 2 应有 1 个 step，实际 {len(steps2)}")
+    locator1 = steps1[0]['params']['locator']
+    locator2 = steps2[0]['params']['locator']
+    check('${test_data.case01_field_0eaa6a_card_value}' in locator1,
+          f"步骤 1 locator 应引用第一个 data key，实际: {locator1[:80]}")
+    check('${test_data.case01_field_0eaa6a_card_value_2}' in locator2,
+          f"步骤 2 locator 应引用第二个 data key，实际: {locator2[:80]}")
+    print('  ✓ 6.2 case steps 使用内联 XPath + 不同的 data 引用')
+
+    # 验证 3: pages 字段只注册一次（容器 XPath，不含 value）
+    card_fields = [k for k in gen.required_fields if k[1].endswith('_card')]
+    check(len(card_fields) == 1,
+          f"应只有一个 _card 字段，实际 {len(card_fields)}")
+    if card_fields:
+        container_xpath = gen.required_fields[card_fields[0]]['locator']
+        check('ARM' not in container_xpath,
+              f"容器 XPath 不应包含选项值，实际: {container_xpath}")
+        check('label' in container_xpath and '架构' in container_xpath,
+              "容器 XPath 应包含 label 定位")
+    print('  ✓ 6.3 pages 字段只注册一次（容器 XPath，不含 value）')
+
+test_option_card_data_separation()
+print('\n✅ Part 6: option_card 数据分离测试通过')
 
 
 # ================================================================

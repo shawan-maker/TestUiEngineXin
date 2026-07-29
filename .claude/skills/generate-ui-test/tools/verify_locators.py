@@ -60,6 +60,7 @@ from xpath_utils import _unwrap_positional, _rewrap_positional
 from xpath_utils import apply_hidden_filters_to_pages, strip_not_ancestor_from_pages
 from field_suffixes import DIALOG_CONFIRM_LABELS
 from _pages_writer import _make_editable_locator as _make_editable_locator_from_select
+from _pages_writer import _make_editable_locator_postfix
 from _element_types import (
     TYPE_TO_SECTIONS as _TYPE_COMPATIBLE_SECTIONS,
     ALL_LIST_SECTIONS as _ALL_LIST_SECTIONS,
@@ -1891,11 +1892,11 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
             # M5: _select 写回时同步更新 _editable companion
             if field.endswith('_select'):
                 editable_field = field[:-len('_select')] + '_editable'
-                # 从 _select locator 生成 _editable locator（括号深度计数）
+                # 从 _select locator 生成 _editable locator（后置模式）
                 raw_locator = locator
                 if raw_locator.startswith('xpath='):
                     raw_locator = raw_locator[6:]
-                editable_raw = _make_editable_locator_from_select(raw_locator)
+                editable_raw = _make_editable_locator_postfix(raw_locator)
                 if editable_raw != raw_locator:  # 仅当实际修改了才同步
                     updates[path][group][editable_field] = f'xpath={editable_raw}'
             if marker:

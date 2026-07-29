@@ -643,12 +643,38 @@ class PipelineExecutor:
                              errors=[f"未知的内置阶段: {phase_id}"])
 
     def _phase0_config(self) -> PhaseResult:
-        """Phase 0: 配置确认（已由用户提供，只验证）"""
+        """Phase 0: 配置确认（已由用户提供，只验证）
+
+        额外职责：自动补全 cookie_domain（从 target_url 提取），
+        确保运行时 base_browser._apply_config_cookies 能正确注入 HTTP Cookie。
+        """
         config_path = Path(self.project_dir) / "config.yaml"
         if not config_path.exists():
             return PhaseResult("phase_0", PhaseStatus.FAILED,
                              errors=["config.yaml 不存在",
                                     "请手动创建 config.yaml（参考 templates/config_template.md）"])
+
+        # 自动补全 cookie_domain（从 target_url 提取）
+        try:
+            import yaml
+            with open(config_path, 'r', encoding='utf-8') as f:
+                cfg = yaml.safe_load(f) or {}
+            if cfg.get('cookie') and not cfg.get('cookie_domain') and not cfg.get('host'):
+                from urllib.parse import urlparse
+                target = cfg.get('target_url', '')
+                if target:
+                    domain = urlparse(target).hostname
+                    if domain:
+                        # 逐行追加，保留原始注释和格式
+                        with open(config_path, 'r', encoding='utf-8') as f:
+                            lines = f.readlines()
+                        lines.append(f'\ncookie_domain: "{domain}"\n')
+                        with open(config_path, 'w', encoding='utf-8') as f:
+                            f.writelines(lines)
+                        print(f"  [Phase 0] 自动补全 cookie_domain: {domain}")
+        except Exception as e:
+            # 补全失败不阻断（仅警告）
+            print(f"  [Phase 0] cookie_domain 自动补全失败（不影响验证）: {e}")
 
         # 运行验证器
         val_result = self._run_validator("phase_0")

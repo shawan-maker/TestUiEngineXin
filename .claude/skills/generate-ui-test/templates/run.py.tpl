@@ -253,9 +253,15 @@ def build_master_suite(suites_dir, all_cases, config, cases_dir=None):
     target_url = '${common_data.target_url}'
 
     # 推断认证关键字（与 generate_suites.py _infer_auth_keyword 对齐）
+    _has_cookie = bool(config.get('cookie'))
     _has_ls = bool(config.get('local_storage'))
     _has_token = bool(config.get('token'))
-    _auth_kw = 'inject_local_storage' if _has_ls else ('inject_token_header' if _has_token else '')
+    if _has_cookie or _has_ls:
+        _auth_kw = 'inject_local_storage'
+    elif _has_token:
+        _auth_kw = 'inject_token_header'
+    else:
+        _auth_kw = ''
 
     _setup = [
         {'desc': '打开浏览器', 'keyword': 'open_browser',

@@ -87,28 +87,32 @@ def _get_priority(case_id: str, filename: str = '') -> int:
     return max_tier if max_tier >= 0 else 50  # 未知类型排中间
 
 
-def _infer_auth_keyword(config: dict) -> str:
-    """从 config.yaml 字段存在性推断认证关键字
+def _infer_auth_steps(config: dict) -> list:
+    """从 config.yaml 字段存在性推断认证步骤列表
 
-    认证模式映射：
-      cookie (无论是否有 localStorage)  → 'inject_local_storage'
-          inject_local_storage 会自动从 cookie 提取 token 写入 localStorage，
-          同时注入 config.local_storage 中的其他字段。
-          这是天枢等系统的标准做法：cookie + localStorage 双重认证。
-      local_storage (无 cookie)      → 'inject_local_storage'
-          SPA 前端需要 localStorage 注入才能认证。
-      token                 → 'inject_token_header'
-      none                  → ''
+    返回 0-2 个认证关键字，按执行顺序排列。
+    双保险策略：
+      - cookie + domain → inject_cookies（显式 HTTP）+ inject_local_storage（localStorage + 安全网）
+      - cookie（无 domain）→ inject_local_storage（靠安全网自动提取 domain）
+      - local_storage → inject_local_storage
+      - token → inject_token_header
+      - none → []
     """
     has_cookie = bool(config.get('cookie'))
     has_token = bool(config.get('token'))
     has_local_storage = bool(config.get('local_storage'))
+    has_domain = bool(config.get('cookie_domain') or config.get('host'))
 
-    if has_cookie or has_local_storage:
-        return 'inject_local_storage'  # cookie 或 localStorage 模式
-    if has_token:
-        return 'inject_token_header'   # header token 模式
-    return ''
+    steps = []
+    if has_cookie:
+        if has_domain:
+            steps.append('inject_cookies')     # 显式 HTTP Cookie 注入
+        steps.append('inject_local_storage')   # localStorage + 安全网
+    elif has_local_storage:
+        steps.append('inject_local_storage')
+    elif has_token:
+        steps.append('inject_token_header')
+    return steps
 
 
 def scan_cases(cases_dir: str, module: str) -> list:
@@ -140,7 +144,7 @@ def generate_suite(cases: list, config: dict, module: str,
         sort_by: 'filename' (M18 默认, 按文件编号) 或 'dependency' (按操作类型)
     """
     browser_type = config.get('browser_type', 'chromium')
-    auth_keyword = _infer_auth_keyword(config)
+    auth_steps = _infer_auth_steps(config)
 
     # M18: 按文件编号排序（默认）或按依赖顺序排序
     if sort_by == 'dependency':
@@ -160,10 +164,9 @@ def generate_suite(cases: list, config: dict, module: str,
         {'desc': '导航到目标域', 'keyword': 'open_url',
          'params': {'url': '${common_data.target_url}'}},
     ]
-    if auth_keyword:
-        setup_step.append({
-            'desc': '注入认证信息', 'keyword': auth_keyword,
-        })
+    # 注入认证步骤（0-2 个）
+    for kw in auth_steps:
+        setup_step.append({'desc': '注入认证信息', 'keyword': kw})
     setup_step.extend([
         {'desc': '刷新使认证生效', 'keyword': 'refresh'},
         {'desc': '等待页面加载完成', 'keyword': 'wait_for_loading_complete'},

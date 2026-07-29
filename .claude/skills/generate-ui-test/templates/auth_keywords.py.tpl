@@ -38,6 +38,7 @@ def inject_cookies(self, cookies=None):
                     ck = {'name': name.strip(), 'value': value.strip()}
                     if domain:
                         ck['domain'] = domain
+                        ck['path'] = '/'
                     cookies.append(ck)
     if not cookies:
         self.log.debug_log("[认证] 没有需要注入的 Cookie")
@@ -92,6 +93,26 @@ def inject_local_storage(self, key=None, value=None, navigate_url=None):
         return
 
     # 方式1：从 config 批量读取
+    # === HTTP Cookie 安全网注入 ===
+    # 确保 HTTP 层 Cookie 也被注入（防止 base_browser._apply_config_cookies 失败）
+    cookie_str = self.config.get('cookie', '')
+    if cookie_str:
+        domain = self.config.get('cookie_domain', '')
+        if not domain:
+            # 自动从当前页面 URL 提取域名（open_url 已导航到目标域）
+            from urllib.parse import urlparse
+            current_url = self.page.url or ''
+            if current_url.startswith('http'):
+                domain = urlparse(current_url).hostname or ''
+        if domain:
+            from UIEngine.browser.base_browser import parse_cookie_string
+            cookies = parse_cookie_string(cookie_str, domain)
+            if cookies:
+                self.context.add_cookies(cookies)
+                self.log.debug_log(
+                    f"[认证] HTTP Cookie 安全网：已注入 {len(cookies)} 个（域名: {domain}）")
+    # === 安全网结束 ===
+
     storage_items = dict(self.config.get('local_storage', {}))
 
     # 自动从 cookie 提取第一个 token 并合并到 localStorage

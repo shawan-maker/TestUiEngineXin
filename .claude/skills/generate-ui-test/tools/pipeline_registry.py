@@ -56,7 +56,7 @@ PHASE_DEFINITIONS: dict[str, dict[str, Any]] = {
 
     "phase_1": {
         "name": "Excel 预检",
-        "tool": "validate_excel.py",
+        "tool": "excel/validate_excel.py",
         "tool_args": ["{excel_path}"],
         "validator": None,          # validate_excel 自带 exit code
         "hard_deps": ["phase_0"],
@@ -69,7 +69,7 @@ PHASE_DEFINITIONS: dict[str, dict[str, Any]] = {
 
     "phase_1b_parse": {
         "name": "Excel 解析",
-        "tool": "read_excel.py",
+        "tool": "excel/read_excel.py",
         "tool_args": [
             "{excel_path}",
             "--output", "{project_dir}/_probe/excel_parsed.json",
@@ -101,7 +101,7 @@ PHASE_DEFINITIONS: dict[str, dict[str, Any]] = {
 
     "phase_3_keywords": {
         "name": "模块关键字编译",
-        "tool": "compile_module_keywords.py",
+        "tool": "generators/compile_module_keywords.py",
         "tool_args": ["{project_dir}"],
         "validator": "validate_03_keywords.py",
         "validator_args": ["{project_dir}"],
@@ -115,7 +115,7 @@ PHASE_DEFINITIONS: dict[str, dict[str, Any]] = {
 
     "phase_4_discovery": {
         "name": "全自动探测",
-        "tool": "run_phase4.py",
+        "tool": "probe/run_phase4.py",
         "tool_args": [
             "--excel", "{excel_path}",
             "--config", "{config_path}",
@@ -139,7 +139,7 @@ PHASE_DEFINITIONS: dict[str, dict[str, Any]] = {
 
     "phase_5": {
         "name": "cases+pages+data 生成",
-        "tool": "generate_from_excel.py",
+        "tool": "generation/generate_from_excel.py",
         "tool_args": [
             "{excel_json_path}",
             "--discovery-dir", "{project_dir}/_probe/",
@@ -159,7 +159,7 @@ PHASE_DEFINITIONS: dict[str, dict[str, Any]] = {
 
     "phase_6_verify": {
         "name": "运行时定位器验证",
-        "tool": "verify_locators.py",
+        "tool": "verification/verify_orchestrator.py",
         "tool_args": [
             "{project_dir}",
             "--cookie", "{cookie}",
@@ -182,7 +182,7 @@ PHASE_DEFINITIONS: dict[str, dict[str, Any]] = {
 
     "phase_7": {
         "name": "suites 生成",
-        "tool": "generate_suites.py",
+        "tool": "generators/generate_suites.py",
         "tool_args": ["{project_dir}", "--all-modules"],
         "validator": None,
         "hard_deps": ["phase_0", "phase_5"],

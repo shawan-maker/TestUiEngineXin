@@ -59,22 +59,71 @@
 
 ## 管线执行命令
 
+### 完整执行
+
 ```bash
-# 完整执行（Phase 0 → Phase 9）
 python tools/pipeline.py run --project {项目目录} --excel {Excel文件} --cookie "{cookie}"
+```
 
-# 从指定阶段恢复（用于修复后重跑）
+### 恢复执行（从指定阶段开始）
+
+```bash
 python tools/pipeline.py run --project {项目目录} --from-phase phase_4
+```
 
-# 查看阶段状态
+### 单阶段执行（含上游依赖）
+
+```bash
+python tools/pipeline.py run --project {项目目录} --only-phase phase_5
+```
+
+### 查看状态
+
+```bash
 python tools/pipeline.py status --project {项目目录}
 ```
 
-**参数说明**：
-- `--project`：项目目录（必填）
-- `--excel`：Excel 文件路径（Excel 输入时必填）
-- `--cookie`：认证 Cookie（可选，也可在 Phase 0 由用户提供）
-- `--from-phase`：从指定阶段开始恢复（前置阶段的 artifact 已存在时自动跳过）
+### CLI 参数说明
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `--project` | ✅ | 项目目录路径 |
+| `--excel` | Excel 输入时 | Excel 文件路径（触发 Phase 1/1b） |
+| `--cookie` | 可选 | 认证 Cookie，也可在 config.yaml 中配置 |
+| `--from-phase` | 可选 | 从指定阶段开始恢复（前置阶段的 artifact 已存在时自动跳过） |
+| `--only-phase` | 可选 | 仅执行指定阶段及其上游依赖 |
+| `--run-smoke` | 可选 | Phase 9 完成后自动执行 smoke 测试 |
+
+### 阶段别名
+
+支持使用短名称，管线自动映射到完整阶段名：
+
+| 别名 | 映射到 |
+|------|--------|
+| `phase_1b` | `phase_1b_parse` |
+| `phase_3` | `phase_3_keywords` |
+| `phase_4` | `phase_4_discovery` |
+| `phase_6` | `phase_6_verify` |
+
+## 自动化流程
+
+管线编排器（`pipeline.py`）按拓扑依赖顺序自动执行 10 个阶段：
+
+1. **Phase 0** — 验证/生成 `config.yaml`，自动补全 `cookie_domain`
+2. **Phase 1** — Excel 预检（仅 Excel 输入时执行）
+3. **Phase 1b** — 解析 Excel → `_probe/excel_parsed.json`，提取 `page_urls` 写入 `config.yaml`
+4. **Phase 2** — 生成脚手架：`run.py`、`lib/auth_keywords.py`、目录结构
+5. **Phase 3** — 编译模块关键字 → `lib/module_keywords.py`
+6. **Phase 4** — 自动探测页面元素 → `_probe/discovery_{module}.json`
+7. **Phase 5** — 生成 cases/pages/data YAML 文件
+8. **Phase 6** — 运行时定位器验证（浏览器验证每个 locator）
+9. **Phase 7** — 生成 suites YAML
+10. **Phase 8** — 跨文件校验（gate，失败阻断后续阶段）
+11. **Phase 9** — 运行验证（检查项目结构完整性）
+
+**恢复机制**：`--from-phase` 恢复时，前置阶段若 artifact 已存在且非空则自动跳过（状态标记为 `skipped`）。
+
+**认证失败阻断**：Phase 4/6 检测到认证失败（401/403/登录/重定向）时全局阻断（`exit(2)`），需人工更新 Cookie 后使用 `--from-phase` 恢复。
 
 ## Phase 0 用户输入收集
 

@@ -46,7 +46,7 @@ except ImportError:
 _tools_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'tools')
 if _tools_dir not in sys.path:
     sys.path.insert(0, _tools_dir)
-from _tier_utils import get_case_tier as _get_case_tier
+from core.tier_utils import get_case_tier as _get_case_tier
 
 
 # ============================================================================
@@ -1289,7 +1289,7 @@ def main():
     _sys_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if _sys_path not in sys.path:
         sys.path.insert(0, _sys_path)
-    from tools._phase_registry import check_prerequisite_phases
+    from tools.infra.phase_registry import check_prerequisite_phases
     prereq_violations = check_prerequisite_phases(project_dir, 'validate_08')
     all_violations: List[Violation] = list(prereq_violations)
 

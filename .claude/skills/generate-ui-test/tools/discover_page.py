@@ -52,6 +52,49 @@ CONTAINER_TYPE_PRIORITY = ['dialog', 'drawer', 'message-box']
 
 
 # ============================================================================
+# Navigation with networkidle fallback (§X)
+# ============================================================================
+
+def _navigate_with_fallback(page, url, timeout_ms=10000):
+    """Navigate to URL with networkidle, fallback to domcontentloaded on timeout.
+
+    Some systems (eStack) have continuous API polling, causing networkidle to never
+    trigger. This helper tries networkidle first (ensures API data is loaded),
+    then falls back to domcontentloaded + wait_for_dom_stable for polling systems.
+    """
+    try:
+        page.goto(url, wait_until="networkidle", timeout=timeout_ms)
+    except Exception as e:
+        if "Timeout" in str(e) or "timeout" in str(e):
+            print(f"    [INFO] networkidle timeout, fallback to domcontentloaded")
+            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        else:
+            raise
+
+
+def _reload_with_fallback(page, timeout_ms=10000):
+    """Reload page with networkidle, fallback to domcontentloaded on timeout."""
+    try:
+        page.reload(wait_until="networkidle", timeout=timeout_ms)
+    except Exception as e:
+        if "Timeout" in str(e) or "timeout" in str(e):
+            page.reload(wait_until="domcontentloaded", timeout=30000)
+        else:
+            raise
+
+
+def _wait_for_load_state_fallback(page, timeout_ms=10000):
+    """Wait for networkidle, fallback to domcontentloaded on timeout."""
+    try:
+        page.wait_for_load_state("networkidle", timeout=timeout_ms)
+    except Exception as e:
+        if "Timeout" in str(e) or "timeout" in str(e):
+            page.wait_for_load_state("domcontentloaded", timeout=30000)
+        else:
+            raise
+
+
+# ============================================================================
 # XPath filter injection helpers (§9.2 P1-C / P1-A)
 # ============================================================================
 
@@ -1266,12 +1309,13 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                 local_storage[c['name']] = c['value']
 
         page = context.new_page()
-        # Navigate once, inject localStorage, then reload
-        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        # Navigate with networkidle fallback to domcontentloaded
+        # Some systems (eStack) have continuous API polling, networkidle never triggers
+        _navigate_with_fallback(page, url, timeout_ms=10000)
         _wait_for_dom_stable(page, timeout_ms=4000)  # 初始页面加载等待 DOM 渲染
         for k, v in local_storage.items():
             page.evaluate("([k, v]) => localStorage.setItem(k, v)", [k, v])
-        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        _navigate_with_fallback(page, url, timeout_ms=10000)
         _wait_for_dom_stable(page, timeout_ms=4000)  # 重载后等待 DOM 稳定
         # Check auth
         if '/login' in page.url or page.url.rstrip('/').endswith('login'):
@@ -1283,8 +1327,8 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
             page.evaluate("([k, v]) => localStorage.setItem(k, v)", [k, v])
 
         # Re-navigate to apply localStorage
-        page.goto(url, wait_until="networkidle", timeout=30000)
-        _wait_for_dom_stable(page, timeout_ms=3000, debug=True)  # networkidle 后等待 DOM 渲染（含表格行）
+        _navigate_with_fallback(page, url, timeout_ms=10000)
+        _wait_for_dom_stable(page, timeout_ms=3000, debug=True)  # 导航后等待 DOM 渲染（含表格行）
 
         # §12.2 改动 2b: baseline URL = 页面加载后的真实 URL
         baseline_url = page.url
@@ -1445,15 +1489,15 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
             print(f"\n  [CLICK] '{btn_text}' ({'row' if is_row else 'toolbar'})...")
 
             # Navigate back to list page before each click
-            page.goto(baseline_url, wait_until="networkidle", timeout=30000)
+            _navigate_with_fallback(page, baseline_url, timeout_ms=10000)
             # SPA hash 路由不变时 goto 可能不触发全页面重载，
             # reload 强制销毁 Vue app，清除残留 dialog/drawer wrapper
             try:
-                page.reload(wait_until="networkidle", timeout=30000)
+                _reload_with_fallback(page, timeout_ms=10000)
             except Exception as e:
                 # 网络瞬态错误（如 net::ERR_NETWORK_CHANGED）时降级为 goto
                 print(f"    [WARN] reload failed ({e}), fallback to goto")
-                page.goto(baseline_url, wait_until="networkidle", timeout=30000)
+                _navigate_with_fallback(page, baseline_url, timeout_ms=10000)
             _wait_for_dom_stable(page, timeout_ms=3000, debug=True)  # 回到基线页等待 DOM 稳定（含表格行）
 
             # §9.2 P4: row button 需要绕过 el-table fixed-column overlay
@@ -1788,8 +1832,8 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
             print(f"\n  [DETAIL-LINK] '{dl_text}'...")
 
             # Navigate back to list page before each click
-            page.goto(baseline_url, wait_until="networkidle", timeout=30000)
-            page.reload(wait_until="networkidle", timeout=30000)
+            _navigate_with_fallback(page, baseline_url, timeout_ms=10000)
+            _reload_with_fallback(page, timeout_ms=10000)
             _wait_for_dom_stable(page, timeout_ms=3000, debug=True)
 
             # Click the detail-link (with JS dispatch fallback like buttons)
@@ -1815,13 +1859,13 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                     """)
                     page.wait_for_timeout(500)
 
-                page.wait_for_load_state("networkidle", timeout=30000)
+                _wait_for_load_state_fallback(page, timeout_ms=10000)
                 _wait_for_dom_stable(page, timeout_ms=3000)
             except Exception as e:
                 print(f"    [WARN] click failed: {e}")
                 # Recover page state for next button detection
-                page.goto(baseline_url, wait_until="networkidle", timeout=30000)
-                page.reload(wait_until="networkidle", timeout=30000)
+                _navigate_with_fallback(page, baseline_url, timeout_ms=10000)
+                _reload_with_fallback(page, timeout_ms=10000)
                 _wait_for_dom_stable(page, timeout_ms=3000, debug=True)
                 return
 

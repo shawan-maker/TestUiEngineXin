@@ -27,7 +27,7 @@ from _element_types import normalize_type as _normalize_type
 # ============================================================
 
 # Cookie 中的 token 键名，用于自动同步到 localStorage
-TOKEN_KEYS = {'ud_token', 'token', 'access_token', 'auth_token', 'jwt_token'}
+TOKEN_KEYS = {'ud_token', 'token', 'access_token', 'accessToken', 'auth_token', 'jwt_token'}
 
 # el-select 排除下拉面板容器（防止匹配到已展开面板中的 el-select 元素）
 _EXCL_DROPDOWN = " and not(contains(@class,'el-select-dropdown'))"

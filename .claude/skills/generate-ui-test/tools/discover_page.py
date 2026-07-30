@@ -337,7 +337,7 @@ _DISCOVER_JS = """
     }
 
     // 1. Buttons (excluding row buttons — toolbar scope)
-    root.querySelectorAll('button.el-button, button, [role="button"]').forEach(el => {
+    root.querySelectorAll('button.el-button, button.ec-button, button, [role="button"], .ec-button').forEach(el => {
         if (!isVisible(el)) return;
         if (el.closest('tbody')) return;  // skip row buttons here
         if (!scopeSelector) {
@@ -474,7 +474,7 @@ _DISCOVER_JS = """
 
     // 8. Row buttons (inside tbody) — C7: all typed as table-action-button
     //    Fix-2: 增加 el-dropdown 内 span 按钮（"更多"展开菜单等）
-    root.querySelectorAll('tbody .el-button, tbody button, tbody .el-dropdown span.el-dropdown-link, tbody .el-dropdown span[style*="cursor"]').forEach(el => {
+    root.querySelectorAll('tbody .el-button, tbody .ec-button, tbody button, tbody .el-dropdown span.el-dropdown-link, tbody .el-dropdown span[style*="cursor"]').forEach(el => {
         if (!isVisible(el)) return;
         const text = getText(el);
         if (!text) return;
@@ -668,7 +668,7 @@ _ROW_HOVER_JS = """
         const row = rows[rowIndex];
         if (!row) continue;
         // Fix-2: 增加 el-dropdown span（hover 展开的"更多"菜单按钮）
-        row.querySelectorAll('.el-button, button, [role="button"], .el-dropdown span.el-dropdown-link, .el-dropdown span[style*="cursor"]').forEach(el => {
+        row.querySelectorAll('.el-button, .ec-button, button, [role="button"], .el-dropdown span.el-dropdown-link, .el-dropdown span[style*="cursor"]').forEach(el => {
             const rect = el.getBoundingClientRect();
             const style = window.getComputedStyle(el);
             // Relaxed visibility: only reject truly hidden elements (§9.2 P4 fix)
@@ -804,7 +804,7 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
                                         : (({i} < mainRows.length) ? mainRows[{i}] : null);
                             if (!row) return;
                             let target = null;
-                            row.querySelectorAll('.el-button, button, [role="button"], .el-dropdown span.el-dropdown-link, .el-dropdown span[style*="cursor"]').forEach(el => {{
+                            row.querySelectorAll('.el-button, .ec-button, button, [role="button"], .el-dropdown span.el-dropdown-link, .el-dropdown span[style*="cursor"]').forEach(el => {{
                                 const t = (el.textContent || '').trim();
                                 if ({json.dumps(list(EXPAND_LABELS), ensure_ascii=False)}.includes(t)) target = el;
                             }});
@@ -1603,7 +1603,7 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                                     : (({row_idx} < mainRows.length) ? mainRows[{row_idx}] : null);
                                 let target = null;
                                 if (searchRow) {{
-                                    searchRow.querySelectorAll('.el-button, button, [role=\"button\"], .el-dropdown span.el-dropdown-link, .el-dropdown span[style*=\"cursor\"]').forEach(el => {{
+                                    searchRow.querySelectorAll('.el-button, .ec-button, button, [role=\"button\"], .el-dropdown span.el-dropdown-link, .el-dropdown span[style*=\"cursor\"]').forEach(el => {{
                                         const t = (el.textContent || '').trim();
                                         if (t === {json.dumps(btn_text, ensure_ascii=False)}) target = el;
                                     }});

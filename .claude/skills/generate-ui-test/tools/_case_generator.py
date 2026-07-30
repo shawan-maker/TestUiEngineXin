@@ -552,6 +552,17 @@ class CaseGenerator:
         #      后置 [not(@readonly)] 先锁定第 N 个 input，再检查该元素是否非 readonly
         editable_xpath = _make_editable_locator_postfix(select_xpath)
 
+        # 4.7. _expand: click 专用，指向 div.el-select（更符合 Element UI 点击事件绑定位置）
+        #      fill / editable-check 仍用 input 基底（_select），只有 click 用 div 基底
+        expand_xpath_base = (
+            f"//*[contains(text(),'{label}')]"
+            f"/following-sibling::*[self::div or self::span]"
+            f"//*[contains(@class,'el-select')"
+            f" and not(contains(@class,'el-select-dropdown'))]"
+        )
+        expand_xpath_base = apply_container_prefix(expand_xpath_base, self.current_container)
+        expand_xpath = f"({expand_xpath_base})[{nth}]"
+
         # 5. 注册 _select 到 required_fields（原始 XPath，无 hidden filter）
         #    PagesWriter Stage 2 注入 hidden filter
         #    PagesWriter Stage 3 生成 _editable + _first_option companion
@@ -559,6 +570,12 @@ class CaseGenerator:
                           locator=f'xpath={select_xpath}',
                           label=label,
                           comment='el-select KB 标准模式')
+
+        # 5a. 注册 _expand（click 专用，指向 div.el-select）
+        self._track_field(group, f'{field}_expand',
+                          locator=f'xpath={expand_xpath}',
+                          label=label,
+                          comment='el-select 点击展开（div级）')
 
         # 5b. 预注册 companion 字段（防止 collect_refs_from_steps 注册空 locator）
         #     collect_refs_from_steps 扫描 ${group._editable} 时会在 resolver
@@ -594,6 +611,7 @@ class CaseGenerator:
         select_ref = f'${{{group}.{field}_select}}'
         editable_ref = f'${{{group}.{field}_editable}}'
         first_option_ref = f'${{{group}.{field}_first_option}}'
+        expand_ref = f'${{{group}.{field}_expand}}'
 
         # 8. 选项 XPath（inline，不走 PagesWriter Stage 2，需手动拼接 hidden filter）
         option_xpath = (
@@ -609,7 +627,7 @@ class CaseGenerator:
         steps.append({
             'desc': f"选择「{label}」 - 点击{nth_desc}下拉框",
             'keyword': 'click_element',
-            'params': {'locator': select_ref},
+            'params': {'locator': expand_ref},
         })
 
         # === Step 2: 条件分支 ===

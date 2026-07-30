@@ -194,6 +194,28 @@ cd my-system
 python run.py
 ```
 
+#### 调试模式（Debug Mode）
+
+测试失败时暂停执行，允许手动干预后选择重试、跳过或终止：
+
+```bash
+# 启用调试模式（默认最多重试 3 次）
+python run.py --all --debug
+
+# 自定义最大重试次数
+python run.py --all --debug --max-retries 5
+
+# 指定模块调试
+python run.py --module compute --debug
+```
+
+**交互流程**：
+- 测试失败时，浏览器保持打开状态，可手动操作页面
+- 输入 `r`：重试当前用例（从头执行，包含环境隔离步骤）
+- 输入 `s`：跳过当前用例，继续执行后续用例
+- 输入 `q`：终止全部执行，生成报告
+- 非交互式环境（CI/CD）自动降级为跳过模式
+
 ---
 
 ## 四、场景二：已有项目——新增用例
@@ -403,7 +425,24 @@ python run.py --module question-manage
 
 # 运行指定套件文件
 python run.py suites/question-manage/smoke.yaml
+
+# 调试模式：失败时暂停，支持重试/跳过/终止
+python run.py --all --debug
+python run.py --all --debug --max-retries 5
+python run.py --module compute --debug
 ```
+
+### 调试模式交互命令
+
+测试失败时会显示交互提示，可输入以下命令：
+
+| 命令 | 说明 |
+|------|------|
+| `r` | 重试当前用例（从头执行，包含环境隔离步骤） |
+| `s` | 跳过当前用例，继续执行后续用例 |
+| `q` | 终止全部执行，生成报告 |
+
+> **注意**：非交互式环境（CI/CD、后台任务）自动降级为跳过模式，不会阻塞执行。
 
 ### 查看已注册的关键字
 

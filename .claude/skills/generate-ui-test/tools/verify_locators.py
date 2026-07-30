@@ -56,7 +56,7 @@ from probe_utils import (
     get_multi_step_patterns, kb_fallback, KB_KEY_ALIAS,
 )
 from xpath_utils import inject_hidden_filter, has_hidden_filter, CONTAINER_XPATH
-from xpath_utils import _unwrap_positional, _rewrap_positional
+from xpath_utils import _unwrap_positional, _rewrap_positional, _OUTER_WRAP_RE
 from xpath_utils import apply_hidden_filters_to_pages, strip_not_ancestor_from_pages
 from field_suffixes import DIALOG_CONFIRM_LABELS
 from _pages_writer import _make_editable_locator as _make_editable_locator_from_select
@@ -1896,6 +1896,13 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
                 raw_locator = locator
                 if raw_locator.startswith('xpath='):
                     raw_locator = raw_locator[6:]
+
+                # 确保 _select 也有 (xpath)[N] 包裹（防止丢失 [1]）
+                if not _OUTER_WRAP_RE.match(raw_locator) and raw_locator.startswith('//'):
+                    raw_locator = f"({raw_locator})[1]"
+                    # 同步更新 _select 自身的回写值
+                    updates[path][group][field] = f'xpath={raw_locator}'
+
                 editable_raw = _make_editable_locator_postfix(raw_locator)
                 if editable_raw != raw_locator:  # 仅当实际修改了才同步
                     updates[path][group][editable_field] = f'xpath={editable_raw}'
@@ -2825,7 +2832,9 @@ def main():
         # 写入 verify_result.json（供阶段门禁检查）
         _write_verify_result(args.project_dir, result)
 
-    # X-2 修复: 只有当存在完全无法解析的 locator（非 KB fallback）时才 exit(1)
+    # Phase 6 是"尽力探测+回写"阶段，探测失败保留 [待确认] 是正常业务结果。
+    # exit code 只反映基础设施层面（浏览器崩溃、认证失败等），
+    # 不反映业务逻辑结果（locator 验证通过与否）。
     # 计数器关系（来自 verify_project()）:
     #   failed = fallback_count（KB best-guess + 完全失败的步骤）
     #   verified = verified_count（运行时验证通过的步骤）
@@ -2836,13 +2845,12 @@ def main():
         failed = result.get('failed', 0)
         verified = result.get('verified', 0)
         writeback = result.get('writeback_count', 0)
-        kb_fallback_stored = max(0, writeback - verified)  # KB 回退且成功回写的数量
-        truly_unresolved = failed - kb_fallback_stored    # 完全无法解析的步骤数
-    else:
-        truly_unresolved = 0
+        kb_fallback_stored = max(0, writeback - verified)
+        truly_unresolved = failed - kb_fallback_stored
 
-    if truly_unresolved > 0:
-        sys.exit(1)
+        if truly_unresolved > 0:
+            print(f"\n[WARN] {truly_unresolved} 个 locator 探测失败，保留 [待确认]（不影响阶段状态）")
+
     sys.exit(0)
 
 

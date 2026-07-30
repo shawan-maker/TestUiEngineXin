@@ -166,7 +166,13 @@ def _make_editable_locator_postfix(sel_locator):
         return sel_locator
     if 'not(@readonly)' in sel_locator:
         return sel_locator  # 幂等：已包含则不重复追加
-    return sel_locator + "[not(@readonly)]"
+
+    # 检查是否已有 (xpath)[N] 包裹
+    if _OUTER_WRAP_RE.match(sel_locator):
+        return sel_locator + "[not(@readonly)]"
+
+    # 无包裹 → 先加 (xpath)[1] 再追加 [not(@readonly)]
+    return f"({sel_locator})[1][not(@readonly)]"
 
 
 def _unwrap_positional(xpath):
@@ -454,6 +460,20 @@ class PagesWriter:
                         sel_loc = fields[input_key][0]
                     elif input_key in new_fields:
                         sel_loc = new_fields[input_key][0]
+
+                # 确保 _select 也有 (xpath)[N] 包裹（防止丢失 [1]）
+                if sel_loc and isinstance(sel_loc, str):
+                    raw = sel_loc
+                    has_xpath_prefix = raw.startswith('xpath=')
+                    bare = raw[6:] if has_xpath_prefix else raw
+                    if not _OUTER_WRAP_RE.match(bare) and bare.startswith('//'):
+                        wrapped = f"({bare})[1]"
+                        sel_loc = f"xpath={wrapped}" if has_xpath_prefix else wrapped
+                        # 同步更新 fields 和 new_fields 中的 _select
+                        if select_key in new_fields:
+                            new_fields[select_key] = (sel_loc, new_fields[select_key][1])
+                        if select_key in fields:
+                            fields[select_key] = (sel_loc, fields[select_key][1])
 
                 base_comment = ''
                 for ck in (select_key, f'{prefix}_input'):

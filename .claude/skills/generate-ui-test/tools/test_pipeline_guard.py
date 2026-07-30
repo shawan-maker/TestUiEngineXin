@@ -45,13 +45,15 @@ def run_test(name, cmd, expect_exit=None, expect_in_output=None, expect_not_in_o
         cmd,
         cwd=str(TOOLS_DIR),
         capture_output=True,
+        text=True,
+        encoding='utf-8',
+        errors='replace',
         timeout=60,
         env={**os.environ, "PYTHONIOENCODING": "utf-8"}
     )
 
-    # Decode with utf-8, fallback to replace
-    stdout = result.stdout.decode("utf-8", errors="replace")
-    stderr = result.stderr.decode("utf-8", errors="replace")
+    stdout = result.stdout
+    stderr = result.stderr
     combined = stdout + "\n" + stderr
 
     print(f"EXIT: {result.returncode}")

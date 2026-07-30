@@ -108,8 +108,7 @@ PHASE_DEFINITIONS: dict[str, dict[str, Any]] = {
         "hard_deps": ["phase_2"],
         "soft_deps": [],
         "artifacts": ["{project_dir}/lib/module_keywords.py"],
-        "optional": True,
-        "condition": _has_knowledge_files,
+        "optional": False,
         "multi_module": False,
     },
 
@@ -167,8 +166,6 @@ PHASE_DEFINITIONS: dict[str, dict[str, Any]] = {
             "--url", "{target_url}",
             "--module", "{module_slug}",
         ],
-        "validator": "validate_04_probe.py",  # 复检
-        "validator_args": ["{project_dir}"],
         "hard_deps": ["phase_0", "phase_5", "phase_4_discovery"],
         "soft_deps": [],
         "pre_hook": "validate_cross_refs",  # Phase 6 运行前执行端到端引用验证

@@ -142,7 +142,8 @@ def _try_self_heal(project_dir, phase, context):
     try:
         import subprocess
         print(f"   [pipeline-guard] 自愈命令: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(cmd, capture_output=True, text=True,
+                                encoding='utf-8', errors='replace', timeout=120)
 
         if result.returncode == 0:
             print(f"   [pipeline-guard] 自愈 {phase} 成功")

@@ -113,7 +113,19 @@ python run.py --all                     # 运行全部用例（含子目录，�
 python run.py --module login            # 运行指定模块（自动合并子目录用例）
 python run.py suites/login/smoke.yaml   # 运行指定套件
 python run.py                           # 运行所有套件（按模块自动合并子目录用例）
+
+# 调试模式（失败时暂停，支持手动干预）
+python run.py --all --debug             # 启用调试模式，默认最多重试3次
+python run.py --all --debug --max-retries 5  # 自定义最大重试次数
+python run.py --module login --debug    # 指定模块调试模式
 ```
+
+**调试模式交互**：
+- 测试失败时，浏览器保持打开状态
+- 输入 `r`：重试当前用例（从头执行，包含环境隔离步骤）
+- 输入 `s`：跳过当前用例，继续执行后续用例
+- 输入 `q`：终止全部执行，生成报告
+- 非交互式环境（CI/CD）自动降级为跳过模式
 
 ---
 

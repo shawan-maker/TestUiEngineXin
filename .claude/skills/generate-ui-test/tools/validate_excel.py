@@ -988,9 +988,11 @@ class ExcelValidator:
         new_steps = []
         split_found = False
 
-        # 匹配: 操作内容 + 逗号 + 等待Ns（在步骤末尾）
+        # 匹配: 操作内容 + 逗号 + 等待（在步骤末尾）
+        # 支持两种等待格式: ① 等待Ns  ② L3 等待关键字（等待加载完成/等待页面加载完成）
+        _WAIT_SUFFIX = r'(?:等待\s*\d+\s*s|等待加载完成|等待页面加载完成)'
         compound_re = re.compile(
-            r'^(.+?)[，,]\s*(等待\s*\d+\s*s)\s*$')
+            rf'^(.+?)[，,]\s*({_WAIT_SUFFIX})\s*$')
 
         for step_num, content in steps:
             m = compound_re.match(content)
@@ -998,7 +1000,8 @@ class ExcelValidator:
                 action_part = m.group(1).strip()
                 wait_part = m.group(2).strip()
                 # 仅当操作部分非空且不是纯"等待"时才拆分
-                if action_part and not re.match(r'^等待\s*\d+\s*s$', action_part):
+                if action_part and not re.match(
+                    rf'^{_WAIT_SUFFIX}$', action_part):
                     # el-select / 级联选择器：R11/R13 已正确追加等待，不拆分
                     if re.match(r'^在"[^"]+"(?:下拉框|级联选择框)中选择"[^"]+"$', action_part):
                         new_steps.append((step_num, content))  # 保留整体
@@ -1036,8 +1039,9 @@ class ExcelValidator:
 
         deduped = []
         dup_count = 0
-        wait_re = re.compile(r'^等待\s*\d+\s*s$')
-        trailing_wait_re = re.compile(r'[，,]\s*(等待\s*\d+\s*s)\s*$')
+        _WAIT_PATTERN = r'(?:等待\s*\d+\s*s|等待加载完成|等待页面加载完成)'
+        wait_re = re.compile(rf'^{_WAIT_PATTERN}$')
+        trailing_wait_re = re.compile(rf'[，,]\s*{_WAIT_PATTERN}\s*$')
 
         for step_num, content in steps:
             if deduped and wait_re.match(content):

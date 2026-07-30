@@ -13,7 +13,7 @@ from typing import Optional
 import yaml
 
 
-def validate_cross_refs(project_dir: str) -> list[str]:
+def validate_cross_refs(project_dir: str) -> dict:
     """端到端引用验证 — 管线核心安全网
 
     检查维度:
@@ -27,7 +27,7 @@ def validate_cross_refs(project_dir: str) -> list[str]:
         project_dir: 项目根目录
 
     Returns:
-        错误列表（空列表表示通过）
+        dict with 'errors' and 'warnings' lists (structured result)
     """
     errors = []
     warnings = []
@@ -113,7 +113,7 @@ def validate_cross_refs(project_dir: str) -> list[str]:
 
         print(f"\n{'='*60}\n")
 
-    return errors
+    return {"errors": errors, "warnings": warnings}
 
 
 # ─── 辅助函数 ───
@@ -339,7 +339,8 @@ if __name__ == "__main__":
         sys.exit(1)
 
     project_dir = sys.argv[1]
-    errors = validate_cross_refs(project_dir)
+    result = validate_cross_refs(project_dir)
+    errors = result.get("errors", [])
 
     if errors:
         print(f"\n❌ 端到端引用验证失败: {len(errors)} 个错误")

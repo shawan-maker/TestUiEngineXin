@@ -6,11 +6,179 @@
     python run.py                                 # 运行所有套件（每个套件一个报告）
     python run.py --module <module>              # 运行指定模块
     python run.py suites/<module>/smoke.yaml    # 运行指定套件
+
+调试模式（用例失败后暂停交互，支持手工操作/重试/跳过）：
+    python run.py --all --debug                  # 总套件 + 调试模式
+    python run.py --module <module> --debug      # 指定模块 + 调试模式
+    python run.py --all --debug --max-retries 5  # 自定义最大重试次数（默认3）
 """
 import sys
 import os
+import time
 import yaml
 from UIEngine.runner.runner import Runner
+from UIEngine.utils.path_helper import get_project_dir
+
+
+class DebugRunner(Runner):
+    """调试模式执行器：用例失败后暂停交互，支持手工操作/重试/跳过/终止
+
+    仅覆写 run_suite_case()，其余逻辑（run/setup/report）完全继承 Runner。
+    """
+
+    def __init__(self, config, max_retries=3):
+        """
+        :param config: 执行的环境配置
+        :param max_retries: 每个用例的最大重试次数（默认3）
+        """
+        super().__init__(config)
+        self.max_retries = max_retries
+
+    def run_suite_case(self, suite_name, cases):
+        """覆写：失败时暂停交互。同步自 runner.py:172 + 重试/交互逻辑
+
+        关键保证：
+        - TestResult 计数：每个 case 只调用一次 add_fail/add_success
+        - 执行树：tree_builder.reset() 在每次尝试前调用
+        - 浏览器会话：case 间不关闭，用户手工操作保持生效
+        """
+        self.log.info_log(f"测试套件名称 【{suite_name}】： 执行测试用例 [DEBUG 模式]")
+        pic_path = self.screenshot_mgr.create_suite_dir(suite_name)
+        project_dir = get_project_dir(self.config)
+
+        for idx, case in enumerate(cases):
+            case_name = case.get('name') or case.get('id') or f"case_{idx + 1}"
+
+            if case.get("skip"):
+                self.log.info_log(f"==============第{idx + 1}个测试用例 -【{case_name}】跳过执行==============")
+                self.result.add_skip(case)
+                continue
+
+            # 重置执行树，为当前用例构建独立的执行记录
+            case_start_time = time.time()
+
+            # ── 重试循环 ──
+            attempt = 0
+            final_recorded = False  # 确保 result 只记录一次
+
+            while attempt <= self.max_retries:
+                self.tree_builder.reset()
+
+                try:
+                    if attempt == 0:
+                        self.log.info_log(f"==============第{idx + 1}个测试用例 - 【{case_name}】开始执行==============")
+                    else:
+                        self.log.info_log(f"==============第{idx + 1}个测试用例 - 【{case_name}】第{attempt}次重试==============")
+                    self.run_case(case)
+
+                except AssertionError as e:
+                    self.log.error_log(f"第{idx + 1}个测试用例 - 【{case_name}】断言失败,错误信息为：", e)
+                    img = self.base_case.save_page_img(f"{case_name}_fail", pic_path)
+                    img_rel = self._relative_screenshot_path(img, project_dir)
+                    self.tree_builder.attach_screenshot_to_failed(img_rel)
+
+                    # ── 交互式暂停 ──
+                    action = self._debug_prompt(case_name, e, idx + 1, attempt)
+
+                    if action == 'retry':
+                        attempt += 1
+                        if attempt > self.max_retries:
+                            # 重试耗尽，记录失败
+                            print(f"  已达最大重试次数 ({self.max_retries})，记录失败")
+                            self.result.add_fail(case, list(self.log.log_data), img)
+                            final_recorded = True
+                            break
+                        continue  # 重试
+
+                    elif action == 'skip':
+                        self.result.add_fail(case, list(self.log.log_data), img)
+                        final_recorded = True
+                        break  # 跳到下一个 case
+
+                    elif action == 'quit':
+                        self.result.add_fail(case, list(self.log.log_data), img)
+                        final_recorded = True
+                        return  # 终止全部执行
+
+                except Exception as e:
+                    self.log.error_log(f"第{idx + 1}个测试用例 - 【{case_name}】执行失败,错误信息为：", e)
+                    img = self.base_case.save_page_img(f"{case_name}_error", pic_path)
+                    img_rel = self._relative_screenshot_path(img, project_dir)
+                    self.tree_builder.attach_screenshot_to_failed(img_rel)
+
+                    # ── 交互式暂停 ──
+                    action = self._debug_prompt(case_name, e, idx + 1, attempt)
+
+                    if action == 'retry':
+                        attempt += 1
+                        if attempt > self.max_retries:
+                            print(f"  已达最大重试次数 ({self.max_retries})，记录错误")
+                            self.result.add_error(case, list(self.log.log_data), img)
+                            final_recorded = True
+                            break
+                        continue
+
+                    elif action == 'skip':
+                        self.result.add_error(case, list(self.log.log_data), img)
+                        final_recorded = True
+                        break
+
+                    elif action == 'quit':
+                        self.result.add_error(case, list(self.log.log_data), img)
+                        final_recorded = True
+                        return
+
+                else:
+                    # 执行成功（首次或重试后成功）
+                    self.log.info_log(f"==============第{idx + 1}个测试用例 - 【{case_name}】执行成功==============")
+                    img = self.base_case.save_page_img(f"{case_name}_success", pic_path)
+                    self.result.add_success(case, list(self.log.log_data), img)
+                    final_recorded = True
+                    break  # 成功，下一个 case
+
+            # 记录用例耗时和执行树
+            case['_case_duration'] = time.time() - case_start_time
+            case['_case_start_time'] = time.strftime(
+                "%Y-%m-%d %H:%M:%S", time.localtime(case_start_time)
+            )
+            case['_execution_tree'] = self.tree_builder.get_tree()
+
+    def _debug_prompt(self, case_name, error, case_idx, attempt):
+        """交互式提示，返回 'retry' / 'skip' / 'quit'
+
+        :param case_name: 用例名称
+        :param error: 异常对象
+        :param case_idx: 用例序号（1-based）
+        :param attempt: 当前尝试次数（0=首次，1=第一次重试...）
+        :return: 'retry' / 'skip' / 'quit'
+        """
+        # 非终端环境（CI/管道）自动降级
+        if not sys.stdin.isatty():
+            print(f"  [DEBUG] 非交互环境，自动跳过")
+            return 'skip'
+
+        while True:
+            print(f"\n{'='*40}")
+            print(f"用例 [{case_name}] 失败: {error}")
+            print(f"浏览器保持打开，你可以手工操作页面")
+            print(f"  [r] 重试当前用例  [s] 跳过，继续下一个  [q] 终止全部执行")
+            try:
+                choice = input("请选择: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print()  # 换行
+                return 'skip'
+
+            if choice == 'r':
+                if attempt >= self.max_retries:
+                    print(f"  已达最大重试次数 ({self.max_retries})")
+                    continue  # 让用户重新选择
+                return 'retry'
+            elif choice == 's':
+                return 'skip'
+            elif choice == 'q':
+                return 'quit'
+            else:
+                print("  请输入 r/s/q")
 
 # 注册认证关键字（Cookie/Token/localStorage 注入）
 # 如果项目中没有 lib/auth_keywords.py 则静默跳过（兼容旧工程）
@@ -296,11 +464,13 @@ def build_master_suite(suites_dir, all_cases, config, cases_dir=None):
     }
 
 
-def run_suite(suite_path, config, all_cases, all_data, extra_cases=None):
+def run_suite(suite_path, config, all_cases, all_data, extra_cases=None,
+              runner_class=None):
     """运行单个测试套件
 
     加载套件文件 → 解析 case_ref 引用 → 注入全局变量 → 交给 Runner 执行
     extra_cases: 需要合并到套件末尾的额外用例列表（用于 --module 自动补充）
+    runner_class: Runner 类或 DebugRunner 类（默认 Runner）
     """
     suite = load_yaml(suite_path)
     suite = resolve_suite(suite, all_cases)
@@ -308,16 +478,20 @@ def run_suite(suite_path, config, all_cases, all_data, extra_cases=None):
         suite.setdefault('cases', []).extend(extra_cases)
     gv = config.setdefault('global_variable', {})
     gv.update(flatten_dict(all_data))
-    return Runner(config).run(suite)
+    return (runner_class or Runner)(config).run(suite)
 
 
-def run_master_suite(suites_dir, config, all_cases, all_data, cases_dir=None):
-    """运行总套件：聚合所有用例，一次执行生成一个报告"""
+def run_master_suite(suites_dir, config, all_cases, all_data, cases_dir=None,
+                     runner_class=None):
+    """运行总套件：聚合所有用例，一次执行生成一个报告
+
+    runner_class: Runner 类或 DebugRunner 类（默认 Runner）
+    """
     suite = build_master_suite(suites_dir, all_cases, config, cases_dir=cases_dir)
     suite = resolve_suite(suite, all_cases)
     gv = config.setdefault('global_variable', {})
     gv.update(flatten_dict(all_data))
-    return Runner(config).run(suite)
+    return (runner_class or Runner)(config).run(suite)
 
 
 def main():
@@ -347,13 +521,45 @@ def main():
     files_dir = os.path.join(project_dir, 'files')
     config['error_pic_path'] = os.path.join(files_dir, 'shortcuts')
 
+    # ── 解析调试模式参数 ──
+    debug_mode = '--debug' in sys.argv
+    max_retries = 3  # 默认值
+    if '--max-retries' in sys.argv:
+        try:
+            idx = sys.argv.index('--max-retries')
+            max_retries = int(sys.argv[idx + 1])
+        except (ValueError, IndexError):
+            print("[WARN] --max-retries 参数无效，使用默认值 3", file=sys.stderr)
+
+    # 选择 Runner 类
+    if debug_mode:
+        runner_class = lambda config: DebugRunner(config, max_retries=max_retries)
+        print(f"[DEBUG 模式] 已启用，最大重试次数: {max_retries}")
+    else:
+        runner_class = Runner
+
+    # 过滤调试参数，避免干扰后续参数解析
+    _clean_args = []
+    _skip_next = False
+    for _a in sys.argv[1:]:
+        if _skip_next:
+            _skip_next = False
+            continue
+        if _a == '--debug':
+            continue
+        if _a == '--max-retries':
+            _skip_next = True
+            continue
+        _clean_args.append(_a)
+
     # 解析命令行参数，确定要运行的套件
-    if len(sys.argv) > 1 and sys.argv[1] == '--all':
+    if len(_clean_args) > 0 and _clean_args[0] == '--all':
         # --all 模式：构建总套件，聚合所有用例一次执行
         print(f"\n{'='*60}")
         print("执行总套件：全部用例汇总")
         print(f"{'='*60}")
-        result = run_master_suite(suites_dir, config, all_cases, all_data, cases_dir=cases_dir)
+        result = run_master_suite(suites_dir, config, all_cases, all_data,
+                                  cases_dir=cases_dir, runner_class=runner_class)
         if result:
             tp = result.get('success', 0)
             tf = result.get('fail', 0)
@@ -371,9 +577,9 @@ def main():
     all_results = []
     _unreferenced = []
 
-    if len(sys.argv) > 1 and sys.argv[1] == '--module':
+    if len(_clean_args) > 0 and _clean_args[0] == '--module':
         # --module 模式：运行指定模块下的所有套件
-        module = sys.argv[2] if len(sys.argv) > 2 else 'common'
+        module = _clean_args[1] if len(_clean_args) > 1 else 'common'
         module_dir = os.path.join(suites_dir, module)
         suite_files = []
         if os.path.isdir(module_dir):
@@ -406,9 +612,9 @@ def main():
                         _cd['_parent_module'] = module
                         _unreferenced.append(_cd)
                         _referenced.add(_cd['id'])
-    elif len(sys.argv) > 1:
+    elif len(_clean_args) > 0:
         # 直接指定套件文件路径
-        suite_files = sys.argv[1:]
+        suite_files = _clean_args
     else:
         # 无参数：扫描并运行所有套件
         suite_files = []
@@ -443,11 +649,11 @@ def main():
         # 将子目录自动发现的用例合并到对应模块的最后一个套件中执行
         _extra = None
         if _unreferenced:
-            if len(sys.argv) > 1 and sys.argv[1] == '--module':
+            if len(_clean_args) > 0 and _clean_args[0] == '--module':
                 # --module 模式：全部合并到最后一个套件
                 if sp == suite_files[-1]:
                     _extra = _unreferenced
-            elif len(sys.argv) <= 1:
+            elif len(_clean_args) == 0:
                 # 无参数模式：按模块匹配，合并到该模块的最后一个套件
                 _sp_module = os.path.relpath(os.path.dirname(sp), suites_dir)
                 _is_last_for_module = not any(
@@ -458,7 +664,7 @@ def main():
                     _extra = [c for c in _unreferenced if c.get('_parent_module') == _sp_module]
         if _extra:
             print(f"[auto] 合并 {len(_extra)} 个子目录用例到本套件")
-        result = run_suite(sp, config, all_cases, all_data, extra_cases=_extra)
+        result = run_suite(sp, config, all_cases, all_data, extra_cases=_extra, runner_class=runner_class)
         if result:
             all_results.append(result)
 

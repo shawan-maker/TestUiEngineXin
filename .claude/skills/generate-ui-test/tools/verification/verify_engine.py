@@ -74,6 +74,90 @@ PROBE_FILL_VALUES = {
     'number': '999',
 }
 
+# ─── el-select expand 转换函数（Phase 5 input → Phase 6 el-select 容器）───
+def _is_el_select_expand(field_name: str, step_desc: str) -> bool:
+    """识别 el-select 的 expand 步骤
+
+    判断依据：
+    1. 字段名以 _expand 结尾
+    2. 步骤描述包含"点击"和"下拉框"
+
+    Args:
+        field_name: pages YAML 中的字段名（如 field_9551c1_expand）
+        step_desc: 步骤描述（如"选择「镜像来源」 - 点击下拉框"）
+
+    Returns:
+        bool: 是否为 el-select expand 步骤
+    """
+    if not field_name.endswith('_expand'):
+        return False
+    if '点击' not in step_desc or '下拉框' not in step_desc:
+        return False
+    return True
+
+
+def _convert_input_to_el_select(input_locator: str) -> str:
+    """将 input[@class='el-input__inner'] 转换为 el-select 容器
+
+    转换规则：
+    //input[@class='el-input__inner' and ...]
+    → //div[contains(@class,'el-select') and not(contains(@class,'el-select-dropdown'))]
+
+    使用 bracket-depth 扫描替代正则，正确处理嵌套 []（如 hidden filter 中的
+    not(ancestor::*[contains(@style,'display: none')])）。
+
+    保留原始的 ()[n] 包裹：如果输入已有 (xpath)[n] 包裹，转换后保持 [n] 不变；
+    仅当输入没有 ()[n] 包裹时，自动添加 ()[1]。
+
+    Args:
+        input_locator: input 目标的 locator（含 xpath= 前缀）
+
+    Returns:
+        str: 转换后的 el-select 容器 locator，转换失败返回原值
+    """
+    if not input_locator.startswith('xpath='):
+        return input_locator
+
+    xpath = input_locator[6:]  # 去掉 xpath= 前缀
+
+    # 定位 //input[@class='el-input__inner'
+    marker = "//input[@class='el-input__inner'"
+    start = xpath.find(marker)
+    if start < 0:
+        return input_locator
+
+    # 从 [ 开始 bracket-depth 扫描，找到匹配的 ]
+    bracket_start = start + len("//input")  # [ 的位置
+    depth = 0
+    end = -1
+    for i in range(bracket_start, len(xpath)):
+        if xpath[i] == '[':
+            depth += 1
+        elif xpath[i] == ']':
+            depth -= 1
+            if depth == 0:
+                end = i + 1  # ] 后一位
+                break
+
+    if end < 0:
+        # 未找到匹配的 ]，返回原值
+        return input_locator
+
+    # 整段替换为 el-select 容器表达式（使用 //div 精确匹配，而非 //* 通配）
+    replacement = "//div[contains(@class,'el-select') and not(contains(@class,'el-select-dropdown'))]"
+    converted = xpath[:start] + replacement + xpath[end:]
+
+    # 保留原始的 ()[n] 包裹：如果已有则保持 [n] 不变，否则添加 ()[1]
+    if converted.startswith('('):
+        # 已有 ()[n] 包裹 → 保留原始索引，不修改
+        pass
+    else:
+        # 无 () 包裹 → 添加 ()[1]
+        converted = f"({converted})[1]"
+
+    return f"xpath={converted}"
+
+
 # ─── Writeback helpers (used by execute_step Fix-6, also needed by pages_writeback) ───
 def _extract_locator_ref(step):
     """从 step params 中提取 ${group.field} 引用（P3f-1 修复）"""
@@ -198,87 +282,95 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
             return xpath, pfx, cnt, cidx
         return xpath, pfx, cnt
 
-    for prefix in prefix_order:
-        for candidate_index, candidate in enumerate(candidates):
-            xpath = candidate
-            if not xpath.startswith('xpath='):
-                xpath = f"xpath={xpath}"
+    # 两轮验证：
+    # 第一轮：遍历所有候选，仅返回 count==1 的唯一匹配（跳过 [1]/[last()] 收窄）
+    # 第二轮：保留原有 count>1 逻辑（[1] 防御、[last()]、容器前缀修复）
+    for _pass in (1, 2):
+        for prefix in prefix_order:
+            for candidate_index, candidate in enumerate(candidates):
+                xpath = candidate
+                if not xpath.startswith('xpath='):
+                    xpath = f"xpath={xpath}"
 
-            # 剥离已有容器前缀 → 得到裸 XPath
-            raw_xpath = xpath[6:] if xpath.startswith('xpath=') else xpath
-            bare_xpath = _strip_container_prefix(raw_xpath)
+                # 剥离已有容器前缀 → 得到裸 XPath
+                raw_xpath = xpath[6:] if xpath.startswith('xpath=') else xpath
+                bare_xpath = _strip_container_prefix(raw_xpath)
 
-            # 按 prefix 决定的顺序测试 4 种变体
-            if prefix is None:
-                # prefix=None: 容器前缀优先，最后不带前缀
-                # 优先级: dialog > drawer > message-box > 无前缀
-                test_order = CONTAINER_TYPES + [None]
-            else:
-                # prefix='dialog': dialog 优先，然后其他容器，最后 none
-                test_order = [prefix] + [p for p in CONTAINER_TYPES if p != prefix] + [None]
-
-            for test_prefix in test_order:
-                # 构建测试 XPath
-                if test_prefix is None:
-                    test_xpath = bare_xpath
-                elif test_prefix in CONTAINER_XPATH:
-                    # BUG-13 修复：前缀注入到括号内部，避免 prefix + (xpath)[N] 无效拼接
-                    inner, wrap = _unwrap_positional(bare_xpath)
-                    test_xpath = _rewrap_positional(CONTAINER_XPATH[test_prefix] + inner, wrap)
+                # 按 prefix 决定的顺序测试 4 种变体
+                if prefix is None:
+                    # prefix=None: 容器前缀优先，最后不带前缀
+                    # 优先级: dialog > drawer > message-box > 无前缀
+                    test_order = CONTAINER_TYPES + [None]
                 else:
-                    test_xpath = bare_xpath
+                    # prefix='dialog': dialog 优先，然后其他容器，最后 none
+                    test_order = [prefix] + [p for p in CONTAINER_TYPES if p != prefix] + [None]
 
-                # C-3 / L-5: el-select options — do NOT inject hidden filter
-                # (dropdown panel uses display:none internally when not expanded)
-                if is_el_select_option:
-                    full_xpath = f"xpath={test_xpath}" if not test_xpath.startswith('xpath=') else test_xpath
-                else:
-                    full_xpath = inject_hidden_filter(f"xpath={test_xpath}")
+                for test_prefix in test_order:
+                    # 构建测试 XPath
+                    if test_prefix is None:
+                        test_xpath = bare_xpath
+                    elif test_prefix in CONTAINER_XPATH:
+                        # BUG-13 修复：前缀注入到括号内部，避免 prefix + (xpath)[N] 无效拼接
+                        inner, wrap = _unwrap_positional(bare_xpath)
+                        test_xpath = _rewrap_positional(CONTAINER_XPATH[test_prefix] + inner, wrap)
+                    else:
+                        test_xpath = bare_xpath
 
-                try:
-                    count = page.locator(full_xpath).count()
-                    if count == 1:
-                        return _ret(full_xpath, test_prefix, count, candidate_index)
-                    if count > 1:
-                        # 3b: strict mode auto-fix — 无前缀时自动尝试容器前缀
-                        if test_prefix is None and not is_el_select_option:
-                            for try_ct in ['dialog', 'drawer', 'message-box']:
-                                if try_ct not in CONTAINER_XPATH:
-                                    continue
-                                try_prefix = CONTAINER_XPATH[try_ct]
-                                # BUG-13 修复：前缀注入到括号内部
-                                inner, wrap = _unwrap_positional(bare_xpath)
-                                scoped_raw = _rewrap_positional(try_prefix + inner, wrap)
-                                scoped_full = inject_hidden_filter(f"xpath={scoped_raw}")
+                    # C-3 / L-5: el-select options — do NOT inject hidden filter
+                    # (dropdown panel uses display:none internally when not expanded)
+                    if is_el_select_option:
+                        full_xpath = f"xpath={test_xpath}" if not test_xpath.startswith('xpath=') else test_xpath
+                    else:
+                        full_xpath = inject_hidden_filter(f"xpath={test_xpath}")
+
+                    try:
+                        count = page.locator(full_xpath).count()
+                        if count == 1:
+                            return _ret(full_xpath, test_prefix, count, candidate_index)
+                        if count > 1:
+                            # 第一轮：跳过所有收窄，继续尝试其他候选
+                            if _pass == 1:
+                                continue
+                            # 第二轮：保留原有 count>1 逻辑
+                            # 3b: strict mode auto-fix — 无前缀时自动尝试容器前缀
+                            if test_prefix is None and not is_el_select_option:
+                                for try_ct in ['dialog', 'drawer', 'message-box']:
+                                    if try_ct not in CONTAINER_XPATH:
+                                        continue
+                                    try_prefix = CONTAINER_XPATH[try_ct]
+                                    # BUG-13 修复：前缀注入到括号内部
+                                    inner, wrap = _unwrap_positional(bare_xpath)
+                                    scoped_raw = _rewrap_positional(try_prefix + inner, wrap)
+                                    scoped_full = inject_hidden_filter(f"xpath={scoped_raw}")
+                                    try:
+                                        scoped_count = page.locator(scoped_full).count()
+                                        if scoped_count == 1:
+                                            print(f"    [INFO] 3b strict mode 修复: 自动添加 {try_ct} 前缀")
+                                            return _ret(scoped_full, try_ct, 1, candidate_index)
+                                    except Exception as _e:
+                                        # H4: 记录异常（XPath语法错误/超时/其他）便于调试
+                                        print(f"    [WARN] H4: 3b strict 前缀探测异常({try_ct}): {_e}")
+                            # P2-4: [last()] strategy for dialog/drawer (topmost = last opened)
+                            if test_prefix in ('dialog', 'drawer') and not is_el_select_option:
+                                wrapped_last = f"({test_xpath})[last()]"
+                                full_last = inject_hidden_filter(f"xpath={wrapped_last}")
                                 try:
-                                    scoped_count = page.locator(scoped_full).count()
-                                    if scoped_count == 1:
-                                        print(f"    [INFO] 3b strict mode 修复: 自动添加 {try_ct} 前缀")
-                                        return _ret(scoped_full, try_ct, 1, candidate_index)
+                                    cnt_last = page.locator(full_last).count()
+                                    if cnt_last == 1:
+                                        return _ret(full_last, test_prefix, 1, candidate_index)
                                 except Exception as _e:
-                                    # H4: 记录异常（XPath语法错误/超时/其他）便于调试
-                                    print(f"    [WARN] H4: 3b strict 前缀探测异常({try_ct}): {_e}")
-                        # P2-4: [last()] strategy for dialog/drawer (topmost = last opened)
-                        if test_prefix in ('dialog', 'drawer') and not is_el_select_option:
-                            wrapped_last = f"({test_xpath})[last()]"
-                            full_last = inject_hidden_filter(f"xpath={wrapped_last}")
-                            try:
-                                cnt_last = page.locator(full_last).count()
-                                if cnt_last == 1:
-                                    return _ret(full_last, test_prefix, 1, candidate_index)
-                            except Exception as _e:
-                                print(f"    [WARN] H4: [last()] 探测异常: {_e}")
-                        # Fallback: [1]
-                        wrapped = f"({test_xpath})[1]"
-                        if is_el_select_option:
-                            full_wrapped = f"xpath={wrapped}"
-                        else:
-                            full_wrapped = inject_hidden_filter(f"xpath={wrapped}")
-                        count2 = page.locator(full_wrapped).count()
-                        if count2 == 1:
-                            return _ret(full_wrapped, test_prefix, 1, candidate_index)
-                except Exception as _e:
-                    print(f"    [WARN] H4: 候选 XPath 探测异常: {_e}")
+                                    print(f"    [WARN] H4: [last()] 探测异常: {_e}")
+                            # Fallback: [1]
+                            wrapped = f"({test_xpath})[1]"
+                            if is_el_select_option:
+                                full_wrapped = f"xpath={wrapped}"
+                            else:
+                                full_wrapped = inject_hidden_filter(f"xpath={wrapped}")
+                            count2 = page.locator(full_wrapped).count()
+                            if count2 == 1:
+                                return _ret(full_wrapped, test_prefix, 1, candidate_index)
+                    except Exception as _e:
+                        print(f"    [WARN] H4: 候选 XPath 探测异常: {_e}")
 
     # BUG-3 层2: 容器前缀替换安全网 — M3: 已移除跨容器猜测
     # 旧逻辑: 尝试 el-drawer ↔ el-dialog 替换（属于"下游猜测"，违反原则二）

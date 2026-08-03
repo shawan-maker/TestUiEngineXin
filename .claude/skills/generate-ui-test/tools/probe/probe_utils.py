@@ -21,7 +21,8 @@ from core.field_suffixes import DIALOG_CONFIRM_LABELS
 # ============================================================
 
 # ---- 拷贝自 probe_element.py line 60 ----
-DEFAULT_KNOWLEDGE_PATH = os.path.join(os.path.dirname(__file__), "probe_knowledge.json")
+# 知识库路径：tools/probe_knowledge.json（tools 目录，不是 tools/probe）
+DEFAULT_KNOWLEDGE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "probe_knowledge.json")
 _knowledge_db = None
 
 

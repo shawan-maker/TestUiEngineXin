@@ -100,6 +100,17 @@ def _store_verified_locator(v_loc, v_ct, step, pages_dict, verified_locators,
     orig_xpath = _get_original_xpath(ref, pages_dict)
     # 提取 verified locator 的 xpath 部分（去掉 xpath= 前缀）
     v_xpath = v_loc.replace('xpath=', '') if isinstance(v_loc, str) and v_loc.startswith('xpath=') else v_loc
+
+    # el-select expand 转换：Phase 5 生成 input 目标，Phase 6 验证后转换为 el-select 容器
+    field_name = ref.split('.', 1)[-1] if '.' in ref else ref
+    if field_name.endswith('_expand') and 'input' in v_xpath and 'el-input__inner' in v_xpath:
+        from verification.verify_engine import _convert_input_to_el_select
+        converted = _convert_input_to_el_select(v_loc)
+        if converted != v_loc:
+            v_xpath = converted.replace('xpath=', '')
+            v_loc = converted
+            print(f"    [CONVERT] '{ref}' → el-select 容器")
+
     # 只在 locator 有变化时存储（减少不必要的回写）
     if orig_xpath and v_xpath and v_xpath != orig_xpath:
         CONTAINER_MARKERS = ('el-dialog', 'el-drawer', 'el-message-box')
@@ -185,12 +196,6 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
         # BUG-5: Protect common_elements fields from writeback
         if group == 'common_elements' and field in PROTECTED_COMMON_FIELDS:
             print(f"  [SKIP] Protected field common_elements.{field} — writeback not allowed")
-            continue
-
-        # _expand protection: Phase 5 generates div.el-select for expand locators,
-        # Phase 6 KB fallback may downgrade to input — prevent overwrite
-        if field.endswith('_expand'):
-            print(f"  [SKIP] Protected field {group}.{field} — Phase 5 div.el-select, writeback not allowed")
             continue
 
         # Find which YAML file contains this group

@@ -270,6 +270,10 @@ class CaseGenerator:
             skip_container_prefix=True)
         field = field_with_suffix[:-len('_select')] if field_with_suffix.endswith('_select') else field_with_suffix
 
+        # nth > 1 时追加序号后缀，避免同 label 不同 nth 的 field 冲突（如"网络"第1/2个下拉框）
+        if nth > 1:
+            field = f'{field}_{nth}'
+
         # 2. 确定 group（复用现有容器上下文逻辑）
         #    self._current_context = 打开容器的按钮标签（如 "新增"），
         #    由 _update_container_context_post() 在上一步按钮点击后设置
@@ -301,15 +305,9 @@ class CaseGenerator:
         #      后置 [not(@readonly)] 先锁定第 N 个 input，再检查该元素是否非 readonly
         editable_xpath = _make_editable_locator_postfix(select_xpath)
 
-        # 4.7. _expand: click 专用，指向 div.el-select（更符合 Element UI 点击事件绑定位置）
-        #      fill / editable-check 仍用 input 基底（_select），只有 click 用 div 基底
-        expand_xpath_base = (
-            f"//*[contains(text(),'{label}')]"
-            f"/following-sibling::*[self::div or self::span]"
-            f"//*[contains(@class,'el-select')"
-            f" and not(contains(@class,'el-select-dropdown'))]"
-        )
-        expand_xpath_base = apply_container_prefix(expand_xpath_base, self.current_container)
+        # 4.7. _expand: click 展开下拉框（Phase 5 生成 input 目标，Phase 6 验证后转换为 el-select 容器）
+        #      与 select_xpath_base 保持一致的锚点和目标，由 Phase 6 根据验证结果决定最终形态
+        expand_xpath_base = select_xpath_base  # 复用 select_xpath_base（已含容器前缀）
         expand_xpath = f"({expand_xpath_base})[{nth}]"
 
         # 5. 注册 _select 到 required_fields（原始 XPath，无 hidden filter）
@@ -320,11 +318,11 @@ class CaseGenerator:
                           label=label,
                           comment='el-select KB 标准模式')
 
-        # 5a. 注册 _expand（click 专用，指向 div.el-select）
+        # 5a. 注册 _expand（Phase 5 生成 input 目标，Phase 6 验证后转换为 el-select 容器）
         self._track_field(group, f'{field}_expand',
                           locator=f'xpath={expand_xpath}',
                           label=label,
-                          comment='el-select 点击展开（div级）')
+                          comment='el-select 点击展开（Phase 6 转换）')
 
         # 5b. 预注册 companion 字段（防止 collect_refs_from_steps 注册空 locator）
         #     collect_refs_from_steps 扫描 ${group._editable} 时会在 resolver
@@ -498,7 +496,13 @@ class CaseGenerator:
         return ref
 
     def find_all_buttons(self, label):
-        """返回同名标签的所有候选按钮。"""
+        """返回同名标签的候选按钮（容器上下文感知）。
+
+        严格容器过滤：
+        - 在容器内（current_container != None）：只返回该容器内的按钮
+        - 在列表页（current_container == None）：只返回列表页级别的按钮
+        - 不回退：避免点击错误上下文的同名按钮
+        """
         results = []
         seen_refs = set()
         for (ctx, disc_label), elem in self._discovery_element_map.items():
@@ -506,10 +510,20 @@ class CaseGenerator:
                 continue
             ref = self._elem_to_ref(elem)
             if ref and ref not in seen_refs:
+                elem_container = elem.get('container_type')
+                # 严格容器过滤：只匹配当前上下文
+                if self.current_container:
+                    # 在容器内：只接受当前容器的按钮
+                    if elem_container != self.current_container:
+                        continue
+                else:
+                    # 在列表页：只接受无容器的按钮
+                    if elem_container is not None:
+                        continue
                 seen_refs.add(ref)
                 results.append({
                     'ref': ref,
-                    'container': elem.get('container_type'),
+                    'container': elem_container,
                 })
         return results
 
@@ -939,7 +953,7 @@ class CaseGenerator:
             return self._workflow_cache
 
         cache = {}
-        skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        skill_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
         sys_path = os.path.join(skill_dir, 'lib', 'system_workflows.yaml')
         if os.path.isfile(sys_path):
@@ -1031,6 +1045,7 @@ class CaseGenerator:
                 print(f"  [WARN] _track_field 冲突: {group}.{field}")
                 print(f"         已有: {existing_locator}")
                 print(f"         新增: {locator}")
+                return  # 拒绝覆盖，保留第一个版本
         self.required_fields[key] = {
             'locator': locator,
             'label': label,
@@ -1154,33 +1169,6 @@ class CaseGenerator:
         })
 
         return f'${{{var_name}}}', True
-
-    def _build_multi_candidate_click(self, label, candidates):
-        result = {
-            'desc': f'点击「{label}」按钮',
-            'keyword': 'click_element',
-            'params': {'locator': candidates[-1]['ref']},
-        }
-
-        for i in range(len(candidates) - 2, -1, -1):
-            c = candidates[i]
-            container_desc = c['container'] or '页面'
-            result = {
-                'desc': f'点击「{label}」按钮（{container_desc}优先）',
-                'keyword': 'if_element_visible',
-                'params': {
-                    'locator': c['ref'],
-                    'timeout': 300,
-                    'then_steps': [{
-                        'desc': f'点击「{label}」按钮',
-                        'keyword': 'click_element',
-                        'params': {'locator': c['ref']},
-                    }],
-                    'else_steps': [result],
-                },
-            }
-
-        return result
 
     # ─── Page context ────────────────────────────────────────
 
@@ -1487,15 +1475,18 @@ class CaseGenerator:
                     return steps
             all_candidates = self.find_all_buttons(label)
 
-            if len(all_candidates) == 1:
+            if all_candidates:
+                # 严格容器过滤后，同一上下文不应有多个同名候选
+                # 如果仍有多个（discovery 数据异常），取第一个并记录 warning
+                if len(all_candidates) > 1:
+                    print(f"    [WARN] 按钮「{label}」在当前上下文 "
+                          f"({self.current_container or 'list_page'}) "
+                          f"有 {len(all_candidates)} 个候选，取第一个")
                 steps.append({
                     'desc': f'点击「{label}」按钮',
                     'keyword': 'click_element',
                     'params': {'locator': all_candidates[0]['ref']},
                 })
-            elif len(all_candidates) > 1:
-                steps.append(self._build_multi_candidate_click(
-                    label, all_candidates))
             else:
                 disc_elem = self._discovery_lookup(label)
                 disc_ref = self._elem_to_ref(disc_elem) if disc_elem else None
@@ -1677,9 +1668,6 @@ class CaseGenerator:
         elif ptype == 'click':
             label = args[0]
             btn_ref = self.find_button(label, preferred_container=self.current_container)
-            if not btn_ref:
-                disc_elem = self._discovery_lookup(label)
-                btn_ref = self._elem_to_ref(disc_elem) if disc_elem else None
             if btn_ref:
                 steps.append({
                     'desc': f'点击「{label}」',
@@ -1894,8 +1882,22 @@ class CaseGenerator:
         elif ptype == 'click_more_then':
             action = args[0].strip()
             groups = self._compat_groups()
-            more_ref = _find_table_action(groups, '更多') or \
-                self.find_button('更多', preferred_container=self.current_container)
+            # Fix-More: 三层查找链，类型守卫防止 discovery 类型污染
+            # ptype='click_more_then' 已知类型为 table-action-button，
+            # 不依赖 discovery 的 type 字段决定后缀
+            more_ref = _find_table_action(groups, '更多')
+            if not more_ref:
+                _btn_elem = self.find_button('更多', preferred_container=self.current_container)
+                if _btn_elem:
+                    # 类型守卫：只接受按钮类后缀，拦截 _select/_editable 等
+                    _btn_field = _btn_elem.split('.', 1)[1].rstrip('}')
+                    if _btn_field.endswith(('_btn', '_btn_row', '_link')):
+                        more_ref = _btn_elem
+            if not more_ref:
+                more_ref, _ = self.resolver.make_pending_ref(
+                    '更多', 'table_action',
+                    container_type=self.current_container,
+                    module_slug=self.module)
             if more_ref:
                 steps.append({
                     'desc': "点击更多按钮",
@@ -1939,8 +1941,22 @@ class CaseGenerator:
         elif ptype == 'click_more_then_click':
             action = args[0].strip()
             groups = self._compat_groups()
-            more_ref = _find_table_action(groups, '更多') or \
-                self.find_button('更多', preferred_container=self.current_container)
+            # Fix-More: 三层查找链，类型守卫防止 discovery 类型污染
+            # ptype='click_more_then_click' 已知类型为 table-action-button，
+            # 不依赖 discovery 的 type 字段决定后缀
+            more_ref = _find_table_action(groups, '更多')
+            if not more_ref:
+                _btn_elem = self.find_button('更多', preferred_container=self.current_container)
+                if _btn_elem:
+                    # 类型守卫：只接受按钮类后缀，拦截 _select/_editable 等
+                    _btn_field = _btn_elem.split('.', 1)[1].rstrip('}')
+                    if _btn_field.endswith(('_btn', '_btn_row', '_link')):
+                        more_ref = _btn_elem
+            if not more_ref:
+                more_ref, _ = self.resolver.make_pending_ref(
+                    '更多', 'table_action',
+                    container_type=self.current_container,
+                    module_slug=self.module)
             if more_ref:
                 steps.append({
                     'desc': "点击第一条记录的更多按钮",
@@ -2197,7 +2213,21 @@ class CaseGenerator:
         elif ptype == 'click_table_row_btn':
             label = args[0]
             groups = self._compat_groups()
-            ref = self.find_button(label, preferred_container=self.current_container, prefer_row=True) or _find_table_action(groups, label)
+            # Fix-TableRowBtn: 三层查找链，类型守卫防止 discovery 类型污染
+            # ptype='click_table_row_btn' 已知类型为 table-action-button
+            ref = _find_table_action(groups, label)
+            if not ref:
+                _btn_elem = self.find_button(label, preferred_container=self.current_container, prefer_row=True)
+                if _btn_elem:
+                    # 类型守卫：只接受按钮类后缀
+                    _btn_field = _btn_elem.split('.', 1)[1].rstrip('}')
+                    if _btn_field.endswith(('_btn', '_btn_row', '_link')):
+                        ref = _btn_elem
+            if not ref:
+                ref, _ = self.resolver.make_pending_ref(
+                    label, 'table_action',
+                    container_type=self.current_container,
+                    module_slug=self.module)
             if ref:
                 steps.append({
                     'desc': f'点击第一条记录的「{label}」按钮',

@@ -58,6 +58,19 @@ from generation.pages_writer import (
     _make_editable_locator_postfix,
 )
 
+# R6: AI probe functions (optional)
+try:
+    from probe.ai_probe import (
+        ai_probe_locator as _ai_probe_locator,
+        MARKER_MAP as _AI_MARKER_MAP,
+        flush_diagnostics as _ai_probe_flush,
+    )
+    _HAS_AI_PROBE = True
+except ImportError:
+    _HAS_AI_PROBE = False
+    _AI_MARKER_MAP = {}
+    _ai_probe_flush = lambda *args, **kwargs: None
+
 # ─── Sibling module imports ───
 from verification.data_layer import (
     load_yaml_files, load_cases, load_pages, load_data,
@@ -652,14 +665,17 @@ def main():
         # 写入 verify_result.json（供阶段门禁检查）
         _write_verify_result(args.project_dir, result)
 
-    # X-2 修复: 只有当存在完全无法解析的 locator（非 KB fallback）时才 exit(1)
-    # 计数器关系（来自 verify_project()）:
-    #   failed = fallback_count（KB best-guess + 完全失败的步骤）
-    #   verified = verified_count（运行时验证通过的步骤）
-    #   writeback_count = len(verified_locators)（所有回写到 pages YAML 的 locator）
-    #   其中 writeback_count ≈ verified_count + KB_fallback_stored
-    #   truly_unresolved = failed - KB_fallback_stored = failed - (writeback - verified)
+    # X-2 修复 + Phase 6 不阻断策略（2026-08-03）:
+    #   exit code 分流：
+    #     0 = 验证完成（含未解析定位器，标记 [待确认]，不阻断管线）
+    #     2 = Cookie 失效，管线应阻断并提示用户更新
+    #   保留变量名 truly_unresolved / kb_fallback_stored（fixers/verify_all.py 静态检查依赖）
     if result:
+        # 【auth_error 优先判断】→ exit(2) 通知管线阻断
+        if result.get('auth_error'):
+            print("\n[AUTH_REQUIRED] Cookie 已失效，请更新后使用 --from-phase phase_6_verify 重新运行")
+            sys.exit(2)
+
         failed = result.get('failed', 0)
         verified = result.get('verified', 0)
         writeback = result.get('writeback_count', 0)
@@ -667,9 +683,11 @@ def main():
         truly_unresolved = failed - kb_fallback_stored    # 完全无法解析的步骤数
     else:
         truly_unresolved = 0
+        kb_fallback_stored = 0
 
     if truly_unresolved > 0:
-        sys.exit(1)
+        print(f"\n⚠️  {truly_unresolved} 个定位器未解析（标记为 [待确认]，不阻断管线）")
+    # 始终 exit(0)：验证失败不阻断管线，只有 auth_error 才 exit(2)
     sys.exit(0)
 
 

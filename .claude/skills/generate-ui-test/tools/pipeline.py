@@ -85,9 +85,14 @@ class PipelineContext:
         self.modules: list[dict] = modules or []  # [{"slug": "xxx", "cn_name": "xxx", "urls": [...]}]
         self.discovery_path = None  # 当前处理的 discovery 文件路径
         self.module_map_str = ""    # 自动构建的 cn_name=slug 映射（传递给 run_phase4.py）
+        self._restored_params = set()  # 从 pipeline_state.json 恢复的参数名
 
-    def update_from_config(self):
-        """从 config.yaml 加载配置并构建模块映射"""
+    def update_from_config(self, skip_module_rebuild=False):
+        """从 config.yaml 加载配置并构建模块映射
+
+        Args:
+            skip_module_rebuild: 恢复模式下为 True，跳过基于 excel_parsed.json 的模块重建
+        """
         # 自动推导 excel_json_path
         probe_dir = Path(self.project_dir) / "_probe"
         if probe_dir.exists():
@@ -106,8 +111,12 @@ class PipelineContext:
             with open(config_file, 'r', encoding='utf-8') as f:
                 config = yaml.safe_load(f)
                 if config:
-                    self.target_url = config.get('target_url')
-                    self.cookie = self.cookie or config.get('cookie')
+                    # 方案2: 保护已恢复的 target_url，不被 config.yaml 覆盖
+                    if 'target_url' not in self._restored_params:
+                        self.target_url = config.get('target_url')
+                    # 方案2: 保护已恢复的 cookie，不被 config.yaml 覆盖
+                    if 'cookie' not in self._restored_params:
+                        self.cookie = self.cookie or config.get('cookie')
 
                     # H1: 从 config.yaml 加载 local_storage
                     ls = config.get('local_storage')
@@ -131,7 +140,8 @@ class PipelineContext:
         # D 方案: 从 Excel 构建 cn_name → slug 映射
         # 仅在 excel_parsed.json 存在时构建（Phase 1b 完成后）
         # Phase 4 调用时会检查，如映射尚未构建则直接读取原始 Excel 作为 fallback
-        if not self.module_map_str and self.excel_json_path:
+        # 方案1: 恢复模式下跳过，避免基于陈旧的 excel_parsed.json 重建模块映射
+        if not skip_module_rebuild and not self.module_map_str and self.excel_json_path:
             self._build_module_aliases()
 
     def _build_module_aliases(self):
@@ -351,18 +361,22 @@ class PipelineExecutor:
                     prev_params = prev_state.get('cli_params', {})
                     if not self.context.excel_path and prev_params.get('excel_path'):
                         self.context.excel_path = prev_params['excel_path']
+                        self.context._restored_params.add('excel_path')
                         print(f"  [恢复] excel_path = {self.context.excel_path}")
                     if not self.context.cookie and prev_params.get('cookie'):
                         self.context.cookie = prev_params['cookie']
+                        self.context._restored_params.add('cookie')
                         print(f"  [恢复] cookie = (已加载)")
                     if not self.context.target_url and prev_params.get('target_url'):
                         self.context.target_url = prev_params['target_url']
+                        self.context._restored_params.add('target_url')
                         print(f"  [恢复] target_url = {self.context.target_url}")
                 except Exception as e:
                     print(f"  ⚠️  恢复 CLI 参数失败: {e}")
 
-        # 加载配置
-        self.context.update_from_config()
+        # 加载配置 - 恢复模式下跳过模块映射重建，避免基于陈旧的 excel_parsed.json 污染
+        is_resume = bool(from_phase or only_phase)
+        self.context.update_from_config(skip_module_rebuild=is_resume)
 
         # --from-phase / --only-phase: 别名映射（用户可能用短名 phase_6 → phase_6_verify）
         PHASE_ALIASES = {
@@ -482,7 +496,14 @@ class PipelineExecutor:
             print(f"📌 阶段 {_phase_counter}/{_total_planned}  [{phase_id}] {defn['name']}")
             print(f"{'─'*70}")
             print(f"🔄 RUNNING...")
-            result = self._execute_phase(phase_id)
+            try:
+                result = self._execute_phase(phase_id)
+            except Exception as e:
+                result = PhaseResult(
+                    phase_id, PhaseStatus.FAILED,
+                    errors=[f"阶段执行异常: {e}"]
+                )
+                print(f"  ❌ 未捕获异常: {e}")
             self.results[phase_id] = result
 
             # X-1 修复: phase_1b_parse 成功后刷新 context，使 excel_json_path 可用
@@ -588,12 +609,14 @@ class PipelineExecutor:
                 val_result = self._run_validator(phase_id)
                 if val_result.returncode != 0:
                     result.status = PhaseStatus.FAILED
-                    stderr_preview = (val_result.stderr or "")[:300]
+                    # 优先读取 stderr，fallback 到 stdout（validator 通常用 print 输出到 stdout）
+                    error_output = val_result.stderr or val_result.stdout or ""
+                    error_preview = error_output[:500]
                     result.errors.append(
                         f"验证器 {defn['validator']} 失败 (exit {val_result.returncode})"
                     )
-                    if stderr_preview:
-                        result.errors.append(f"验证器输出: {stderr_preview}")
+                    if error_preview:
+                        result.errors.append(f"验证器输出: {error_preview}")
 
             # 输出结果
             if result.status == PhaseStatus.PASSED:
@@ -602,7 +625,7 @@ class PipelineExecutor:
                     for w in result.warnings[:3]:
                         print(f"  ⚠️  {w}")
                 # 增量保存状态（供子进程工具读取）
-                self._save_state()
+                self._save_state(is_intermediate=True)
 
             elif result.status == PhaseStatus.FAILED:
                 print(f"❌ 失败 {_phase_counter}/{_total_planned} - {defn['name']}")
@@ -911,9 +934,11 @@ class PipelineExecutor:
         # 运行验证器
         val_result = self._run_validator("phase_0")
         if val_result.returncode != 0:
-            stderr_preview = (val_result.stderr or "")[:300]
+            # 优先读取 stderr，fallback 到 stdout（validator 通常用 print 输出到 stdout）
+            error_output = val_result.stderr or val_result.stdout or ""
+            error_preview = error_output[:500]
             return PhaseResult("phase_0", PhaseStatus.FAILED,
-                             errors=["配置验证失败", stderr_preview])
+                             errors=["配置验证失败", error_preview])
 
         return PhaseResult("phase_0", PhaseStatus.PASSED)
 
@@ -1138,8 +1163,14 @@ class PipelineExecutor:
         modules = self.context.get_modules()
 
         if not modules:
-            return PhaseResult(phase_id, PhaseStatus.FAILED,
-                             errors=["无模块可处理，请检查 config.yaml 的 page_urls 或 _probe/ 目录"])
+            if defn.get("tolerate_tool_failure"):
+                # Phase 6: 无模块也降级为 warning，不阻断管线
+                print(f"  ⚠️  无模块可处理（不阻断）")
+                return PhaseResult(phase_id, PhaseStatus.PASSED,
+                                 warnings=["无模块可处理，跳过验证"])
+            else:
+                return PhaseResult(phase_id, PhaseStatus.FAILED,
+                                 errors=["无模块可处理，请检查 config.yaml 的 page_urls 或 _probe/ 目录"])
 
         all_errors = []
         all_warnings = []
@@ -1198,8 +1229,14 @@ class PipelineExecutor:
                                "请更新 Cookie 后使用 --from-phase 重新运行"]
                     )
 
-                all_errors.extend([f"[{slug}] {e}" for e in result.errors])
-                print(f"  [{slug}] ❌ FAILED")
+                elif defn.get("tolerate_tool_failure"):
+                    # Phase 6: 工具失败降级为 warning，不阻断管线
+                    print(f"  [{slug}] ⚠️  验证有未解析项（不阻断）")
+                    all_warnings.extend([f"[{slug}] 验证有未解析定位器（不阻断）"])
+                else:
+                    # 其他阶段：保持原有行为
+                    all_errors.extend([f"[{slug}] {e}" for e in result.errors])
+                    print(f"  [{slug}] ❌ FAILED")
             else:
                 print(f"  [{slug}] ✅ PASSED")
                 all_warnings.extend([f"[{slug}] {w}" for w in result.warnings])
@@ -1226,7 +1263,13 @@ class PipelineExecutor:
         return False
 
     def _run_tool(self, phase_id: str, tool: str, args: list[str]) -> PhaseResult:
-        """运行外部工具"""
+        """运行外部工具（实时流式输出到控制台）
+
+        使用 Popen 逐行读取子进程 stdout/stderr，同时：
+        1. 打印到控制台（用户可见每个阶段的进度）
+        2. 缓存到内存（失败时提取错误尾部）
+        3. 写入 _probe/{phase_id}_tool.log（完整日志归档）
+        """
         tool_path = Path(__file__).parent / tool
         if not tool_path.exists():
             return PhaseResult(phase_id, PhaseStatus.FAILED,
@@ -1244,31 +1287,54 @@ class PipelineExecutor:
         env['PYTHONIOENCODING'] = 'utf-8'
 
         try:
-            result = subprocess.run(
+            proc = subprocess.Popen(
                 cmd,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # 合并 stderr 到 stdout，统一流式输出
                 text=True,
                 encoding='utf-8',
                 errors='replace',
-                timeout=timeout,
                 env=env,
             )
 
-            # 将完整 stdout/stderr 写入日志文件，方便问题定位
-            self._save_tool_log(phase_id, tool, result.stdout, result.stderr)
+            # 实时流式读取：逐行打印到控制台 + 缓存
+            stdout_lines = []
+            start_ts = time.time()
+            for line in proc.stdout:
+                # 超时检查（每行读取时判断，避免无输出时卡死）
+                if time.time() - start_ts > timeout:
+                    proc.kill()
+                    return PhaseResult(phase_id, PhaseStatus.FAILED,
+                                     errors=[f"工具执行超时 ({timeout}s)"])
+                # 去掉尾部换行，统一格式
+                stripped = line.rstrip('\n').rstrip('\r')
+                stdout_lines.append(stripped)
+                # 实时输出到控制台（带阶段前缀，便于区分）
+                print(f"  │ {stripped}")
 
-            if result.returncode == 0:
+            proc.wait(timeout=30)  # 等待进程结束（输出已读完，通常很快）
+            returncode = proc.returncode
+
+            # 将完整输出写入日志文件
+            full_stdout = '\n'.join(stdout_lines)
+            self._save_tool_log(phase_id, tool, full_stdout, '')
+
+            if returncode == 0:
                 return PhaseResult(phase_id, PhaseStatus.PASSED)
+            elif returncode == 2:
+                # exit(2) = auth 失效（verify_orchestrator.py 专用），管线应阻断
+                return PhaseResult(phase_id, PhaseStatus.FAILED,
+                                 errors=["[AUTH_REQUIRED] Cookie 失效，请更新后使用 --from-phase 重新运行"])
             else:
-                stderr_tail = (result.stderr or "").strip().split('\n')[-10:] if result.stderr else []
-                stdout_tail = (result.stdout or "").strip().split('\n')[-10:] if result.stdout else []
-                tail_lines = stderr_tail or stdout_tail
-                error_preview = '\n'.join(tail_lines) if tail_lines else f"exit {result.returncode}"
+                # 取最后 10 行作为错误预览
+                tail_lines = stdout_lines[-10:] if stdout_lines else []
+                error_preview = '\n'.join(tail_lines) if tail_lines else f"exit {returncode}"
                 log_path = self._tool_log_path(phase_id)
                 return PhaseResult(phase_id, PhaseStatus.FAILED,
                                  errors=[f"工具执行失败（完整日志: {log_path}）:\n{error_preview}"])
 
         except subprocess.TimeoutExpired:
+            proc.kill()
             return PhaseResult(phase_id, PhaseStatus.FAILED,
                              errors=[f"工具执行超时 ({timeout}s)"])
         except Exception as e:
@@ -1364,29 +1430,19 @@ class PipelineExecutor:
     def _cascade_skip(self, failed_phase: str):
         """阶段失败后，级联跳过所有依赖它的阶段
 
-        增强逻辑（v2026.7.30 方案C）：
-        - 如果被跳过的阶段本身是 gate，标记为 FAILED（质量门禁不可跳过）
-        - gate FAILED 后触发 _cascade_skip_all_remaining
+        2026-08-03 简化：所有依赖失败都标记为 SKIPPED，不再升级为 FAILED。
+        移除 gate 升级逻辑，避免 Phase 6 失败导致 Phase 8/9 全量阻断。
         """
         for phase_id, defn in self.registry.items():
             if failed_phase in defn.get("hard_deps", []):
                 if self.results.get(phase_id) is None:
-                    if defn.get("gate"):
-                        # gate 阶段的依赖失败 → 标记为 FAILED（非 SKIPPED）
-                        self.results[phase_id] = PhaseResult(
-                            phase_id, PhaseStatus.FAILED,
-                            errors=[f"依赖阶段 {failed_phase} 失败，gate 阶段无法运行"],
-                        )
-                        print(f"[{phase_id}] {defn['name']} ❌ FAILED (依赖 {failed_phase} 失败，gate 阻断)")
-                        self._cascade_skip_all_remaining(phase_id)
-                        # 修复 v2026.7.30: 移除 return，继续处理其他依赖阶段
-                    else:
-                        self.results[phase_id] = PhaseResult(
-                            phase_id, PhaseStatus.SKIPPED,
-                            warnings=[f"因 {failed_phase} 失败而跳过"]
-                        )
-                        print(f"[{phase_id}] {defn['name']} ⏭️  SKIPPED (依赖 {failed_phase})")
-                        self._cascade_skip(phase_id)  # 递归
+                    # 统一标记为 SKIPPED（包括 gate 阶段）
+                    self.results[phase_id] = PhaseResult(
+                        phase_id, PhaseStatus.SKIPPED,
+                        warnings=[f"因 {failed_phase} 失败而跳过"]
+                    )
+                    print(f"[{phase_id}] {defn['name']} ⏭️  SKIPPED (依赖 {failed_phase})")
+                    self._cascade_skip(phase_id)  # 递归
 
     def _cascade_skip_all_remaining(self, from_phase: str):
         """从指定阶段开始，跳过所有后续阶段"""
@@ -1403,8 +1459,13 @@ class PipelineExecutor:
                 )
                 print(f"[{phase_id}] {defn['name']} ⏭️  SKIPPED (gate 失败)")
 
-    def _save_state(self):
-        """保存管线状态到 JSON"""
+    def _save_state(self, is_intermediate=False):
+        """保存管线状态到 JSON
+
+        Args:
+            is_intermediate: True 表示增量保存（阶段间），final_status 设为 "running"
+                           False 表示最终保存（管线结束），动态计算 final_status
+        """
         state = {
             "run_id": self.start_time.strftime("%Y%m%d_%H%M%S"),
             "started_at": self.start_time.isoformat(),
@@ -1415,7 +1476,6 @@ class PipelineExecutor:
                 "target_url": self.context.target_url or "",
             },
             "phases": {},
-            "final_status": "passed"
         }
 
         # 记录所有阶段（包括未执行的）
@@ -1428,8 +1488,6 @@ class PipelineExecutor:
                     "errors": result.errors,
                     "warnings": result.warnings,
                 }
-                if result.status == PhaseStatus.FAILED:
-                    state["final_status"] = "failed"
             else:
                 state["phases"][phase_id] = {
                     "status": "not_run",
@@ -1437,6 +1495,20 @@ class PipelineExecutor:
                     "errors": [],
                     "warnings": [],
                 }
+
+        # 动态计算 final_status
+        if is_intermediate:
+            # 增量保存：标记为运行中
+            state["final_status"] = "running"
+        else:
+            # 最终保存：根据所有阶段状态计算
+            all_statuses = [p["status"] for p in state["phases"].values()]
+            if "failed" in all_statuses:
+                state["final_status"] = "failed"
+            elif "not_run" in all_statuses:
+                state["final_status"] = "incomplete"
+            else:
+                state["final_status"] = "passed"
 
         state_path = Path(self.project_dir) / "_probe" / "pipeline_state.json"
         state_path.parent.mkdir(parents=True, exist_ok=True)

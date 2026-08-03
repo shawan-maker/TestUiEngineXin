@@ -81,9 +81,9 @@ def validate_module_name(module_name):
     """验证模块名命名规范"""
     if not module_name:
         return True, "OK"
-    # 必须是小写字母和连字符
-    if not re.match(r'^[a-z][a-z0-9-]*$', module_name):
-        return False, f"模块名 '{module_name}' 必须使用小写字母和连字符"
+    # 允许小写字母、数字、连字符和下划线
+    if not re.match(r'^[a-z][a-z0-9_-]*$', module_name):
+        return False, f"模块名 '{module_name}' 必须使用小写字母、数字、连字符和下划线"
     return True, "OK"
 
 

@@ -48,14 +48,14 @@ def load_workflows(project_dir):
     seen_names = {}  # name → index in workflows list（用于项目级覆盖系统级）
 
     # ── 层 1: 系统级 ──
-    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     sys_path = os.path.join(skill_dir, 'lib', 'system_workflows.yaml')
     if os.path.isfile(sys_path):
         _load_yaml_workflows(sys_path, 'lib/system_workflows.yaml',
                              workflows, errors, seen_names)
 
     # ── 层 2: 技能级 _knowledge/*.yaml ──
-    skill_knowledge_dir = os.path.join(skill_dir, 'lib', '_knowledge')
+    skill_knowledge_dir = os.path.join(skill_dir, 'lib', '_knowledge')  # skill_dir already 3 levels up
     if os.path.isdir(skill_knowledge_dir):
         for f in sorted(glob.glob(os.path.join(skill_knowledge_dir, "*.yaml"))):
             source = f"lib/_knowledge/{os.path.basename(f)}"
@@ -632,7 +632,7 @@ def generate_module(workflows_with_sources, project_dir):
     functions = []
     project_name = os.path.basename(os.path.abspath(project_dir))
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
-    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # generate-ui-test/
 
     needs_datetime = False
 
@@ -788,7 +788,7 @@ def main():
 
     if not workflows:
         # 系统级 + 项目级均为空 → 检查 system_workflows.yaml 是否可达
-        skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        skill_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         sys_path = os.path.join(skill_dir, 'lib', 'system_workflows.yaml')
         if os.path.isfile(sys_path):
             print(f"[WARN] system_workflows.yaml 存在 ({sys_path}) 但未加载，请检查文件格式")

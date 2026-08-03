@@ -243,10 +243,17 @@ def detect_container_type(locator):
     return None
 
 
-def inject_hidden_filter(locator: str) -> str:
+def inject_hidden_filter(locator: str, in_iframe: bool = False) -> str:
     """在 XPath 最终元素标签上注入隐藏过滤属性（R4.11）
 
     幂等：已有则跳过。非 XPath → 跳过。豁免模式 → 跳过。
+
+    Args:
+        locator: XPath locator 字符串
+        in_iframe: 如果为 True，跳过注入（iframe 内元素的 XPath 相对于
+                   iframe document，主页面的 hidden filter 语义不适用）。
+                   _iframe companion 字段（指向主页面 iframe 元素）应设为 False。
+                   （iframe 支持 2026-08-03 CI-3）
 
     注入位置：最后一个 // 之后的标签的 predicate 内。
 
@@ -257,6 +264,8 @@ def inject_hidden_filter(locator: str) -> str:
       D: //a[p]//b         → //a[p]//b[filter]
       E: (//tag[p])[1]    → (//tag[p and filter])[1]
     """
+    if in_iframe:
+        return locator  # iframe 内元素不注入主页面 hidden filter
     if not locator or not isinstance(locator, str):
         return locator
     v = locator.strip()

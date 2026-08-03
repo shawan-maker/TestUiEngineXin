@@ -35,6 +35,44 @@
 
 **正确做法**：始终使用 `python pipeline.py run` 执行完整管线，避免依赖自愈机制。
 
+## 工具退出码协议
+
+管线工具通过 exit code 向编排器报告执行结果，编排器根据 code 决定后续行为：
+
+| Exit Code | 含义 | 编排器行为 |
+|-----------|------|-----------|
+| `0` | 成功 | 标记阶段 PASSED，继续执行后续阶段 |
+| `1` | 工具执行失败（非认证） | 标记阶段 FAILED；若阶段配置了 `tolerate_tool_failure: true`，降级为 warning 并继续；否则阻断管线 |
+| `2` | 认证失败（Cookie 失效） | 立即阻断管线，提示用户更新 Cookie 后使用 `--from-phase` 恢复 |
+
+**适用阶段**：
+- Phase 4（探测）和 Phase 6（验证）支持 `tolerate_tool_failure` 和 `fatal_on_auth_failure`
+- 其他阶段仅使用 exit code 0/1，不支持降级
+
+**verify_orchestrator.py 特殊处理**：
+- `auth_error=True`（检测到 401/403/Cookie 失效）→ `exit(2)`，触发全局阻断
+- `truly_unresolved > 0`（部分定位器未解析）→ `exit(0)` + 警告，不阻断管线
+- 工具崩溃或异常 → `exit(1)`，由 `tolerate_tool_failure` 决定是否降级
+
+## 阶段容错配置
+
+`pipeline_registry.py` 中定义每个阶段的容错策略：
+
+```python
+"phase_4_discovery": {
+    "fatal_on_auth_failure": True,      # Cookie 失败立即阻断
+    "tolerate_tool_failure": True,      # 非认证失败降级为 warning
+},
+"phase_6_verify": {
+    "fatal_on_auth_failure": True,      # Cookie 失败立即阻断
+    "tolerate_tool_failure": True,      # 非认证失败降级为 warning
+},
+```
+
+**语义说明**：
+- `fatal_on_auth_failure: true` — 检测到认证失败时立即阻断管线，不再处理后续模块
+- `tolerate_tool_failure: true` — 非认证的工具失败（如定位器未解析、playwright 未安装）降级为 warning，管线继续
+
 ## 管线阶段（Phase 0-9 + 1b）
 
 管线编排器自动按依赖顺序执行，AI 只需在 Phase 0 收集用户输入：
@@ -60,14 +98,14 @@
 ## 管线执行命令
 
 ```bash
-# 完整执行（Phase 0 → Phase 9）
-python tools/pipeline.py run --project {项目目录} --excel {Excel文件} --target-url "{URL}" --cookie "{cookie}"
+# 完整执行（Phase 0 → Phase 9）— 必须后台 + tee 日志
+python -u tools/pipeline.py run --project {项目目录} --excel {Excel文件} --target-url "{URL}" --cookie "{cookie}" 2>&1 | tee {项目目录}/_probe/pipeline.log
 
 # 从指定阶段恢复（用于修复后重跑）
-python tools/pipeline.py run --project {项目目录} --from-phase phase_4_discovery
+python -u tools/pipeline.py run --project {项目目录} --from-phase phase_4_discovery 2>&1 | tee {项目目录}/_probe/pipeline.log
 
 # 仅执行指定阶段（用于局部调试）
-python tools/pipeline.py run --project {项目目录} --only-phase phase_6_verify
+python -u tools/pipeline.py run --project {项目目录} --only-phase phase_6_verify 2>&1 | tee {项目目录}/_probe/pipeline.log
 
 # 查看阶段状态
 python tools/pipeline.py status --project {项目目录}
@@ -83,6 +121,36 @@ python tools/pipeline.py validate-refs --project {项目目录}
 - `--cookie`：认证 Cookie（可选，也可在 Phase 0 由用户提供）
 - `--from-phase`：从指定阶段开始恢复（前置阶段的 artifact 已存在时自动跳过）
 - `--only-phase`：仅执行指定阶段及其依赖（用于局部调试）
+
+## 管线执行约束
+
+**必须后台执行 + tee 日志文件**，禁止前台执行全管线。
+
+原因：管线执行时间随模块和用例数量线性增长（1 模块 4 用例约 14 分钟，6 模块 57 用例约 60 分钟），任何固定 timeout 都可能不够。后台模式下 Bash timeout 到期不会 kill 进程，管线可完整执行。
+
+**执行方式**：
+```bash
+# Bash 工具调用参数
+{
+    "command": "python -u tools/pipeline.py run ... 2>&1 | tee {项目目录}/_probe/pipeline.log",
+    "run_in_background": true,
+    "timeout": 120000
+}
+```
+
+**关键规则**：
+- `python -u`：禁用 Python 输出缓冲，确保 `print()` 立即写入 tee
+- `2>&1 | tee`：stdout + stderr 同时写入日志文件和保留进程 stdout
+- `run_in_background: true`：后台执行，不阻塞 AI 对话
+- `timeout` 值无实际意义（后台模式不 kill 进程），设为默认 120000 即可
+- 定期 `Read` 日志文件 `{项目目录}/_probe/pipeline.log` 查看进度
+- 日志末尾出现 `管线执行总结` 表示管线已完成
+- 需要停止时：用 `TaskStop` 终止后台任务
+
+**禁止**：
+- 禁止 `run_in_background: false` 前台执行全管线
+- 禁止省略 `python -u`（会导致输出缓冲延迟写入日志）
+- 禁止省略 `tee`（无日志文件则无法查看进度）
 
 ## Phase 0 用户输入收集
 
@@ -128,7 +196,7 @@ config.yaml 是 YAML 文件，注释**只能用 `#`**，禁止 Python docstring 
 3. 修复问题（如修改 Excel、补充配置）
 4. 使用 `--from-phase {失败阶段的Phase ID}` 恢复执行：
    ```bash
-   python tools/pipeline.py run --project {目录} --from-phase phase_4_discovery
+   python -u tools/pipeline.py run --project {目录} --from-phase phase_4_discovery 2>&1 | tee {目录}/_probe/pipeline.log
    ```
 
 **禁止**：直接调用失败阶段的工具（如 `python tools/run_phase4.py`）。必须通过管线恢复。

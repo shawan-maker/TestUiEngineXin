@@ -18,7 +18,9 @@ except ImportError:
 
 # ─── Shared imports ───
 from core.yaml_utils import escape_yaml_scalar as _escape_yaml_scalar
+from core.xpath_utils import apply_hidden_filters_to_pages, strip_not_ancestor_from_pages
 from generation.pages_writer import _make_editable_locator_postfix
+from verification.data_layer import load_pages
 
 # ─── Local copies of writeback helpers (also in verify_engine.py for execute_step Fix-6) ───
 def _extract_locator_ref(step):
@@ -183,6 +185,12 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
         # BUG-5: Protect common_elements fields from writeback
         if group == 'common_elements' and field in PROTECTED_COMMON_FIELDS:
             print(f"  [SKIP] Protected field common_elements.{field} — writeback not allowed")
+            continue
+
+        # _expand protection: Phase 5 generates div.el-select for expand locators,
+        # Phase 6 KB fallback may downgrade to input — prevent overwrite
+        if field.endswith('_expand'):
+            print(f"  [SKIP] Protected field {group}.{field} — Phase 5 div.el-select, writeback not allowed")
             continue
 
         # Find which YAML file contains this group

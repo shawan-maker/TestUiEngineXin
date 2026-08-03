@@ -181,11 +181,11 @@ def _generate_xpath_from_kb(page, elem_type, label, container_type=None, scope_f
             xpath = inject_hidden_filter(xpath)
 
         # §9.2 P1-C: button 类型全局追加 is-disabled 过滤
-        if elem_type == 'button':
+        if elem_type in ('button', 'table-action-button'):
             xpath = _inject_button_disabled_filter(xpath)
 
         # §9.2 P1-A: scope 过滤（toolbar vs row）
-        if elem_type == 'button' and scope_filter:
+        if elem_type in ('button', 'table-action-button') and scope_filter:
             xpath = _inject_scope_filter(xpath, scope_filter)
 
         # Add container prefix if needed
@@ -1076,7 +1076,7 @@ def _generate_locators_for_elements(page, elements, container_type=None):
             continue
 
         # Generate button locator differently
-        if elem_type in ('', 'button') and 'text' in elem:
+        if elem_type in ('', 'button', 'table-action-button') and 'text' in elem:
             # It's a button
             is_custom = elem.get('is_custom_clickable', False)
             # §9.2 P1-A: scope by is_row_button flag
@@ -1085,7 +1085,7 @@ def _generate_locators_for_elements(page, elements, container_type=None):
             else:
                 scope_filter = 'not(ancestor::tbody)'
             xpath, verified = _generate_xpath_from_kb(
-                page, 'button', label, container_type, scope_filter=scope_filter
+                page, elem_type, label, container_type, scope_filter=scope_filter
             )
             if not xpath or is_custom:
                 # Fallback: direct XPath with scope filter + disabled filter

@@ -134,6 +134,7 @@ PHASE_DEFINITIONS: dict[str, dict[str, Any]] = {
         "optional": False,
         "multi_module": True,
         "fatal_on_auth_failure": True,
+        "tolerate_tool_failure": True,  # 非 Cookie 的探测失败降级为 warning，不阻断管线
     },
 
     "phase_5": {
@@ -175,6 +176,7 @@ PHASE_DEFINITIONS: dict[str, dict[str, Any]] = {
         "optional": False,
         "multi_module": True,
         "fatal_on_auth_failure": True,
+        "tolerate_tool_failure": True,  # 非 auth 的工具失败降级为 warning，不阻断管线
     },
 
     "phase_7": {
@@ -194,8 +196,8 @@ PHASE_DEFINITIONS: dict[str, dict[str, Any]] = {
         "tool": None,              # 编排器内部组合多个验证器
         "validator": "validate_08_scripts.py",
         "validator_args": ["{project_dir}"],
-        "hard_deps": ["phase_5", "phase_6_verify", "phase_7"],
-        "soft_deps": ["phase_3_keywords"],   # phase_3_keywords 软依赖
+        "hard_deps": ["phase_5", "phase_7"],
+        "soft_deps": ["phase_3_keywords", "phase_6_verify"],   # phase_6 软依赖：定位器验证失败不阻断报告生成
         "artifacts": [
             "{project_dir}/_probe/phase8_violations.json",
         ],

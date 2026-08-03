@@ -10,6 +10,7 @@ detail_links.py - Detail link 处理
 import os
 import re
 import sys
+import json
 
 try:
     import yaml

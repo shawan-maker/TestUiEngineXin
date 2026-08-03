@@ -590,6 +590,7 @@ FIELD_TYPE_SUFFIXES = {
     '_card': 'option-card', '_option': 'option', '_first_option': 'option',
     '_link': 'detail-link', '_menu': 'menu-item',
     '_editable': 'el-select',  # el-select 条件分支伴随字段
+    '_iframe': 'rich_text',  # iframe companion 字段（iframe 支持 2026-08-03）
 }
 
 

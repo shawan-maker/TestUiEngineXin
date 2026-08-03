@@ -1287,8 +1287,8 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             page.locator(verified_locator).fill(value, timeout=5000)
             return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
 
-        elif keyword in ('frame_fill_value', 'frame_click'):
-            # iframe operations — skip for now
+        elif keyword.startswith('frame_'):
+            # iframe operations — skip for now (Phase 6 实现时启用)
             return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
 
         elif keyword == 'wait_for_element_visible':

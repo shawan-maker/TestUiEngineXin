@@ -533,6 +533,14 @@ def generate_case_file(case_data, generator, seq, output_dir, module='', project
         steps = generator.generate_step(parsed)
         generator._update_container_context_post(parsed)
 
+        # [DEBUG-TEMP] 临时调试日志：追踪 auto-add wait_for_loading_complete 逻辑
+        is_btn = generator._is_button_action(parsed)
+        no_wait = generator._next_needs_no_wait(raw_steps, i)
+        should_add = is_btn and not no_wait
+        print(f"    [DEBUG-TEMP] Step {i+1}: '{step_text[:30]}' | type={parsed['type']}, "
+              f"is_button={is_btn}, next_no_wait={no_wait}, should_add_wait={should_add}")
+        # [DEBUG-TEMP-END]
+
         if (generator._is_button_action(parsed)
                 and not generator._next_needs_no_wait(raw_steps, i)):
             steps.append({
@@ -540,6 +548,9 @@ def generate_case_file(case_data, generator, seq, output_dir, module='', project
                 'keyword': 'wait_for_loading_complete',
                 'params': {},
             })
+            # [DEBUG-TEMP]
+            print(f"    [DEBUG-TEMP] ✓ 已添加 wait_for_loading_complete (Step {i+1})")
+            # [DEBUG-TEMP-END]
 
         if getattr(generator, '_pending_nav_wait', False):
             if not any(s.get('keyword') == 'wait_for_loading_complete' for s in steps):

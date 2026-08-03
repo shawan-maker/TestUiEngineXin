@@ -1215,7 +1215,7 @@ class PipelineExecutor:
             if phase_id == "phase_4_discovery" and self.context.module_map_str:
                 module_args.extend(["--module-map", self.context.module_map_str])
 
-            result = self._run_tool(phase_id, tool, module_args)
+            result = self._run_tool(phase_id, tool, module_args, module_slug=slug)
 
             if result.status == PhaseStatus.FAILED:
                 # 检查是否是认证失败
@@ -1262,7 +1262,8 @@ class PipelineExecutor:
                     return True
         return False
 
-    def _run_tool(self, phase_id: str, tool: str, args: list[str]) -> PhaseResult:
+    def _run_tool(self, phase_id: str, tool: str, args: list[str],
+                   module_slug: str | None = None) -> PhaseResult:
         """运行外部工具（实时流式输出到控制台）
 
         使用 Popen 逐行读取子进程 stdout/stderr，同时：
@@ -1317,7 +1318,7 @@ class PipelineExecutor:
 
             # 将完整输出写入日志文件
             full_stdout = '\n'.join(stdout_lines)
-            self._save_tool_log(phase_id, tool, full_stdout, '')
+            self._save_tool_log(phase_id, tool, module_slug, full_stdout, '')
 
             if returncode == 0:
                 return PhaseResult(phase_id, PhaseStatus.PASSED)
@@ -1347,12 +1348,22 @@ class PipelineExecutor:
         probe_dir.mkdir(parents=True, exist_ok=True)
         return str(probe_dir / f"{phase_id}_tool.log")
 
-    def _save_tool_log(self, phase_id: str, tool: str,
+    def _save_tool_log(self, phase_id: str, tool: str, module_slug: str | None,
                        stdout: str | None, stderr: str | None):
-        """将工具完整 stdout/stderr 写入 _probe/{phase_id}_tool.log"""
+        """将工具完整 stdout/stderr 写入 _probe/{phase_id}_tool.log
+
+        多模块阶段使用追加模式，每个模块的日志用分隔符分开。
+        """
         log_path = self._tool_log_path(phase_id)
+        log_file = Path(log_path)
         try:
-            with open(log_path, 'w', encoding='utf-8') as f:
+            # 文件已存在则追加，否则新建
+            mode = 'a' if log_file.exists() else 'w'
+            with open(log_path, mode, encoding='utf-8') as f:
+                # 分隔符（追加模式下区分不同模块）
+                f.write(f"\n{'='*60}\n")
+                if module_slug:
+                    f.write(f"# Module: {module_slug}\n")
                 f.write(f"# Phase: {phase_id}\n")
                 f.write(f"# Tool: {tool}\n")
                 f.write(f"# Time: {datetime.now().isoformat()}\n")

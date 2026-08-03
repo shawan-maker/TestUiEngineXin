@@ -21,13 +21,13 @@ SCRIPT_DIR = Path(__file__).parent
 TOOLS_DIR = SCRIPT_DIR.parent / 'tools'
 sys.path.insert(0, str(TOOLS_DIR))
 
-from build_module_map import (
+from excel.build_module_map import (
     _scan_pages_dirs,
     _scan_yaml_comments,
     _scan_discovery_json,
     _build_mapping,
 )
-from generate_from_excel import (
+from generation.generate_from_excel import (
     load_module_map,
     group_cases_by_module,
     find_discovery_json,

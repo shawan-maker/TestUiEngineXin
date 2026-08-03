@@ -60,7 +60,7 @@ from pipeline_models import (
     Phase9Output,
 )
 from pipeline_registry import PHASE_DEFINITIONS, EXECUTION_ORDER, get_phase_def
-from cross_refs import validate_cross_refs
+from fixers.cross_refs import validate_cross_refs
 
 
 class PipelineContext:
@@ -68,7 +68,10 @@ class PipelineContext:
 
     def __init__(self, project_dir: str, excel_path: Optional[str] = None,
                  cookie: Optional[str] = None, modules: Optional[list] = None,
-                 local_storage: Optional[dict] = None, target_url: Optional[str] = None):
+                 local_storage: Optional[dict] = None,
+                 target_url: Optional[str] = None,
+                 browser_type: str = "chromium",
+                 run_smoke: bool = False):
         self.project_dir = project_dir
         self.excel_path = excel_path
         self.cookie = cookie
@@ -77,6 +80,8 @@ class PipelineContext:
         self.excel_json_path = None
         self.module_urls_path = None
         self.target_url = target_url
+        self.browser_type = browser_type
+        self.run_smoke = run_smoke
         self.modules: list[dict] = modules or []  # [{"slug": "xxx", "cn_name": "xxx", "urls": [...]}]
         self.discovery_path = None  # 当前处理的 discovery 文件路径
         self.module_map_str = ""    # 自动构建的 cn_name=slug 映射（传递给 run_phase4.py）
@@ -359,6 +364,26 @@ class PipelineExecutor:
         # 加载配置
         self.context.update_from_config()
 
+        # --from-phase / --only-phase: 别名映射（用户可能用短名 phase_6 → phase_6_verify）
+        PHASE_ALIASES = {
+            "phase_1b": "phase_1b_parse",
+            "phase_3": "phase_3_keywords",
+            "phase_4": "phase_4_discovery",
+            "phase_6": "phase_6_verify",
+        }
+        if from_phase:
+            from_phase = PHASE_ALIASES.get(from_phase, from_phase)
+            if from_phase not in EXECUTION_ORDER:
+                print(f"  ❌ 错误: 未知的阶段名 '{from_phase}'")
+                print(f"     可选: {', '.join(EXECUTION_ORDER)}")
+                return
+        if only_phase:
+            only_phase = PHASE_ALIASES.get(only_phase, only_phase)
+            if only_phase not in EXECUTION_ORDER:
+                print(f"  ❌ 错误: 未知的阶段名 '{only_phase}'")
+                print(f"     可选: {', '.join(EXECUTION_ORDER)}")
+                return
+
         # --from-phase: 计算需要跳过的阶段
         skip_phases = set()
         if from_phase:
@@ -444,7 +469,6 @@ class PipelineExecutor:
 
                 if errors:
                     # cross_refs errors 降级为 warnings，不阻断 Phase 6
-                    # Phase 8（跨文件验证）会统一检查，Phase 9 运行时自然报错
                     for err in errors:
                         warnings.append(err)
                     print(f"  ⚠️  引用验证发现 {len(errors)} 个问题（降级为警告，不阻断）")
@@ -453,7 +477,7 @@ class PipelineExecutor:
                 elif warnings:
                     print(f"  ⚠️  {len(warnings)} 个警告，继续执行")
 
-            # 运行阶段 - 方案A：醒目的阶段开始日志
+            # 运行阶段 - 醒目的阶段开始日志
             print(f"\n{'─'*70}")
             print(f"📌 阶段 {_phase_counter}/{_total_planned}  [{phase_id}] {defn['name']}")
             print(f"{'─'*70}")
@@ -513,7 +537,7 @@ class PipelineExecutor:
                                 _tools_dir = Path(__file__).parent
                                 if str(_tools_dir) not in _sys.path:
                                     _sys.path.insert(0, str(_tools_dir))
-                                from build_module_map import _extract_slug_from_url, _auto_generate_slug
+                                from excel.build_module_map import _extract_slug_from_url, _auto_generate_slug
 
                                 cn_to_slug = {}
                                 for cn_name, urls in module_urls.items():
@@ -754,12 +778,11 @@ class PipelineExecutor:
                              errors=[f"未知的内置阶段: {phase_id}"])
 
     def _phase0_config(self) -> PhaseResult:
-        """Phase 0: 配置确认（已由用户提供，只验证）
+        """Phase 0: 配置确认
 
-        额外职责：
-        1. 自动补全 cookie_domain（从 target_url 提取），
-           确保运行时 base_browser._apply_config_cookies 能正确注入 HTTP Cookie。
-        2. 如果 config.yaml 不存在但 CLI 参数完整，从模板程序化渲染（v2026.7.30）
+        验证已存在的 config.yaml，或等待 Phase 2 生成。
+        额外职责：自动补全 cookie_domain（从 target_url 提取），
+        确保运行时 base_browser._apply_config_cookies 能正确注入 HTTP Cookie。
         """
         import re as _re
         config_path = Path(self.project_dir) / "config.yaml"
@@ -1021,14 +1044,40 @@ class PipelineExecutor:
             if stderr_preview:
                 errors.append(f"验证器输出: {stderr_preview}")
 
-        # 2. 生成 issues_report（如果存在）
-        report_generator = Path(__file__).parent / "generate_issues_report.py"
+        # 2. 先生成报告（验证前必须有报告）
+        report_generator = Path(__file__).parent / "generators/generate_report.py"
         if report_generator.exists():
+            output_path = Path(self.project_dir) / "report/generate_report/generation_report.html"
+            output_path.parent.mkdir(parents=True, exist_ok=True)
             try:
                 result = subprocess.run(
-                    [sys.executable, str(report_generator), self.project_dir],
-                    capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120
+                    [sys.executable, str(report_generator), self.project_dir, str(output_path)],
+                    capture_output=True, text=True, timeout=120
                 )
+                if result.returncode != 0:
+                    errors.append(f"generate_report.py 失败 (exit {result.returncode})")
+                else:
+                    print(f"  ✅ 报告已生成: {output_path.relative_to(Path(self.project_dir))}")
+            except subprocess.TimeoutExpired:
+                errors.append("generate_report.py 超时")
+
+        # 3. 运行 validate_09_report.py（验证生成的报告）
+        report_validator = Path(__file__).parent.parent / "validators" / "validate_09_report.py"
+        if report_validator.exists():
+            result = subprocess.run(
+                [sys.executable, str(report_validator), self.project_dir],
+                capture_output=True, text=True, timeout=120
+            )
+            if result.returncode != 0:
+                errors.append("validate_09_report.py 失败")
+
+        # 4. 生成 issues_report（如果存在）
+        issues_generator = Path(__file__).parent / "generators/generate_issues_report.py"
+        if issues_generator.exists():
+            try:
+                result = subprocess.run(
+                    [sys.executable, str(issues_generator), self.project_dir],
+                    capture_output=True, text=True, timeout=120
                 if result.returncode != 0:
                     errors.append("generate_issues_report.py 失败")
             except subprocess.TimeoutExpired:
@@ -1188,6 +1237,11 @@ class PipelineExecutor:
 
         cmd = [sys.executable, str(tool_path)] + args
 
+        # Force UTF-8 for all tool subprocesses (fixes Windows GBK issues)
+        env = os.environ.copy()
+        env['PYTHONUTF8'] = '1'
+        env['PYTHONIOENCODING'] = 'utf-8'
+
         try:
             result = subprocess.run(
                 cmd,
@@ -1195,7 +1249,8 @@ class PipelineExecutor:
                 text=True,
                 encoding='utf-8',
                 errors='replace',
-                timeout=timeout
+                timeout=timeout,
+                env=env,
             )
 
             # 将完整 stdout/stderr 写入日志文件，方便问题定位
@@ -1417,7 +1472,9 @@ def cmd_run(args):
         project_dir=args.project,
         excel_path=args.excel,
         cookie=args.cookie,
-        target_url=getattr(args, 'target_url', None)
+        target_url=args.target_url,
+        browser_type=args.browser_type,
+        run_smoke=args.run_smoke
     )
 
     executor = PipelineExecutor(context)
@@ -1484,7 +1541,12 @@ def main():
     run_parser.add_argument("--project", required=True, help="项目目录")
     run_parser.add_argument("--excel", help="Excel 文件路径")
     run_parser.add_argument("--cookie", help="Cookie 字符串")
-    run_parser.add_argument("--target-url", help="目标系统 URL")
+    run_parser.add_argument("--target-url", help="目标系统 URL（用于自动生成 config.yaml）")
+    run_parser.add_argument("--browser-type", default="chromium",
+                           choices=["chromium", "firefox", "webkit"],
+                           help="浏览器类型（默认 chromium）")
+    run_parser.add_argument("--run-smoke", action="store_true",
+                           help="Phase 9 完成后自动执行 smoke 测试")
     run_parser.add_argument("--from-phase", help="从指定阶段开始 (如 phase_6_verify)")
     run_parser.add_argument("--only-phase", help="仅执行指定阶段及其依赖 (如 phase_4_discovery)")
     run_parser.set_defaults(func=cmd_run)

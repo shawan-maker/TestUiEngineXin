@@ -929,7 +929,7 @@ def validate_probe(project_dir: str) -> Tuple[List[str], List[str], List[str]]:
     if _sys_path not in sys.path:
         sys.path.insert(0, _sys_path)
     try:
-        from tools._phase_registry import check_prerequisite_phases
+        from tools.infra.phase_registry import check_prerequisite_phases
         prereq_violations = check_prerequisite_phases(project_dir, 'validate_04')
         for pv in prereq_violations:
             all_warnings.append(f"[PREREQUISITE] {pv.message} → {pv.suggestion}")

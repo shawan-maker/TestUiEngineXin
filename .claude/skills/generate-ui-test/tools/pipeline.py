@@ -1078,6 +1078,7 @@ class PipelineExecutor:
                 result = subprocess.run(
                     [sys.executable, str(issues_generator), self.project_dir],
                     capture_output=True, text=True, timeout=120
+                )
                 if result.returncode != 0:
                     errors.append("generate_issues_report.py 失败")
             except subprocess.TimeoutExpired:

@@ -70,6 +70,25 @@ def check_hidden_filter(xpath: str) -> Tuple[bool, str]:
         return False, "缺少隐藏过滤（is-hidden 和 display:none）"
 
 
+def _has_keyword_recursive(steps: list, keyword: str) -> bool:
+    """递归搜索步骤树（含 then_steps/else_steps）中是否存在指定 keyword"""
+    if not steps:
+        return False
+    for s in steps:
+        if not isinstance(s, dict):
+            continue
+        if s.get('keyword') == keyword:
+            return True
+        # 递归搜索嵌套的条件分支
+        params = s.get('params', {})
+        if isinstance(params, dict):
+            for sub_key in ('then_steps', 'else_steps'):
+                sub_steps = params.get(sub_key, [])
+                if _has_keyword_recursive(sub_steps, keyword):
+                    return True
+    return False
+
+
 def check_el_select_three_steps(steps: list, step_index: int) -> List[str]:
     """检查 el-select 三步法是否完整（支持条件分支模式）"""
     issues = []
@@ -83,12 +102,9 @@ def check_el_select_three_steps(steps: list, step_index: int) -> List[str]:
             if '_editable' in if_loc:
                 then_steps = if_params.get('then_steps', []) or []
                 else_steps = if_params.get('else_steps', []) or []
-                has_fill = any(isinstance(s, dict) and s.get('keyword') == 'fill_value'
-                               for s in then_steps)
-                has_select = any(isinstance(s, dict) and s.get('keyword') == 'click_element'
-                                 for s in then_steps)
-                has_first = any(isinstance(s, dict) and s.get('keyword') == 'click_element'
-                                for s in else_steps)
+                has_fill = _has_keyword_recursive(then_steps, 'fill_value')
+                has_select = _has_keyword_recursive(then_steps, 'click_element')
+                has_first = _has_keyword_recursive(else_steps, 'click_element')
                 if not has_fill:
                     issues.append("条件分支 then_steps 缺少 fill_value 搜索步骤")
                 if not has_select:

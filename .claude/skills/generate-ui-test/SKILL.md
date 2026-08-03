@@ -1,6 +1,6 @@
 # generate-ui-test
 
-基于 UIEngine 的 UI 自动化测试工程生成技能。通过管线编排器（pipeline.py）自动执行 10 个阶段，生成可独立运行的测试工程。
+基于 UIEngine 的 UI 自动化测试工程生成技能。通过管线编排器（pipeline.py）自动执行 11 个阶段（Phase 0-9 + 1b），生成可独立运行的测试工程。
 
 ## 触发方式
 
@@ -39,19 +39,19 @@
 
 管线编排器自动按依赖顺序执行，AI 只需在 Phase 0 收集用户输入：
 
-| Phase | 名称 | 工具 | AI 职责 |
-|-------|------|------|---------|
-| 0 | 配置确认 | — | 逐项询问用户 |
-| 1 | Excel 预检 | validate_excel.py | 自动（仅 Excel） |
-| 1b | Excel 解析 | read_excel.py | 自动 |
-| 2 | 脚手架生成 | — | 自动（生成 run.py、auth_keywords） |
-| 3 | 模块关键字编译 | compile_module_keywords.py | 自动（生成 module_keywords） |
-| 4 | 全自动探测 | run_phase4.py | 自动 |
-| 5 | cases+pages+data 生成 | generate_from_excel.py | 自动 |
-| 6 | 运行时定位器验证 | verify_locators.py | 自动 |
-| 7 | suites 生成 | generate_suites.py | 自动 |
-| 8 | 跨文件验证 | — | 自动（gate，失败阻断） |
-| 9 | 运行验证 | — | 自动 |
+| Phase ID | 名称 | 工具 | AI 职责 |
+|----------|------|------|---------|
+| phase_0 | 配置确认 | — | 逐项询问用户 |
+| phase_1 | Excel 预检 | validate_excel.py | 自动（仅 Excel） |
+| phase_1b_parse | Excel 解析 | read_excel.py | 自动 |
+| phase_2 | 脚手架生成 | — | 自动（生成 run.py、auth_keywords） |
+| phase_3_keywords | 模块关键字编译 | compile_module_keywords.py | 自动（生成 module_keywords） |
+| phase_4_discovery | 全自动探测 | run_phase4.py | 自动 |
+| phase_5 | cases+pages+data 生成 | generate_from_excel.py | 自动 |
+| phase_6_verify | 运行时定位器验证 | verify_locators.py | 自动 |
+| phase_7 | suites 生成 | generate_suites.py | 自动 |
+| phase_8 | 跨文件验证 + 报告 | — | 自动（gate，失败阻断） |
+| phase_9 | 运行验证 | — | 自动 |
 
 **⚠️ 上表"工具"列仅供理解内部实现。AI 禁止直接调用这些工具，必须通过 `python pipeline.py run` 执行。**
 
@@ -59,28 +59,21 @@
 
 ## 管线执行命令
 
-### 完整执行
-
 ```bash
-python tools/pipeline.py run --project {项目目录} --excel {Excel文件} --cookie "{cookie}"
-```
+# 完整执行（Phase 0 → Phase 9）
+python tools/pipeline.py run --project {项目目录} --excel {Excel文件} --target-url "{URL}" --cookie "{cookie}"
 
-### 恢复执行（从指定阶段开始）
+# 从指定阶段恢复（用于修复后重跑）
+python tools/pipeline.py run --project {项目目录} --from-phase phase_4_discovery
 
-```bash
-python tools/pipeline.py run --project {项目目录} --from-phase phase_4
-```
+# 仅执行指定阶段（用于局部调试）
+python tools/pipeline.py run --project {项目目录} --only-phase phase_6_verify
 
-### 单阶段执行（含上游依赖）
-
-```bash
-python tools/pipeline.py run --project {项目目录} --only-phase phase_5
-```
-
-### 查看状态
-
-```bash
+# 查看阶段状态
 python tools/pipeline.py status --project {项目目录}
+
+# 检查阶段间引用一致性
+python tools/pipeline.py validate-refs --project {项目目录}
 ```
 
 ### CLI 参数说明
@@ -89,9 +82,11 @@ python tools/pipeline.py status --project {项目目录}
 |------|------|------|
 | `--project` | ✅ | 项目目录路径 |
 | `--excel` | Excel 输入时 | Excel 文件路径（触发 Phase 1/1b） |
+| `--target-url` | 必填 | 目标系统 URL（用于自动生成 config.yaml） |
 | `--cookie` | 可选 | 认证 Cookie，也可在 config.yaml 中配置 |
 | `--from-phase` | 可选 | 从指定阶段开始恢复（前置阶段的 artifact 已存在时自动跳过） |
 | `--only-phase` | 可选 | 仅执行指定阶段及其上游依赖 |
+| `--browser-type` | 可选 | 浏览器类型：chromium/firefox/webkit（默认 chromium） |
 | `--run-smoke` | 可选 | Phase 9 完成后自动执行 smoke 测试 |
 
 ### 阶段别名
@@ -164,11 +159,12 @@ config.yaml 是 YAML 文件，注释**只能用 `#`**，禁止 Python docstring 
 ## 错误恢复
 
 如果管线某阶段失败：
-1. 查看错误日志（`_probe/pipeline_state.json`）
-2. 修复问题（如修改 Excel、补充配置）
-3. 使用 `--from-phase {失败阶段}` 恢复执行：
+1. 查看管线状态：`_probe/pipeline_state.json`
+2. 查看工具完整日志：`_probe/{phase_id}_tool.log`（包含 stdout/stderr 完整输出）
+3. 修复问题（如修改 Excel、补充配置）
+4. 使用 `--from-phase {失败阶段的Phase ID}` 恢复执行：
    ```bash
-   python tools/pipeline.py run --project {目录} --from-phase phase_4
+   python tools/pipeline.py run --project {目录} --from-phase phase_4_discovery
    ```
 
 **禁止**：直接调用失败阶段的工具（如 `python tools/run_phase4.py`）。必须通过管线恢复。

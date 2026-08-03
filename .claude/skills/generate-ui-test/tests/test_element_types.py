@@ -298,8 +298,6 @@ print('=' * 60)
 # KB_KEY_ALIAS re-export
 print('\nKB_KEY_ALIAS re-exports:')
 from probe.probe_utils import KB_KEY_ALIAS
-from probe.probe_element import _KB_KEY_ALIAS
-check(KB_KEY_ALIAS == _KB_KEY_ALIAS, "probe_utils vs probe_element mismatch")
 check('input' in KB_KEY_ALIAS, "missing 'input'")
 check('textarea' in KB_KEY_ALIAS, "missing 'textarea'")
 check('date_picker' in KB_KEY_ALIAS, "missing 'date_picker'")

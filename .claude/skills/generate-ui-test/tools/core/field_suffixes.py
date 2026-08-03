@@ -32,7 +32,7 @@ from core.element_types import (
 # 与 _FIELD_RE 正则和 _extract_comment_labels() 同步。
 
 STANDARD_SUFFIXES = (
-    '_select', '_input', '_option', '_editable', '_first_option',
+    '_select', '_input', '_option', '_editable', '_first_option', '_expand',
     '_btn', '_close_btn', '_text', '_textarea', '_link', '_area', '_field',
     '_count', '_tab', '_cascader', '_level', '_checkbox',
     '_iframe', '_body', '_row_link', '_row', '_menu', '_card',

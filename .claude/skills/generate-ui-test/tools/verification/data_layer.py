@@ -404,5 +404,10 @@ def resolve_locator(params, pages_dict):
                 if len(parts) == 2 and parts[0] == group and parts[1] in fields:
                     return str(fields[parts[1]])
         # Try flat lookup
-        return locator
+        flat_value = pages_dict.get(ref)
+        if flat_value:
+            return str(flat_value)
+        # Variable not resolved - return empty string instead of unresolved reference
+        # This prevents passing ${...} to Playwright which causes CSS parse errors
+        return ''
     return locator

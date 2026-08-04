@@ -11,11 +11,22 @@ __pycache__/
 .claude/
 
 # ===== 运行时产物 =====
-tools/_probe/
+**/_probe/
+
+# ===== 用户示例/项目目录 =====
+examples/
+
+# ===== 运行时生成的知识库 =====
+lib/_knowledge/
+
+# ===== Excel 预清洗产物 =====
+*-修正版*.xlsx
+excel_validation_report.html
+~$*.xlsx
 
 # ===== 测试 =====
 .pytest_cache/
-htmlcov/
+.htmlcov/
 .coverage
 
 # ===== 系统 =====

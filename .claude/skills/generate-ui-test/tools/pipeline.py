@@ -416,7 +416,56 @@ class PipelineExecutor:
             upstream = self._get_upstream(only_phase)
             run_phases = upstream | {only_phase}
 
-        # 预计算将执行的阶段列表（用于进度显示）
+        # === Resume 模式预处理：上游产物已存在则标记 SKIPPED ===
+        target_phase = from_phase or only_phase
+        if is_resume and target_phase:
+            for phase_id in EXECUTION_ORDER:
+                if phase_id == target_phase:
+                    break  # 目标 phase 本身不跳过
+
+                # 只处理在 run_phases 中的阶段
+                if only_phase and phase_id not in run_phases:
+                    continue
+                if from_phase and phase_id in skip_phases:
+                    continue
+
+                # Phase 0 始终执行（便宜 + 验证 config + 检测 cookie）
+                if phase_id == "phase_0":
+                    continue
+
+                defn = self.registry[phase_id]
+
+                # 可选阶段且条件不满足 → 直接跳过
+                if defn.get("optional") and defn.get("condition"):
+                    if not defn["condition"](self.context):
+                        self.results[phase_id] = PhaseResult(
+                            phase_id, PhaseStatus.SKIPPED,
+                            warnings=["条件不满足，跳过"]
+                        )
+                        print(f"  [跳过] {phase_id} {defn['name']} — 条件不满足")
+                        continue
+
+                # 检查产物是否存在
+                if self._artifacts_exist(phase_id):
+                    # Phase 4 multi_module 额外校验：glob 匹配数 ≥ 模块数
+                    if phase_id == "phase_4_discovery" and defn.get("multi_module"):
+                        modules = self.context.get_modules()
+                        if modules:
+                            discovery_pattern = str(Path(self.project_dir) / "_probe" / "discovery_*.json")
+                            matches = glob.glob(discovery_pattern)
+                            matches = [m for m in matches if not m.endswith("_merged.json")]
+                            if len(matches) < len(modules):
+                                print(f"  [重跑] {phase_id} {defn['name']} — 产物不完整 ({len(matches)}/{len(modules)} 模块)")
+                                continue  # 不跳过，继续执行
+
+                    # 标记为 SKIPPED，_check_hard_deps 会验证产物
+                    self.results[phase_id] = PhaseResult(
+                        phase_id, PhaseStatus.SKIPPED,
+                        warnings=["Resume 模式：产物已存在，跳过"]
+                    )
+                    print(f"  [跳过] {phase_id} {defn['name']} — 产物已存在")
+
+        # 预计算将执行的阶段列表（用于进度显示）— 移到预处理之后
         _planned_phases = [
             pid for pid in EXECUTION_ORDER
             if pid not in skip_phases

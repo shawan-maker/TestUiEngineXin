@@ -412,7 +412,7 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                                 )
 
                                 if v_loc and v_count == 1:
-                                    print(f"    [DEBUG-COND] ✓ Prefix traversal SUCCESS: prefix={v_ct}, count={v_count}")
+                                    print(f"    [DEBUG-COND] [OK] Prefix traversal SUCCESS: prefix={v_ct}, count={v_count}")
                                     print(f"    [DEBUG-COND]   Verified locator: {v_loc}")
 
                                     # Store the verified locator for the condition
@@ -430,14 +430,14 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                                     cond_count = 1
                                     print(f"    [DEBUG-COND] Result: prefix found, will execute then_steps")
                                 else:
-                                    print(f"    [DEBUG-COND] ✗ Prefix traversal FAILED: no valid prefix found")
+                                    print(f"    [DEBUG-COND] [FAIL] Prefix traversal FAILED: no valid prefix found")
                                     print(f"    [DEBUG-COND]   Tried: {CONTAINER_TYPES} + [None]")
                                     cond_count = 0
                                     print(f"    [DEBUG-COND] Result: will execute else_steps")
 
                         except Exception as e:
                             cond_count = 0
-                            print(f"    [DEBUG-COND] ✗ Exception during count/visibility check: {str(e)[:100]}")
+                            print(f"    [DEBUG-COND] [FAIL] Exception during count/visibility check: {str(e)[:100]}")
                             print(f"    [DEBUG-COND] Result: will execute else_steps")
 
                         print(f"    [DEBUG-COND] ===== End condition check (cond_count={cond_count}) =====")

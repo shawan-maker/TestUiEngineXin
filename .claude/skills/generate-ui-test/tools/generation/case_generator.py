@@ -782,10 +782,56 @@ class CaseGenerator:
         return parsed.get('type') in self._BUTTON_TYPES
 
     def _next_needs_no_wait(self, raw_steps, idx):
+        """判断下一步是否不需要自动插入 wait_for_loading_complete
+
+        返回 True（不插入等待）的情况：
+        - 下一步是 wait_element（显式等待元素）
+        - 下一步是 assert/assert_row/assert_count/check_assert（断言）
+        - 下一步是 l3_call 且包含"等待加载完成"或"等待页面加载完成"（已显式等待）
+
+        返回 False（需要插入等待）的情况：
+        - 下一步是 l3_call 且为 wait_for_time（如"等待1s"）→ 仍需插入 wait_for_loading_complete
+        - 下一步是其他 l3_call（如 log、refresh）→ 仍需插入
+
+        Args:
+            raw_steps: Excel 原始步骤列表
+            idx: 当前步骤索引
+
+        Returns:
+            bool: True 表示不需要自动插入等待，False 表示需要插入
+        """
         if idx + 1 >= len(raw_steps):
             return False
-        next_parsed = parse_step(raw_steps[idx + 1])
-        return next_parsed.get('type') in self._NO_WAIT_AFTER_TYPES
+
+        next_step = raw_steps[idx + 1]
+        next_parsed = parse_step(next_step)
+        next_type = next_parsed.get('type')
+
+        # 非 l3_call 类型：直接检查是否在黑名单中
+        if next_type != 'l3_call':
+            return next_type in self._NO_WAIT_AFTER_TYPES
+
+        # l3_call 类型：精细化判断
+        # parse_step 返回结构：{'type': 'l3_call', 'args': ('中文名称', None), 'raw': '原文'}
+        # 需要通过 _find_workflow 解析出英文 name，然后判断
+
+        cn_name = next_parsed.get('args', (None,))[0]
+        if not cn_name:
+            return False
+
+        # 通过 workflow 解析获取英文 name
+        wf_def = self._find_workflow(cn_name)
+        if not wf_def:
+            return False
+
+        # 阻止插入的 workflow 英文名
+        blocking_l3_keywords = {
+            'wait_for_loading_complete',
+            'check_page_loaded',
+        }
+
+        wf_name = wf_def.get('name')
+        return wf_name in blocking_l3_keywords
 
     def _update_container_context_pre(self, parsed):
         if parsed['type'] in ('go_back', 'refresh'):

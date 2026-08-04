@@ -782,6 +782,12 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
     print(f"    [TRACE-P6] entry: keyword={keyword}, desc='{desc[:60]}'")
     print(f"    [TRACE-P6]   raw_locator={_raw_locator_param}, "
           f"is_new_page={is_new_page_context}, container_ctx={container_context}")
+    # [TRACE-P6] 当前页面 URL（用于追踪页面导航）
+    try:
+        _entry_url = page.url
+        print(f"    [TRACE-P6]   current_url={_entry_url[:80]}")
+    except Exception:
+        pass
 
     if keyword in NO_VERIFY_KEYWORDS:
         # open_url / refresh must still be executed so we navigate to the right page
@@ -1374,6 +1380,13 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                     pass  # tag check 失败不影响主流程
 
             page.locator(verified_locator).click(timeout=5000)  # 方案 B: 严格模式
+            # [TRACE-P6] click 成功后：记录页面 URL
+            try:
+                _post_click_url = page.url
+                _post_click_title = page.title()
+                print(f"    [TRACE-P6]   click success: url={_post_click_url[:80]}, title={_post_click_title[:40]}")
+            except Exception:
+                pass
             # P3-2: smart wait replaces fixed 500ms (含 DOM 稳定检测)
             _smart_wait_after_action(page)
 
@@ -1388,11 +1401,15 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             # 对于不打开容器的 click（搜索/查询等），wait_for 在 2s 后超时返回 None，
             # 加上 _smart_wait 8s，单个 click 最多 ~10s。
             new_containers = detect_visible_containers(page)
+            # [TRACE-P6] 容器探测结果
+            print(f"    [TRACE-P6]   containers after click: {list(new_containers.keys()) if new_containers else 'none'}")
             if not new_containers:
                 # 快速检查未检测到 → 增强等待（容器可能在 API 回调后异步出现）
                 container_ct = _wait_for_container_after_click(page)
                 if container_ct:
                     _wait_for_dom_stable(page, timeout_ms=3000)
+                    # [TRACE-P6] 异步容器出现
+                    print(f"    [TRACE-P6]   async container detected: {container_ct}")
                     return verified_locator, container_ct, False, is_best_guess, hit_source
             else:
                 # 快速检查已检测到容器 → 等待内部表单渲染

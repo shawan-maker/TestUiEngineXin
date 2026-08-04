@@ -71,7 +71,8 @@ class PipelineContext:
                  local_storage: Optional[dict] = None,
                  target_url: Optional[str] = None,
                  browser_type: str = "chromium",
-                 run_smoke: bool = False):
+                 run_smoke: bool = False,
+                 headed: bool = False):
         self.project_dir = project_dir
         self.excel_path = excel_path
         self.cookie = cookie
@@ -82,6 +83,7 @@ class PipelineContext:
         self.target_url = target_url
         self.browser_type = browser_type
         self.run_smoke = run_smoke
+        self.headed = headed
         self.modules: list[dict] = modules or []  # [{"slug": "xxx", "cn_name": "xxx", "urls": [...]}]
         self.discovery_path = None  # 当前处理的 discovery 文件路径
         self.module_map_str = ""    # 自动构建的 cn_name=slug 映射（传递给 run_phase4.py）
@@ -1211,6 +1213,10 @@ class PipelineExecutor:
                     except Exception:
                         pass  # 配置读取失败不影响主线
 
+                # --headed 透传到 verify_orchestrator.py
+                if self.context.headed:
+                    module_args.append('--headed')
+
             # D方案: Phase 4 自动注入 --module-map（解决新项目中文模块名→slug 映射问题）
             if phase_id == "phase_4_discovery" and self.context.module_map_str:
                 module_args.extend(["--module-map", self.context.module_map_str])
@@ -1558,7 +1564,8 @@ def cmd_run(args):
         cookie=args.cookie,
         target_url=args.target_url,
         browser_type=args.browser_type,
-        run_smoke=args.run_smoke
+        run_smoke=args.run_smoke,
+        headed=args.headed
     )
 
     executor = PipelineExecutor(context)
@@ -1631,6 +1638,8 @@ def main():
                            help="浏览器类型（默认 chromium）")
     run_parser.add_argument("--run-smoke", action="store_true",
                            help="Phase 9 完成后自动执行 smoke 测试")
+    run_parser.add_argument("--headed", action="store_true",
+                           help="浏览器以有头模式运行（headless=False），用于调试观察页面状态")
     run_parser.add_argument("--from-phase", help="从指定阶段开始 (如 phase_6_verify)")
     run_parser.add_argument("--only-phase", help="仅执行指定阶段及其依赖 (如 phase_4_discovery)")
     run_parser.set_defaults(func=cmd_run)

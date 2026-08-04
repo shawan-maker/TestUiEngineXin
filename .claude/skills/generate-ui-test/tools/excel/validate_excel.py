@@ -81,7 +81,11 @@ class ExcelValidator:
         stem = self.input_path.stem
         parent = self.input_path.parent
 
-        self.output_path = output_path or str(parent / f"{stem}-修正版.xlsx")
+        # 避免后缀级联：输入已含 -修正版 时不重复追加
+        if stem.endswith('-修正版'):
+            self.output_path = output_path or str(parent / f"{stem}.xlsx")
+        else:
+            self.output_path = output_path or str(parent / f"{stem}-修正版.xlsx")
         self.report_path = report_path or str(parent / "excel_validation_report.html")
 
         self.wb = openpyxl.load_workbook(input_path)

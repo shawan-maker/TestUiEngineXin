@@ -237,7 +237,13 @@ def _verify_count_or_first(page, locator):
     if count > 1:
         # 多匹配 → [1] 收窄（与 verify_locator_candidates 的 [1] fallback 一致）
         raw = locator[6:] if locator.startswith('xpath=') else locator
-        narrowed = inject_hidden_filter(f"xpath=({raw})[1]")
+
+        # 防止双重包裹：如果已有 (xpath)[N] 外层，先解包再用 [1] 重新包裹
+        from core.xpath_utils import _unwrap_positional, _rewrap_positional
+        inner, _ = _unwrap_positional(raw)
+        narrowed_raw = f"({inner})[1]"
+
+        narrowed = inject_hidden_filter(f"xpath={narrowed_raw}")
         try:
             if page.locator(narrowed).count() == 1:
                 return narrowed

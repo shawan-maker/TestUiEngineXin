@@ -354,26 +354,94 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
 
                 # P2-2: Handle sub-steps (if_element_visible, then_steps, else_steps)
                 if keyword == 'if_element_visible':
-                    then_steps = step.get('then_steps', [])
-                    else_steps = step.get('else_steps', [])
+                    params = step.get('params', {})
+                    then_steps = params.get('then_steps', [])
+                    else_steps = params.get('else_steps', [])
                     # Verify the condition locator
-                    cond_locator = step.get('params', {}).get('locator', '')
-                    if cond_locator:
+                    cond_locator_raw = step.get('params', {}).get('locator', '')
+                    if cond_locator_raw:
                         cond_locator = resolve_locator(step.get('params', {}), pages_dict)
-                        # Fix A: 使用 wait_for 等待元素可见（与 Phase 9 引擎行为一致）
                         cond_timeout = step.get('params', {}).get('timeout', 5000)
                         if isinstance(cond_timeout, (int, float)):
                             cond_timeout = int(cond_timeout)
                         else:
                             cond_timeout = 5000
-                        # 至少给 3 秒，确保页面加载完成
                         cond_timeout = max(cond_timeout, 3000)
+
+                        # ===== DEBUG: Condition locator check =====
+                        print(f"    [DEBUG-COND] ===== if_element_visible condition check =====")
+                        print(f"    [DEBUG-COND] Step: {desc}")
+                        print(f"    [DEBUG-COND] Raw locator: {cond_locator_raw}")
+                        print(f"    [DEBUG-COND] Resolved locator: {cond_locator}")
+
+                        # Remove .first, check actual count
                         try:
-                            page.locator(cond_locator).first.wait_for(state='visible', timeout=cond_timeout)
-                            cond_count = 1
-                        except Exception:
+                            cond_count = page.locator(cond_locator).count()
+                            print(f"    [DEBUG-COND] Count: {cond_count}")
+
+                            if cond_count == 0:
+                                print(f"    [DEBUG-COND] Result: count=0, will execute else_steps")
+                            elif cond_count == 1:
+                                # Unique match, check visibility
+                                try:
+                                    page.locator(cond_locator).first.wait_for(state='visible', timeout=cond_timeout)
+                                    print(f"    [DEBUG-COND] Result: count=1, visible=True, will execute then_steps")
+                                except Exception as e:
+                                    cond_count = 0
+                                    print(f"    [DEBUG-COND] Result: count=1 but wait_for failed: {str(e)[:80]}, will execute else_steps")
+                            else:
+                                # Multiple matches - try prefix traversal
+                                print(f"    [DEBUG-COND] Result: count={cond_count} (strict mode violation), attempting prefix traversal")
+
+                                # Extract xpath from locator
+                                if cond_locator.startswith('xpath='):
+                                    cond_xpath = cond_locator[6:]
+                                else:
+                                    cond_xpath = cond_locator
+
+                                # Try prefix traversal with verify_locator_candidates
+                                print(f"    [DEBUG-COND] Trying prefix traversal with {len(CONTAINER_TYPES)} container types + None")
+                                v_loc, v_ct, v_count, v_idx = verify_locator_candidates(
+                                    page, [cond_xpath],
+                                    container_type=None,
+                                    is_el_select_option=False,
+                                    return_index=True
+                                )
+
+                                if v_loc and v_count == 1:
+                                    print(f"    [DEBUG-COND] ✓ Prefix traversal SUCCESS: prefix={v_ct}, count={v_count}")
+                                    print(f"    [DEBUG-COND]   Verified locator: {v_loc}")
+
+                                    # Store the verified locator for the condition
+                                    _store_verified_locator(
+                                        v_loc, v_ct,
+                                        {'params': {'locator': cond_locator_raw}},
+                                        pages_dict,
+                                        verified_locators,
+                                        is_best_guess=False
+                                    )
+                                    print(f"    [DEBUG-COND]   Stored to verified_locators: {cond_locator_raw}")
+
+                                    # Use the verified locator for condition check
+                                    cond_locator = v_loc
+                                    cond_count = 1
+                                    print(f"    [DEBUG-COND] Result: prefix found, will execute then_steps")
+                                else:
+                                    print(f"    [DEBUG-COND] ✗ Prefix traversal FAILED: no valid prefix found")
+                                    print(f"    [DEBUG-COND]   Tried: {CONTAINER_TYPES} + [None]")
+                                    cond_count = 0
+                                    print(f"    [DEBUG-COND] Result: will execute else_steps")
+
+                        except Exception as e:
                             cond_count = 0
+                            print(f"    [DEBUG-COND] ✗ Exception during count/visibility check: {str(e)[:100]}")
+                            print(f"    [DEBUG-COND] Result: will execute else_steps")
+
+                        print(f"    [DEBUG-COND] ===== End condition check (cond_count={cond_count}) =====")
+
                         sub_steps = then_steps if cond_count > 0 else else_steps
+                        print(f"    [DEBUG-COND] Executing: {'then_steps' if cond_count > 0 else 'else_steps'} ({len(sub_steps)} steps)")
+
                         for sub in sub_steps:
                             total_steps += 1
                             v_loc, v_ct, v_skip, v_bg, v_src = execute_step(

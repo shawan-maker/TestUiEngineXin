@@ -32,21 +32,31 @@ def validate_template_variables(project_dir):
     """验证模板变量替换"""
     errors = []
 
-    # 检查 config.yaml
+    # 检查 config.yaml（跳过注释行）
     config_file = os.path.join(project_dir, 'config.yaml')
     if os.path.exists(config_file):
         with open(config_file, 'r', encoding='utf-8') as f:
-            content = f.read()
-        if '{{' in content:
-            errors.append("[R1.2] config.yaml 中存在未替换的模板变量")
+            for line in f:
+                stripped = line.strip()
+                # 跳过注释行（YAML 注释以 # 开头）
+                if stripped.startswith('#'):
+                    continue
+                if '{{' in line:
+                    errors.append("[R1.2] config.yaml 中存在未替换的模板变量")
+                    break
 
-    # 检查 run.py
+    # 检查 run.py（跳过注释行）
     run_file = os.path.join(project_dir, 'run.py')
     if os.path.exists(run_file):
         with open(run_file, 'r', encoding='utf-8') as f:
-            content = f.read()
-        if '{{' in content:
-            errors.append("[R1.2] run.py 中存在未替换的模板变量")
+            for line in f:
+                stripped = line.strip()
+                # 跳过 Python 注释行
+                if stripped.startswith('#'):
+                    continue
+                if '{{' in line:
+                    errors.append("[R1.2] run.py 中存在未替换的模板变量")
+                    break
 
     return errors
 

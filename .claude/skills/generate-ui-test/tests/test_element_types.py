@@ -258,6 +258,13 @@ infer_cases = [
     ('fill_value', '填写名称', 'input-generic'),
     ('fill_value', '填写', 'input-generic'),
     ('unknown_keyword', 'xxx', 'button'),  # fallback
+    # el-select 展开步骤识别
+    ('click_element', '选择「项目」 - 点击下拉框', 'el-select'),
+    ('click_element', '选择「网络」 - 点击下拉框', 'el-select'),
+    # el-select 选项点击应被排除（Fix 4: "目标选项"排除规则）
+    ('click_element', '选择「项目」 - 点击目标选项', 'button'),  # 不是 el-select
+    ('click_element', '选择「网络」 - 点击目标选项', 'button'),  # 不是 el-select
+    ('click_element', '选择「状态」 - 点击目标选项', 'button'),  # 不是 el-select
 ]
 for kw, desc, expected in infer_cases:
     actual = infer_elem_type(kw, desc)

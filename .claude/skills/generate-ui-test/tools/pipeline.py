@@ -1296,6 +1296,43 @@ class PipelineExecutor:
                 print(f"  [{slug}] ✅ PASSED")
                 all_warnings.extend([f"[{slug}] {w}" for w in result.warnings])
 
+        # ── Phase 4 零元素守卫：防止空探测数据覆盖现有产物 ──
+        if phase_id == "phase_4_discovery" and not all_errors:
+            total_elements = 0
+            _disc_sections = ('buttons', 'row_buttons', 'inputs', 'tabs',
+                             'detail_links', 'checkboxes', 'menu_items')
+            for module_info in modules:
+                slug = module_info["slug"]
+                disc_file = Path(self.project_dir) / "_probe" / f"discovery_{slug}.json"
+                if not disc_file.exists():
+                    merged = Path(self.project_dir) / "_probe" / f"discovery_{slug}_merged.json"
+                    disc_file = merged if merged.exists() else None
+                if disc_file and disc_file.exists():
+                    try:
+                        with open(disc_file, encoding='utf-8') as f:
+                            disc = json.load(f)
+                        if 'pages' in disc:
+                            for p in disc['pages']:
+                                for c in p.get('containers', []):
+                                    total_elements += len(c.get('elements', []))
+                                for cat in _disc_sections:
+                                    total_elements += len(p.get('list_page', {}).get(cat, []))
+                        else:
+                            for c in disc.get('containers', []):
+                                total_elements += len(c.get('elements', []))
+                            for cat in _disc_sections:
+                                total_elements += len(disc.get('list_page', {}).get(cat, []))
+                    except Exception:
+                        pass
+
+            if total_elements == 0:
+                return PhaseResult(
+                    phase_id, PhaseStatus.FAILED,
+                    errors=[f"探测到 0 个元素（共 {len(modules)} 个模块），"
+                            f"可能是 Cookie 过期，请更新 config.yaml 中的 cookie 后使用 --from-phase phase_4_discovery 重新运行"],
+                    warnings=all_warnings,
+                )
+
         if all_errors:
             return PhaseResult(phase_id, PhaseStatus.FAILED,
                              errors=all_errors, warnings=all_warnings)

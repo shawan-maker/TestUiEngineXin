@@ -65,34 +65,38 @@ def _navigate_with_fallback(page, url, timeout_ms=10000):
     Some systems (eStack) have continuous API polling, causing networkidle to never
     trigger. This helper tries networkidle first (ensures API data is loaded),
     then falls back to domcontentloaded + wait_for_dom_stable for polling systems.
+    Also handles "Page crashed" by retrying with domcontentloaded.
     """
     try:
         page.goto(url, wait_until="networkidle", timeout=timeout_ms)
     except Exception as e:
-        if "Timeout" in str(e) or "timeout" in str(e):
-            print(f"    [INFO] networkidle timeout, fallback to domcontentloaded")
+        err_str = str(e).lower()
+        if "timeout" in err_str or "crashed" in err_str:
+            print(f"    [INFO] networkidle failed ({'crash' if 'crashed' in err_str else 'timeout'}), fallback to domcontentloaded")
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
         else:
             raise
 
 
 def _reload_with_fallback(page, timeout_ms=10000):
-    """Reload page with networkidle, fallback to domcontentloaded on timeout."""
+    """Reload page with networkidle, fallback to domcontentloaded on timeout/crash."""
     try:
         page.reload(wait_until="networkidle", timeout=timeout_ms)
     except Exception as e:
-        if "Timeout" in str(e) or "timeout" in str(e):
+        err_str = str(e).lower()
+        if "timeout" in err_str or "crashed" in err_str:
             page.reload(wait_until="domcontentloaded", timeout=30000)
         else:
             raise
 
 
 def _wait_for_load_state_fallback(page, timeout_ms=10000):
-    """Wait for networkidle, fallback to domcontentloaded on timeout."""
+    """Wait for networkidle, fallback to domcontentloaded on timeout/crash."""
     try:
         page.wait_for_load_state("networkidle", timeout=timeout_ms)
     except Exception as e:
-        if "Timeout" in str(e) or "timeout" in str(e):
+        err_str = str(e).lower()
+        if "timeout" in err_str or "crashed" in err_str:
             page.wait_for_load_state("domcontentloaded", timeout=30000)
         else:
             raise

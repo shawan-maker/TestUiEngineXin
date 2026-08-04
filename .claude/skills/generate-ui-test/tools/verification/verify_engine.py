@@ -57,20 +57,29 @@ CONTAINER_TYPES = ['dialog', 'drawer', 'message-box']
 _SYSTEM_WORKFLOWS = None
 _PROJECT_WORKFLOWS = {}
 PROBE_ISOLATION_PREFIX = '__probe__'
-NO_VERIFY_KEYWORDS = {
-    'open_url', 'open_browser', 'refresh', 'go_back', 'wait_for_time',
-    'wait_for_element_hidden', 'log', 'inject_local_storage', 'inject_cookies',
-    'inject_token_header', 'close_browser', 'set_viewport_size',
-    'check_page_loaded',
-    'wait_for_loading_complete',
-    'if_variable',
-    'wait_for_element',
-    'set_random_variable',
+# 可以安全跳过的关键字 — 不影响页面状态，Phase 6 自行管理
+SKIP_KEYWORDS = {
+    'open_browser', 'close_browser',
+    'inject_local_storage', 'inject_cookies', 'inject_token_header',
+    'set_viewport_size',
+    'log',
+    'if_variable', 'set_random_variable',
 }
+
+# 必须执行的关键字 — 影响页面状态，不执行会导致后续 locator 验证失败
+EXECUTE_KEYWORDS = {
+    'open_url', 'refresh', 'go_back',
+    'wait_for_loading_complete', 'wait_for_time',
+    'wait_for_element', 'wait_for_element_hidden',
+    'check_page_loaded',
+}
+
+# 向后兼容别名
+NO_VERIFY_KEYWORDS = SKIP_KEYWORDS
 L3_KEYWORDS = {'l3_call'}
 PROBE_FILL_VALUES = {
-    'input': PROBE_ISOLATION_PREFIX + '测试',
-    'textarea': PROBE_ISOLATION_PREFIX + '测试文本',
+    'input': '测试',
+    'textarea': '测试文本',
     'number': '999',
 }
 
@@ -156,6 +165,61 @@ def _convert_input_to_el_select(input_locator: str) -> str:
         converted = f"({converted})[1]"
 
     return f"xpath={converted}"
+
+
+def _generate_el_select_candidates(input_locator):
+    """Generate dual candidates for el-select expand step.
+
+    When the input locator contains `following-sibling::*[self::div or self::span]`,
+    generate two candidates:
+      - Candidate 1 (descendant mode): following-sibling::*[self::div or self::span]//div[contains(@class,'el-select')]
+        Use when el-select is a descendant of the following-sibling.
+      - Candidate 2 (direct sibling mode): following-sibling::*[self::div or self::span][contains(@class,'el-select')]
+        Use when el-select IS the following-sibling itself.
+
+    Both candidates are validated by VLC; whichever matches count==1 is selected.
+
+    Args:
+        input_locator: input 定位器（不含 xpath= 前缀）
+
+    Returns:
+        list: [candidate1, candidate2] or [candidate1] if pattern doesn't match
+    """
+    # Candidate 1: descendant mode (standard conversion)
+    cand1 = _convert_input_to_el_select(f"xpath={input_locator}")[6:]  # strip xpath=
+
+    # Candidate 2: 直接兄弟模式
+    # 匹配: /following-sibling::*[self::div or self::span]//input[@class='el-input__inner'...]
+    # 替换: /following-sibling::*[self::div or self::span][contains(@class,'el-select') and not(contains(@class,'el-select-dropdown'))]
+    sibling_marker = "following-sibling::*[self::div or self::span]"
+    input_marker = "//input[@class='el-input__inner'"
+    sib_pos = input_locator.find(sibling_marker)
+    inp_pos = input_locator.find(input_marker)
+    if sib_pos >= 0 and inp_pos > sib_pos:
+        # Find matching ] for input[...] using bracket-depth scan
+        bracket_start = inp_pos + len("//input")
+        depth = 0
+        end = -1
+        for i in range(bracket_start, len(input_locator)):
+            if input_locator[i] == '[':
+                depth += 1
+            elif input_locator[i] == ']':
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+        if end > 0:
+            # Replace "//input[...]" with "[contains(@class,'el-select')...]"
+            replacement = "[contains(@class,'el-select') and not(contains(@class,'el-select-dropdown'))]"
+            cand2_raw = input_locator[:inp_pos] + replacement + input_locator[end:]
+            if not cand2_raw.startswith('('):
+                cand2 = f"({cand2_raw})[1]"
+            else:
+                cand2 = cand2_raw
+            return [cand1, cand2]
+    else:
+        # Pattern didn't match, return single candidate
+        return [cand1]
 
 
 # ─── Writeback helpers (used by execute_step Fix-6, also needed by pages_writeback) ───
@@ -789,23 +853,78 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
     except Exception:
         pass
 
-    if keyword in NO_VERIFY_KEYWORDS:
-        # open_url / refresh must still be executed so we navigate to the right page
-        if keyword == 'open_url':
-            url = params.get('url', '') if isinstance(params, dict) else ''
-            if url:
-                url = resolve_var(url, data_dict)
-                try:
-                    page.goto(url, wait_until='domcontentloaded', timeout=30000)
-                    _smart_wait_after_action(page)
-                except Exception as e:
-                    print(f"    [ERROR] open_url failed: {str(e)[:80]}")
-        elif keyword == 'refresh':
+    if keyword in SKIP_KEYWORDS:
+        # 浏览器生命周期 / 认证注入 / 日志 — 不影响页面状态，直接跳过
+        return None, None, False, False, None
+
+    # --- EXECUTE_KEYWORDS: 影响页面状态，必须实际执行 ---
+    if keyword == 'open_url':
+        url = params.get('url', '') if isinstance(params, dict) else ''
+        if url:
+            url = resolve_var(url, data_dict)
             try:
-                page.reload(wait_until='domcontentloaded', timeout=30000)
+                page.goto(url, wait_until='domcontentloaded', timeout=30000)
                 _smart_wait_after_action(page)
-            except Exception as _e:
-                print(f"    [WARN] page.reload 失败: {_e}")
+            except Exception as e:
+                print(f"    [ERROR] open_url failed: {str(e)[:80]}")
+        return None, None, False, False, None
+
+    if keyword == 'refresh':
+        try:
+            page.reload(wait_until='domcontentloaded', timeout=30000)
+            _smart_wait_after_action(page)
+        except Exception as _e:
+            print(f"    [WARN] page.reload failed: {_e}")
+        return None, None, False, False, None
+
+    if keyword == 'go_back':
+        try:
+            page.go_back()
+            _smart_wait_after_action(page)
+        except Exception as e:
+            print(f"    [WARN] go_back failed: {str(e)[:80]}")
+        return None, None, False, False, None
+
+    if keyword == 'wait_for_loading_complete':
+        _wait_for_dom_stable(page, timeout_ms=5000)
+        return None, None, False, False, None
+
+    if keyword == 'wait_for_time':
+        _seconds = 1
+        if isinstance(params, dict):
+            _seconds = params.get('seconds', params.get('duration', 1))
+        elif desc:
+            _m = _re.search(r'(\d+)', desc)
+            if _m:
+                _seconds = int(_m.group(1))
+        try:
+            page.wait_for_timeout(int(_seconds) * 1000)
+        except Exception:
+            pass
+        return None, None, False, False, None
+
+    if keyword == 'wait_for_element':
+        _wloc = params.get('locator', '') if isinstance(params, dict) else ''
+        if _wloc:
+            _wloc = resolve_var(_wloc, data_dict)
+            try:
+                page.locator(_wloc).first.wait_for(state='attached', timeout=10000)
+            except Exception:
+                pass
+        return None, None, False, False, None
+
+    if keyword == 'wait_for_element_hidden':
+        _wloc = params.get('locator', '') if isinstance(params, dict) else ''
+        if _wloc:
+            _wloc = resolve_var(_wloc, data_dict)
+            try:
+                page.locator(_wloc).first.wait_for(state='hidden', timeout=10000)
+            except Exception:
+                pass
+        return None, None, False, False, None
+
+    if keyword == 'check_page_loaded':
+        _wait_for_dom_stable(page, timeout_ms=5000)
         return None, None, False, False, None
 
     # Skip assertions (Phase 9 responsibility)
@@ -836,6 +955,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
 
     # Resolve variable references
     locator = resolve_locator(params, pages_dict)
+    locator = resolve_var(locator, data_dict)  # Resolve inline ${data.field}
 
     # Extract label from desc for KB lookup
     # BUG-4 D1 fix: 增加「」匹配（中文角括号在测试用例中极为常见）
@@ -924,6 +1044,30 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
     # 优先级 0: KB templates (highest priority — stable, universal XPath patterns)
     if label:
         kb_locators = _get_kb_locators(elem_type, label)
+
+        # ─── el-select 展开步骤定位器转换 ───
+        # 当这是 el-select 展开步骤时，将 KB 生成的 input 定位器转换为 el-select 容器定位器
+        # 修复问题：KB 生成 //input[@class='el-input__inner'] 但我们需要
+        # //div[contains(@class,'el-select')] 才能正确点击下拉框触发器
+        if elem_type == 'el-select':
+            # 从 raw_locator 提取 field_name（如 '${group.field_7ddbe1_expand}' → 'field_7ddbe1_expand'）
+            _field_name = ''
+            if raw_locator and raw_locator.startswith('${'):
+                _field_name = raw_locator.split('.')[-1].rstrip('}')
+
+            if _is_el_select_expand(_field_name, desc):
+                print(f"    [TRACE-P6] el-select expand: 生成双候选定位器")
+                converted_locators = []
+                for kb_xpath in kb_locators:
+                    if 'input[@class' in kb_xpath or 'el-input__inner' in kb_xpath:
+                        # 生成双候选（后代模式 + 直接兄弟模式）
+                        dual_cands = _generate_el_select_candidates(kb_xpath)
+                        converted_locators.extend(dual_cands)
+                    else:
+                        converted_locators.append(kb_xpath)
+                kb_locators = converted_locators
+        # ─── el-select 展开步骤定位器转换结束 ───
+
         for kb_xpath in kb_locators:
             candidates.append((kb_xpath, 'kb'))
 
@@ -1423,10 +1567,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             value = params.get('value', '') if isinstance(params, dict) else ''
             value = resolve_var(value, data_dict)
             if not value:
-                value = PROBE_FILL_VALUES.get('input', PROBE_ISOLATION_PREFIX + 'P3f')
-            # P2-6: prepend isolation prefix if not already present
-            if not value.startswith(PROBE_ISOLATION_PREFIX):
-                value = PROBE_ISOLATION_PREFIX + value
+                value = PROBE_FILL_VALUES.get('input', '测试')
             # 1c: iframe 填充支持 — 检测 locator 是否指向 iframe 元素
             _vl_clean = verified_locator.replace('xpath=', '') if verified_locator.startswith('xpath=') else verified_locator
             if 'iframe' in _vl_clean.lower():

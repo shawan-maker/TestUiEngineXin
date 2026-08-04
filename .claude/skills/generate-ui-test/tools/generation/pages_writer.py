@@ -564,6 +564,13 @@ class PagesWriter:
 
         groups: OrderedDict of {group_name: OrderedDict of {key: (locator, comment)}}
         """
+        # ── 兜底保护：空内容不覆盖有实质内容的现有文件 ──
+        if not groups and os.path.isfile(filepath):
+            existing_size = os.path.getsize(filepath)
+            if existing_size > 100:  # 有实质内容（不只是 header）
+                print(f"  [WARN] 跳过空内容写入，保留现有文件: {filepath} ({existing_size} bytes)")
+                return
+
         with open(filepath, 'w', encoding='utf-8') as f:
             if header:
                 f.write(header)

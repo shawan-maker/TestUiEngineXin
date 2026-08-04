@@ -82,7 +82,7 @@ from verification.verify_engine import (
     execute_step, _expand_l3_call, _load_l3_workflows,
     verify_locator_candidates, _verify_count_or_first,
     DESTRUCTIVE_TRIGGERS, CONTAINER_TYPES,
-    NO_VERIFY_KEYWORDS, L3_KEYWORDS,
+    SKIP_KEYWORDS, EXECUTE_KEYWORDS, L3_KEYWORDS,
     PROBE_ISOLATION_PREFIX, PROBE_FILL_VALUES,
     _HAS_AI_PROBE,
 )
@@ -92,6 +92,214 @@ from verification.pages_writeback import (
 from verification.detail_links import (
     _write_verify_result, _consume_pending_detail_links,
 )
+
+
+def _execute_direct(page, step, pages_dict, data_dict):
+    """Phase 9 模式：直接执行步骤，不做类型推断/KB/VLC
+
+    用于 el-select 子步骤（editable-check, fill, option-select, first-option），
+    这些步骤的 locator 已在 Phase 5 确定，无需重复验证。
+
+    Args:
+        page: Playwright Page 对象
+        step: 步骤字典
+        pages_dict: pages.yaml 数据
+        data_dict: data.yaml 数据
+
+    Returns:
+        bool: 执行成功返回 True，失败返回 False
+    """
+    keyword = step.get('keyword', '')
+    params = step.get('params', {})
+    desc = step.get('desc', '')
+
+    # Resolve locator
+    locator = params.get('locator', '')
+    if locator.startswith('${'):
+        locator = resolve_locator({'locator': locator}, pages_dict)
+        locator = resolve_var(locator, data_dict)
+
+    # Resolve value (for fill_value)
+    value = params.get('value', '')
+    if isinstance(value, str) and value.startswith('${'):
+        value = resolve_var(value, data_dict)
+
+    try:
+        if keyword == 'click_element':
+            page.locator(locator).first.click(timeout=5000)
+            print(f"    [OK] {desc}")
+            return True
+
+        elif keyword == 'fill_value':
+            page.locator(locator).first.fill(value)
+            print(f"    [OK] {desc}")
+            return True
+
+        elif keyword == 'wait_for_time':
+            timeout = params.get('timeout', 1000)
+            page.wait_for_timeout(int(timeout))
+            print(f"    [OK] {desc}")
+            return True
+
+        else:
+            # 未知 keyword，降级到 execute_step
+            print(f"    [WARN] 未知 keyword（el-select 模式）: {keyword}，降级到 execute_step")
+            return False
+
+    except Exception as e:
+        print(f"    [WARN] 直接执行失败: {desc}: {str(e)[:80]}")
+        return False
+
+
+def _process_if_element_visible(page, step, pages_dict, data_dict,
+                                 steps_so_far, case_discovery,
+                                 verified_locators, project_dir,
+                                 is_new_page_context, container_context,
+                                 el_select_mode=False):
+    """处理 if_element_visible 条件分支（支持嵌套递归 + el-select 模式）。
+
+    Args:
+        el_select_mode: 若为 True，子步骤走 _execute_direct()（Phase 9 模式），
+                        不做类型推断/KB/VLC。仅用于 el-select 三步法的子步骤。
+
+    Returns: (verified_count_delta, fallback_count_delta, total_steps_delta, container_context)
+    """
+    keyword = step.get('keyword', '')
+    desc = step.get('desc', '')
+    params = step.get('params', {})
+    then_steps = params.get('then_steps', [])
+    else_steps = params.get('else_steps', [])
+
+    v_verified = 0
+    v_fallback = 0
+    v_total_steps = 0
+
+    cond_locator_raw = params.get('locator', '')
+    if not cond_locator_raw:
+        return v_verified, v_fallback, v_total_steps, container_context
+
+    cond_locator = resolve_locator(params, pages_dict)
+    cond_locator = resolve_var(cond_locator, data_dict)
+    cond_timeout = params.get('timeout', 5000)
+    if isinstance(cond_timeout, (int, float)):
+        cond_timeout = int(cond_timeout)
+    else:
+        cond_timeout = 5000
+    cond_timeout = max(cond_timeout, 3000)
+
+    print(f"    [DEBUG-COND] ===== if_element_visible condition check =====")
+    print(f"    [DEBUG-COND] Step: {desc}")
+    print(f"    [DEBUG-COND] Raw locator: {cond_locator_raw}")
+    print(f"    [DEBUG-COND] Resolved locator: {cond_locator}")
+
+    try:
+        cond_count = page.locator(cond_locator).count()
+        print(f"    [DEBUG-COND] Count: {cond_count}")
+
+        if cond_count == 0:
+            print(f"    [DEBUG-COND] Result: count=0, will execute else_steps")
+        elif cond_count == 1:
+            try:
+                page.locator(cond_locator).first.wait_for(state='visible', timeout=cond_timeout)
+                print(f"    [DEBUG-COND] Result: count=1, visible=True, will execute then_steps")
+            except Exception as e:
+                cond_count = 0
+                print(f"    [DEBUG-COND] Result: count=1 but wait_for failed: {str(e)[:80]}, will execute else_steps")
+        else:
+            print(f"    [DEBUG-COND] Result: count={cond_count} (strict mode violation), attempting prefix traversal")
+            if cond_locator.startswith('xpath='):
+                cond_xpath = cond_locator[6:]
+            else:
+                cond_xpath = cond_locator
+
+            v_loc, v_ct, v_count, v_idx = verify_locator_candidates(
+                page, [cond_xpath],
+                container_type=None,
+                is_el_select_option=False,
+                return_index=True
+            )
+
+            if v_loc and v_count == 1:
+                print(f"    [DEBUG-COND] [OK] Prefix traversal SUCCESS: prefix={v_ct}, count={v_count}")
+                _store_verified_locator(
+                    v_loc, v_ct,
+                    {'params': {'locator': cond_locator_raw}},
+                    pages_dict, verified_locators,
+                    is_best_guess=False
+                )
+                cond_locator = v_loc
+                cond_count = 1
+                print(f"    [DEBUG-COND] Result: prefix found, will execute then_steps")
+            else:
+                print(f"    [DEBUG-COND] [FAIL] Prefix traversal FAILED: no valid prefix found")
+                cond_count = 0
+                print(f"    [DEBUG-COND] Result: will execute else_steps")
+
+    except Exception as e:
+        cond_count = 0
+        print(f"    [DEBUG-COND] [FAIL] Exception during count/visibility check: {str(e)[:100]}")
+        print(f"    [DEBUG-COND] Result: will execute else_steps")
+
+    print(f"    [DEBUG-COND] ===== End condition check (cond_count={cond_count}) =====")
+
+    sub_steps = then_steps if cond_count > 0 else else_steps
+    print(f"    [DEBUG-COND] Executing: {'then_steps' if cond_count > 0 else 'else_steps'} ({len(sub_steps)} steps)")
+
+    for sub in sub_steps:
+        v_total_steps += 1
+        if sub.get('keyword') == 'if_element_visible':
+            # 递归处理嵌套 if_element_visible（传播 el_select_mode）
+            print(f"    [DEBUG-COND] Nested if_element_visible detected, recursing...")
+            _dv, _df, _dt, container_context = _process_if_element_visible(
+                page, sub, pages_dict, data_dict, steps_so_far,
+                case_discovery, verified_locators, project_dir,
+                is_new_page_context, container_context,
+                el_select_mode=el_select_mode
+            )
+            v_verified += _dv
+            v_fallback += _df
+            v_total_steps += _dt
+        elif el_select_mode:
+            # el-select 子步骤：直接执行（Phase 9 模式），不做类型推断/KB/VLC
+            _success = _execute_direct(page, sub, pages_dict, data_dict)
+            if _success:
+                v_verified += 1
+            else:
+                v_fallback += 1
+        else:
+            v_loc, v_ct, v_skip, v_bg, v_src = execute_step(
+                page, sub, pages_dict, data_dict, steps_so_far,
+                case_discovery, project_dir=project_dir,
+                is_new_page_context=is_new_page_context,
+                container_context=container_context
+            )
+            if v_ct:
+                container_context = v_ct
+            elif (v_ct is None and not v_skip
+                  and sub.get('keyword', '') in ('click_element', 'click')):
+                if container_context:
+                    current_containers = detect_visible_containers(page)
+                    if container_context not in current_containers:
+                        old_ct = container_context
+                        container_context = None
+                        print(f"    [CONTEXT] 容器 {old_ct} 已关闭，清除上下文")
+                    else:
+                        print(f"    [CONTEXT] 容器 {container_context} 仍然存在，保持上下文")
+            if v_loc:
+                _marker = (_AI_MARKER_MAP.get(v_src) if _HAS_AI_PROBE and v_src else None)
+                _store_verified_locator(
+                    v_loc, v_ct, sub, pages_dict,
+                    verified_locators, is_best_guess=v_bg,
+                    marker_override=_marker
+                )
+                if v_bg:
+                    v_fallback += 1
+                else:
+                    v_verified += 1
+        steps_so_far.append(sub)
+
+    return v_verified, v_fallback, v_total_steps, container_context
+
 
 def verify_project(project_dir, cookie, base_url, discovery_path=None, module=None, local_storage_override=None, headed=False):
     """Main verification flow.
@@ -349,132 +557,30 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
             is_new_page_context = False  # D3: track if we're on a different page than baseline
             case_baseline_url = base_url
             container_context = None  # 容器上下文：跟踪上一个步骤检测到的容器类型
+            _el_select_context = False  # el-select 上下文：检测 expand 步骤，传递给后续 if_element_visible
 
             for step_idx, step in enumerate(steps):
                 total_steps += 1
                 keyword = step.get('keyword', '')
                 desc = step.get('desc', '')
 
+                # el-select expand 检测：设置上下文标记
+                if keyword == 'click_element' and '下拉框' in desc:
+                    _el_select_context = True
+                    print(f"  [TRACE-P6] el-select expand detected: {desc}")
+
                 # P2-2: Handle sub-steps (if_element_visible, then_steps, else_steps)
                 if keyword == 'if_element_visible':
-                    params = step.get('params', {})
-                    then_steps = params.get('then_steps', [])
-                    else_steps = params.get('else_steps', [])
-                    # Verify the condition locator
-                    cond_locator_raw = step.get('params', {}).get('locator', '')
-                    if cond_locator_raw:
-                        cond_locator = resolve_locator(step.get('params', {}), pages_dict)
-                        cond_timeout = step.get('params', {}).get('timeout', 5000)
-                        if isinstance(cond_timeout, (int, float)):
-                            cond_timeout = int(cond_timeout)
-                        else:
-                            cond_timeout = 5000
-                        cond_timeout = max(cond_timeout, 3000)
-
-                        # ===== DEBUG: Condition locator check =====
-                        print(f"    [DEBUG-COND] ===== if_element_visible condition check =====")
-                        print(f"    [DEBUG-COND] Step: {desc}")
-                        print(f"    [DEBUG-COND] Raw locator: {cond_locator_raw}")
-                        print(f"    [DEBUG-COND] Resolved locator: {cond_locator}")
-
-                        # Remove .first, check actual count
-                        try:
-                            cond_count = page.locator(cond_locator).count()
-                            print(f"    [DEBUG-COND] Count: {cond_count}")
-
-                            if cond_count == 0:
-                                print(f"    [DEBUG-COND] Result: count=0, will execute else_steps")
-                            elif cond_count == 1:
-                                # Unique match, check visibility
-                                try:
-                                    page.locator(cond_locator).first.wait_for(state='visible', timeout=cond_timeout)
-                                    print(f"    [DEBUG-COND] Result: count=1, visible=True, will execute then_steps")
-                                except Exception as e:
-                                    cond_count = 0
-                                    print(f"    [DEBUG-COND] Result: count=1 but wait_for failed: {str(e)[:80]}, will execute else_steps")
-                            else:
-                                # Multiple matches - try prefix traversal
-                                print(f"    [DEBUG-COND] Result: count={cond_count} (strict mode violation), attempting prefix traversal")
-
-                                # Extract xpath from locator
-                                if cond_locator.startswith('xpath='):
-                                    cond_xpath = cond_locator[6:]
-                                else:
-                                    cond_xpath = cond_locator
-
-                                # Try prefix traversal with verify_locator_candidates
-                                print(f"    [DEBUG-COND] Trying prefix traversal with {len(CONTAINER_TYPES)} container types + None")
-                                v_loc, v_ct, v_count, v_idx = verify_locator_candidates(
-                                    page, [cond_xpath],
-                                    container_type=None,
-                                    is_el_select_option=False,
-                                    return_index=True
-                                )
-
-                                if v_loc and v_count == 1:
-                                    print(f"    [DEBUG-COND] [OK] Prefix traversal SUCCESS: prefix={v_ct}, count={v_count}")
-                                    print(f"    [DEBUG-COND]   Verified locator: {v_loc}")
-
-                                    # Store the verified locator for the condition
-                                    _store_verified_locator(
-                                        v_loc, v_ct,
-                                        {'params': {'locator': cond_locator_raw}},
-                                        pages_dict,
-                                        verified_locators,
-                                        is_best_guess=False
-                                    )
-                                    print(f"    [DEBUG-COND]   Stored to verified_locators: {cond_locator_raw}")
-
-                                    # Use the verified locator for condition check
-                                    cond_locator = v_loc
-                                    cond_count = 1
-                                    print(f"    [DEBUG-COND] Result: prefix found, will execute then_steps")
-                                else:
-                                    print(f"    [DEBUG-COND] [FAIL] Prefix traversal FAILED: no valid prefix found")
-                                    print(f"    [DEBUG-COND]   Tried: {CONTAINER_TYPES} + [None]")
-                                    cond_count = 0
-                                    print(f"    [DEBUG-COND] Result: will execute else_steps")
-
-                        except Exception as e:
-                            cond_count = 0
-                            print(f"    [DEBUG-COND] [FAIL] Exception during count/visibility check: {str(e)[:100]}")
-                            print(f"    [DEBUG-COND] Result: will execute else_steps")
-
-                        print(f"    [DEBUG-COND] ===== End condition check (cond_count={cond_count}) =====")
-
-                        sub_steps = then_steps if cond_count > 0 else else_steps
-                        print(f"    [DEBUG-COND] Executing: {'then_steps' if cond_count > 0 else 'else_steps'} ({len(sub_steps)} steps)")
-
-                        for sub in sub_steps:
-                            total_steps += 1
-                            v_loc, v_ct, v_skip, v_bg, v_src = execute_step(
-                                page, sub, pages_dict, data_dict, steps_so_far,
-                                case_discovery, project_dir=project_dir,
-                                is_new_page_context=is_new_page_context,
-                                container_context=container_context
-                            )
-                            # 更新容器上下文
-                            if v_ct:
-                                container_context = v_ct
-                            elif (v_ct is None and not v_skip
-                                  and sub.get('keyword', '') in ('click_element', 'click')):
-                                # 双重确认：检测容器是否真的消失了
-                                if container_context:
-                                    current_containers = detect_visible_containers(page)
-                                    if container_context not in current_containers:
-                                        old_ct = container_context
-                                        container_context = None
-                                        print(f"    [CONTEXT] 容器 {old_ct} 已关闭，清除上下文")
-                                    else:
-                                        print(f"    [CONTEXT] 容器 {container_context} 仍然存在，保持上下文")
-                            if v_loc:
-                                _marker = (_AI_MARKER_MAP.get(v_src) if _HAS_AI_PROBE and v_src else None)
-                                _store_verified_locator(v_loc, v_ct, sub, pages_dict, verified_locators, is_best_guess=v_bg, marker_override=_marker)
-                                if v_bg:
-                                    fallback_count += 1
-                                else:
-                                    verified_count += 1
-                            steps_so_far.append(sub)
+                    _dv, _df, _dt, container_context = _process_if_element_visible(
+                        page, step, pages_dict, data_dict, steps_so_far,
+                        case_discovery, verified_locators, project_dir,
+                        is_new_page_context, container_context,
+                        el_select_mode=_el_select_context
+                    )
+                    verified_count += _dv
+                    fallback_count += _df
+                    total_steps += _dt
+                    _el_select_context = False  # 重置上下文
                     continue
 
                 # P2-3: l3_call expansion
@@ -510,8 +616,10 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                                 fallback_count += 1
                             else:
                                 verified_count += 1
-                        elif v_loc is None and sub.get('keyword') in NO_VERIFY_KEYWORDS:
+                        elif v_loc is None and sub.get('keyword') in SKIP_KEYWORDS:
                             pass  # skip non-verify steps
+                        elif v_loc is None and sub.get('keyword') in EXECUTE_KEYWORDS:
+                            pass  # execute keywords don't need locator verification
                         else:
                             fallback_count += 1
                         steps_so_far.append(sub)
@@ -574,8 +682,10 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                                 fallback_count += 1
                             else:
                                 verified_count += 1
-                        elif v_loc is None and sub.get('keyword') in NO_VERIFY_KEYWORDS:
+                        elif v_loc is None and sub.get('keyword') in SKIP_KEYWORDS:
                             pass  # skip non-verify steps
+                        elif v_loc is None and sub.get('keyword') in EXECUTE_KEYWORDS:
+                            pass  # execute keywords don't need locator verification
                         else:
                             fallback_count += 1
                         steps_so_far.append(sub)
@@ -620,7 +730,8 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                         verified_count += 1
                         print(f"    [OK] Step {step_idx+1}: {desc}")
                 else:
-                    if keyword not in NO_VERIFY_KEYWORDS and 'except' not in keyword:
+                    # SKIP_KEYWORDS 和 EXECUTE_KEYWORDS 都不需要 locator 验证，不计入失败
+                    if keyword not in SKIP_KEYWORDS and keyword not in EXECUTE_KEYWORDS and 'except' not in keyword:
                         fallback_count += 1
                         print(f"    [FAIL] Step {step_idx+1}: {desc}")
 
@@ -715,7 +826,7 @@ def main():
         total = 0
         for case in cases:
             for step in case.get('steps', []):
-                if step.get('keyword') not in NO_VERIFY_KEYWORDS:
+                if step.get('keyword') not in SKIP_KEYWORDS:
                     total += 1
         print(f"[Dry-run] {len(cases)} cases, {total} steps to verify")
         print(f"[Dry-run] {len(pages)} page groups loaded")
@@ -759,7 +870,7 @@ def main():
         kb_fallback_stored = 0
 
     if truly_unresolved > 0:
-        print(f"\n⚠️  {truly_unresolved} 个定位器未解析（标记为 [待确认]，不阻断管线）")
+        print(f"\n[WARN] {truly_unresolved} locators unresolved (marked as [pending], non-blocking)")
     # 始终 exit(0)：验证失败不阻断管线，只有 auth_error 才 exit(2)
     sys.exit(0)
 

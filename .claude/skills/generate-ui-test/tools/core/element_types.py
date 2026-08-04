@@ -441,8 +441,9 @@ def infer_elem_type(keyword, desc, locator_ref=None):
     # Exclusion: 文件/上传 are file-upload contexts, not el-select
     # Exclusion: 编辑/删除/查看/详情 are table-action contexts
     # Exclusion: 第 is ordinal pattern (勾选"第N个", not el-select)
+    # Exclusion: 目标选项 is el-select option selection step (点击目标选项/回退选择第一项), not expand step
     if '选择' in desc and ('点击' in desc or 'click' in keyword_lower):
-        _action_words = ('编辑', '删除', '查看', '详情', '文件', '上传', '第')
+        _action_words = ('编辑', '删除', '查看', '详情', '文件', '上传', '第', '目标选项')
         if not any(aw in desc for aw in _action_words):
             return 'el-select'
 

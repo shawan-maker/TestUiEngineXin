@@ -288,6 +288,18 @@ def main():
                 cmd.extend(['--local-storage', local_storage])
             ok = run_cmd(cmd, f'Step 2: 探测 {slug} ({cn_name})')
 
+            # 认证失败检测：auth_error 阻断 pages 生成，防止空数据覆盖现有 elements.yaml
+            if ok and os.path.isfile(output_path):
+                try:
+                    with open(output_path, encoding='utf-8') as f:
+                        _disc = json.load(f)
+                    if _disc.get('auth_error'):
+                        print(f"[ERROR] {slug}: Cookie 认证失败（被重定向到登录页），跳过 pages 生成",
+                              file=sys.stderr)
+                        ok = False
+                except Exception:
+                    pass
+
             # 探测成功后立即回写 cn_name（不等 Step 2.5）
             if ok and os.path.isfile(output_path) and cn_name and cn_name != slug:
                 try:

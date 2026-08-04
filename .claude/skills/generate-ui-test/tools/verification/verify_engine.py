@@ -1050,10 +1050,10 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         # 修复问题：KB 生成 //input[@class='el-input__inner'] 但我们需要
         # //div[contains(@class,'el-select')] 才能正确点击下拉框触发器
         if elem_type == 'el-select':
-            # 从 raw_locator 提取 field_name（如 '${group.field_7ddbe1_expand}' → 'field_7ddbe1_expand'）
+            # 从 raw_locator_ref 提取 field_name（如 '${group.field_7ddbe1_expand}' → 'field_7ddbe1_expand'）
             _field_name = ''
-            if raw_locator and raw_locator.startswith('${'):
-                _field_name = raw_locator.split('.')[-1].rstrip('}')
+            if raw_locator_ref and raw_locator_ref.startswith('${'):
+                _field_name = raw_locator_ref.split('.')[-1].rstrip('}')
 
             if _is_el_select_expand(_field_name, desc):
                 print(f"    [TRACE-P6] el-select expand: 生成双候选定位器")

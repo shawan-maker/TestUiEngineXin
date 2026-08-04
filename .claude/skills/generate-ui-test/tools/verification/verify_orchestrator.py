@@ -126,6 +126,12 @@ def _execute_direct(page, step, pages_dict, data_dict):
 
     try:
         if keyword == 'click_element':
+            # el-select 选项在下拉面板中，面板可能因失去焦点而关闭
+            # 使用 wait_for(state='visible') 确保选项出现后再点击
+            try:
+                page.locator(locator).first.wait_for(state='visible', timeout=8000)
+            except Exception:
+                pass  # wait_for 失败不阻断，继续尝试 click
             page.locator(locator).first.click(timeout=5000)
             print(f"    [OK] {desc}")
             return True

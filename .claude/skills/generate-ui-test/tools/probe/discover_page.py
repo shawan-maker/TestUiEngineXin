@@ -2015,12 +2015,39 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
         # 4a. Toolbar buttons first
         print(f"\n[Discover] === Toolbar buttons ({len(toolbar_unique)}) ===")
         for btn in toolbar_unique:
-            _process_button(btn, is_row=False)
+            try:
+                _process_button(btn, is_row=False)
+            except Exception as e:
+                err_str = str(e)
+                if "crashed" in err_str.lower():
+                    print(f"  [WARN] Page crashed on button '{btn.get('text', '?')}', skip and continue")
+                    # 尝试恢复页面
+                    try:
+                        _navigate_with_fallback(page, baseline_url, timeout_ms=10000)
+                        _wait_for_dom_stable(page, timeout_ms=3000, debug=False)
+                    except Exception:
+                        print(f"  [WARN] Page recovery failed, skip remaining buttons")
+                        break
+                else:
+                    raise
 
         # 4b. Row buttons second
         print(f"\n[Discover] === Row buttons ({len(row_unique)}) ===")
         for btn in row_unique:
-            _process_button(btn, is_row=True)
+            try:
+                _process_button(btn, is_row=True)
+            except Exception as e:
+                err_str = str(e)
+                if "crashed" in err_str.lower():
+                    print(f"  [WARN] Page crashed on row button '{btn.get('text', '?')}', skip and continue")
+                    try:
+                        _navigate_with_fallback(page, baseline_url, timeout_ms=10000)
+                        _wait_for_dom_stable(page, timeout_ms=3000, debug=False)
+                    except Exception:
+                        print(f"  [WARN] Page recovery failed, skip remaining row buttons")
+                        break
+                else:
+                    raise
 
         # 4c. Detail links (only first one)
         detail_links = list_page.get('detail_links', [])
@@ -2164,15 +2191,28 @@ def main():
             print(f"\n{'='*60}")
             print(f"[Discover] V7: [{idx+1}/{len(multi_urls)}] {page_name or page_url}")
             print(f"{'='*60}")
-            # 不传 config_path，避免 discover() 内部再次解析列表
-            single_result = discover(page_url, args.cookie, args.module,
-                                     args.local_storage, config_path=None)
-            pages.append({
-                'name': page_name,
-                'url': page_url,
-                'list_page': single_result.get('list_page', {}),
-                'containers': single_result.get('containers', []),
-            })
+            try:
+                # 不传 config_path，避免 discover() 内部再次解析列表
+                single_result = discover(page_url, args.cookie, args.module,
+                                         args.local_storage, config_path=None)
+                pages.append({
+                    'name': page_name,
+                    'url': page_url,
+                    'list_page': single_result.get('list_page', {}),
+                    'containers': single_result.get('containers', []),
+                })
+            except Exception as e:
+                err_str = str(e)
+                if "crashed" in err_str.lower():
+                    print(f"[WARN] URL [{idx+1}/{len(multi_urls)}] browser crashed, skip and continue")
+                    pages.append({
+                        'name': page_name,
+                        'url': page_url,
+                        'list_page': {},
+                        'containers': [],
+                    })
+                else:
+                    raise
 
         # 合并结果
         result = {

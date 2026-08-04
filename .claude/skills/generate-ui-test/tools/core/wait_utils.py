@@ -81,7 +81,14 @@ def wait_for_dom_stable(page, timeout_ms=3000, interval_ms=300, debug=False):
                 return
 
         prev = curr
-        page.wait_for_timeout(interval_ms)
+        try:
+            page.wait_for_timeout(interval_ms)
+        except Exception as e:
+            # Page crashed (e.g., memory exhausted on heavy pages)
+            # Return False to signal DOM stability check failed
+            if debug:
+                print(f"  [DOM-STABLE] page crashed at {elapsed}ms: {type(e).__name__}")
+            return False
         elapsed += interval_ms
 
     # timeout 到达

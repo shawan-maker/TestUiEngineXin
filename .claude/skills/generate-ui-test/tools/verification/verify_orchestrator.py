@@ -93,7 +93,7 @@ from verification.detail_links import (
     _write_verify_result, _consume_pending_detail_links,
 )
 
-def verify_project(project_dir, cookie, base_url, discovery_path=None, module=None, local_storage_override=None):
+def verify_project(project_dir, cookie, base_url, discovery_path=None, module=None, local_storage_override=None, headed=False):
     """Main verification flow.
 
     1. Load all project files
@@ -219,7 +219,10 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
 
     pw = sync_playwright().start()
     try:
-        browser = pw.chromium.launch(headless=True)
+        # headed=True 时有头模式，headed=False 时默认 headless
+        browser = pw.chromium.launch(headless=not headed)
+        if headed:
+            print(f"[INFO] 浏览器以有头模式启动（headed=True）")
         domain = urlparse(base_url).hostname
         cookies = parse_cookie(cookie, domain)
 
@@ -692,6 +695,8 @@ def main():
                         help='只报告需要验证的 locator，不执行浏览器')
     parser.add_argument('--ai-probe', default=None,
                         help='AI 探测配置（JSON 字符串，由 pipeline 传入）')
+    parser.add_argument('--headed', action='store_true',
+                        help='前台运行浏览器（headless=False），用于调试观察页面状态')
 
     args = parser.parse_args()
 
@@ -720,7 +725,7 @@ def main():
     _consume_pending_detail_links(args.project_dir, args.cookie, args.url,
                                    args.local_storage)
 
-    result = verify_project(args.project_dir, args.cookie, args.url, args.discovery, args.module, args.local_storage)
+    result = verify_project(args.project_dir, args.cookie, args.url, args.discovery, args.module, args.local_storage, headed=args.headed)
 
     # P3f-2: 回写验证结果到 pages YAML + 生成 verify_result.json
     if result and not result.get('auth_error'):

@@ -288,11 +288,17 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
             return xpath, pfx, cnt, cidx
         return xpath, pfx, cnt
 
+    # [TRACE-P6] 遍历入口：候选数量 + prefix 顺序
+    print(f"    [TRACE-P6] verify_locator_candidates: {len(candidates)} candidates, "
+          f"prefix_order={[p or 'None' for p in prefix_order]}")
+
     # 两轮验证：
     # 第一轮：遍历所有候选，仅返回 count==1 的唯一匹配（跳过 [1]/[last()] 收窄）
     # 第二轮：保留原有 count>1 逻辑（[1] 防御、[last()]、容器前缀修复）
     for _pass in (1, 2):
         for prefix in prefix_order:
+            # [TRACE-P6] 当前 prefix
+            print(f"    [TRACE-P6]   pass={_pass} prefix={prefix or 'None'}")
             for candidate_index, candidate in enumerate(candidates):
                 xpath = candidate
                 if not xpath.startswith('xpath='):
@@ -331,6 +337,9 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
 
                     try:
                         count = page.locator(full_xpath).count()
+                        # [TRACE-P6] 每个 candidate 的 count 值
+                        print(f"    [TRACE-P6]     cand[{candidate_index}] count={count} test_prefix={test_prefix or 'None'}: "
+                              f"{full_xpath[:120]}{'...' if len(full_xpath) > 120 else ''}")
                         if count == 1:
                             return _ret(full_xpath, test_prefix, count, candidate_index)
                         if count > 1:
@@ -768,6 +777,12 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
     params = step.get('params', {})
     desc = step.get('desc', '')
 
+    # [TRACE-P6] 函数入口上下文
+    _raw_locator_param = params.get('locator', '') if isinstance(params, dict) else ''
+    print(f"    [TRACE-P6] entry: keyword={keyword}, desc='{desc[:60]}'")
+    print(f"    [TRACE-P6]   raw_locator={_raw_locator_param}, "
+          f"is_new_page={is_new_page_context}, container_ctx={container_context}")
+
     if keyword in NO_VERIFY_KEYWORDS:
         # open_url / refresh must still be executed so we navigate to the right page
         if keyword == 'open_url':
@@ -830,6 +845,8 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
     # BUG-5 fix: can now produce 'detail-link'
     # BUG-7 fix: pass locator_ref for _select/_editable suffix detection
     elem_type = _infer_elem_type(keyword, desc, locator_ref=raw_locator_ref)
+    # [TRACE-P6] 类型推断结果
+    print(f"    [TRACE-P6] infer: label='{label}', elem_type={elem_type}")
 
     # Fix-2b-A: 类型推断 + discovery 交叉验证
     # _infer_elem_type 是纯函数（不依赖 discovery），对"编辑/删除/查看/详情"
@@ -911,7 +928,11 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         disc_locator, discovery_ct = _find_in_discovery(
             discovery_data, label, preferred_container=current_ct,
             elem_type=elem_type)
+        # [TRACE-P6] discovery 查找结果
+        print(f"    [TRACE-P6] discovery: found={disc_locator is not None}, "
+              f"discovery_ct={discovery_ct}")
         if disc_locator:
+            print(f"    [TRACE-P6]   disc_locator={disc_locator[:100]}{'...' if len(disc_locator) > 100 else ''}")
             _discovery_verified = True  # _find_in_discovery 只返回 verified=true 的元素
             disc_raw = (disc_locator.replace('xpath=', '')
                         if disc_locator.startswith('xpath=')
@@ -954,6 +975,13 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
     xpaths = [c[0] for c in candidates]
     sources = {i: c[1] for i, c in enumerate(candidates)}
 
+    # [TRACE-P6] 候选列表（进入 verify_locator_candidates 前）
+    print(f"    [TRACE-P6] execute_step: desc='{desc[:50]}', elem_type={elem_type}, label='{label}'")
+    print(f"    [TRACE-P6]   current_ct={current_ct}, fallback_prefix={_fallback_prefix}")
+    print(f"    [TRACE-P6]   candidates ({len(candidates)}):")
+    for ci, (cx, cs) in enumerate(candidates):
+        print(f"    [TRACE-P6]     [{ci}] src={cs}: {cx[:100]}{'...' if len(cx) > 100 else ''}")
+
     verified_locator, matched_prefix, count, matched_index = verify_locator_candidates(
         page, xpaths, container_type=current_ct, discovery_ct=discovery_ct,
         is_el_select_option=False, return_index=True
@@ -961,6 +989,13 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
 
     # Determine hit source
     hit_source = sources.get(matched_index) if matched_index is not None else None
+
+    # [TRACE-P6] VLC 返回结果
+    print(f"    [TRACE-P6]   VLC result: verified={'Yes' if verified_locator else 'No'}, "
+          f"prefix={matched_prefix}, count={count}, "
+          f"hit_source={hit_source}, matched_index={matched_index}")
+    if verified_locator:
+        print(f"    [TRACE-P6]   verified_locator: {verified_locator[:120]}")
 
     # R4: Multi-type retry — collect alternative types when initial type fails
     # Sources: keyword/desc inference, DOM check (R3), locator_ref suffix
@@ -1001,6 +1036,9 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             if 'button' not in _alt_types:
                 _alt_types.append('button')
 
+        # [TRACE-P6] R4 alt_types 列表
+        print(f"    [TRACE-P6]   R4 alt_types: {_alt_types}")
+
         # Try each alternative type (skip first = already tried in fast path)
         for _alt_type in _alt_types[1:]:
             _alt_candidates = []
@@ -1031,6 +1069,11 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             if not _alt_candidates:
                 continue
 
+            # [TRACE-P6] R4 每个 alt_type 的候选列表
+            print(f"    [TRACE-P6]   R4 trying alt_type={_alt_type}, {len(_alt_candidates)} candidates")
+            for aci, (acx, acs) in enumerate(_alt_candidates):
+                print(f"    [TRACE-P6]     [{aci}] src={acs}: {acx[:100]}{'...' if len(acx) > 100 else ''}")
+
             # Split into xpaths and sources
             _alt_xpaths = [c[0] for c in _alt_candidates]
             _alt_sources = {i: c[1] for i, c in enumerate(_alt_candidates)}
@@ -1053,9 +1096,14 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         # D5: Try KB fallback before giving up
         if label:
             fb = kb_fallback(elem_type, label, label)
+            # [TRACE-P6] kb_fallback 调用结果
+            print(f"    [TRACE-P6] kb_fallback: result={'found' if fb and fb.get('locator') else 'None'}")
             if fb and fb.get('locator'):
+                print(f"    [TRACE-P6]   strategy={fb.get('strategy', 'unknown')}")
+                print(f"    [TRACE-P6]   fb_locator={fb['locator'][:100]}{'...' if len(fb['locator']) > 100 else ''}")
                 fb_locator = inject_hidden_filter(fb['locator'])
                 _fb_result = _verify_count_or_first(page, fb_locator)
+                print(f"    [TRACE-P6]   _verify_count_or_first: result={'passed' if _fb_result else 'failed'}")
                 if _fb_result:
                     verified_locator = _fb_result
                     print(f"    [KB-FALLBACK] '{desc}' → {fb.get('strategy', 'unknown')}")
@@ -1077,11 +1125,15 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
 
         # D1: Structured fallback rules if KB fallback also failed
         if not verified_locator:
+            # [TRACE-P6] D1/M11 兜底决策入口
+            print(f"    [TRACE-P6] D1/M11 fallback: label='{label}', in_dialog_confirm={label in DIALOG_CONFIRM_LABELS}, has_candidates={len(candidates) > 0}")
             if label in DIALOG_CONFIRM_LABELS:
                 # 确认/取消按钮 → default el-dialog prefix
                 fallback_xpath = f"//div[contains(@class,'el-dialog')]//button[contains(.,'{label}')]"
                 fallback_xpath = inject_hidden_filter(f"xpath={fallback_xpath}")
+                print(f"    [TRACE-P6]   D1 dialog-confirm: {fallback_xpath[:100]}")
                 _fb_result = _verify_count_or_first(page, fallback_xpath)
+                print(f"    [TRACE-P6]   D1 result: {'passed' if _fb_result else 'failed'}")
                 if _fb_result:
                     verified_locator = _fb_result
                     print(f"    [FALLBACK] '{desc}' → dialog-confirm")
@@ -1093,10 +1145,13 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 _m11_resolved = False
                 if label:
                     kb_locators = _get_kb_locators(elem_type, label)
-                    for kb_loc in kb_locators:
+                    print(f"    [TRACE-P6]   M11 KB fallback: {len(kb_locators)} locators, prefix={_fallback_prefix_str[:50]}")
+                    for i, kb_loc in enumerate(kb_locators):
                         fallback_xpath = inject_hidden_filter(
                             f"xpath={_fallback_prefix_str}{kb_loc}")
+                        print(f"    [TRACE-P6]     M11[{i}]: {fallback_xpath[:100]}")
                         _fb_result = _verify_count_or_first(page, fallback_xpath)
+                        print(f"    [TRACE-P6]     M11[{i}] result: {'passed' if _fb_result else 'failed'}")
                         if _fb_result:
                             verified_locator = _fb_result
                             print(f"    [FALLBACK] '{desc}' → KB-{elem_type} with {_fallback_prefix} prefix (M11)")
@@ -1129,7 +1184,9 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                     if first_kb_candidate:
                         fallback_xpath = inject_hidden_filter(
                             f"xpath={_fallback_prefix_str}{first_kb_candidate}")
+                        print(f"    [TRACE-P6]   M11 first-kb-candidate: {fallback_xpath[:100]}")
                         _fb_result = _verify_count_or_first(page, fallback_xpath)
+                        print(f"    [TRACE-P6]   M11 first-kb-candidate result: {'passed' if _fb_result else 'failed'}")
                         if _fb_result:
                             verified_locator = _fb_result
                             print(f"    [FALLBACK] '{desc}' → first-kb-candidate with {_fallback_prefix} prefix (M11)")
@@ -1140,8 +1197,11 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         #   2. KB 失败 + discovery 已验证 → 保留原始值（discovery 已验证的同值候选已尝试）
         #   3. KB 失败 + discovery 未验证 → R5 KB 兜底回写（比可能错误的原始值更可靠）
         if not verified_locator and _discovery_verified:
+            # [TRACE-P6] Fix-6 路径
+            print(f"    [TRACE-P6] Fix-6: attempting to preserve original locator (discovery was verified)")
             _orig_ref = _extract_locator_ref(step)
             _orig_xpath = _get_original_xpath(_orig_ref, pages_dict) if _orig_ref else ''
+            print(f"    [TRACE-P6]   _orig_ref={_orig_ref}, _orig_xpath={_orig_xpath[:80] if _orig_xpath else 'None'}")
             if (_orig_xpath
                 and _orig_xpath not in ('[待确认]', '')
                 and len(_orig_xpath) > 10
@@ -1177,6 +1237,8 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             # 即使 count=0，也用 KB locator 回写（比 [待确认] 更有价值）
             # 理由：KB locator 结构正确，count=0 通常因为容器未打开，
             #       Phase 9 运行时前序步骤正确执行后大概率能命中。
+            # [TRACE-P6] R5 入口
+            print(f"    [TRACE-P6]   R5 fallback: entering (no verified_locator)")
             _bg_locator = None
             _bg_source = None
 
@@ -1206,6 +1268,10 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 _bg_locator = inject_hidden_filter(
                     f"xpath={_fallback_prefix_str}{_fallback_xpath}")
                 _bg_source = 'first-kb-candidate' if _first_kb_c else 'first-candidate'
+
+            # [TRACE-P6] R5 _bg_locator 计算结果
+            print(f"    [TRACE-P6]   R5 _bg_source={_bg_source}")
+            print(f"    [TRACE-P6]   R5 _bg_locator={_bg_locator[:120] if _bg_locator else 'None'}")
 
             if _bg_locator:
                 # 防御性：count>1 时自动 [1] 收窄（与 M11 兜底路径一致）

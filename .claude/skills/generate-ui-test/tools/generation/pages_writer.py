@@ -249,6 +249,7 @@ class PagesWriter:
             cn_name: 中文模块名（写入注释）
             append: 是否追加到现有文件
         """
+        print(f"  [TRACE] write_pages_yaml: required_fields={len(required_fields)}, output={output_path}, append={append}")
         # 1. 按 group 聚合（过滤 _data 组和 common_elements）
         groups = OrderedDict()
         for (group, field), info in sorted(required_fields.items()):
@@ -314,6 +315,11 @@ class PagesWriter:
         # 7. 写入
         header = self._build_header(module_slug, cn_name)
         os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
+        # TRACE: 写入前统计
+        total_fields = sum(len(fields) for fields in groups.values())
+        print(f"  [TRACE] 准备写入: {len(groups)} groups, {total_fields} fields")
+        for g_name, g_fields in groups.items():
+            print(f"    - {g_name}: {len(g_fields)} fields")
         self._write_yaml_with_comments(output_path, groups, header)
 
     def write_common_elements(self, output_path):

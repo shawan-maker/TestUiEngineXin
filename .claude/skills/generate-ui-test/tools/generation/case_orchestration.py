@@ -549,7 +549,7 @@ def generate_case_file(case_data, generator, seq, output_dir, module='', project
                 'params': {},
             })
             # [DEBUG-TEMP]
-            print(f"    [DEBUG-TEMP] ✓ 已添加 wait_for_loading_complete (Step {i+1})")
+            print(f"    [DEBUG-TEMP] [OK] added wait_for_loading_complete (Step {i+1})")
             # [DEBUG-TEMP-END]
 
         if getattr(generator, '_pending_nav_wait', False):

@@ -118,15 +118,23 @@ def _store_verified_locator(v_loc, v_ct, step, pages_dict, verified_locators,
                                     '_message_box_')
         orig_has_container = any(m in orig_xpath for m in CONTAINER_MARKERS)
         new_has_container = any(m in v_xpath for m in CONTAINER_MARKERS)
+
+        # [TRACE-P6] 写回决策日志
+        print(f"    [TRACE-P6] _store_verified_locator: ref='{ref}'")
+        print(f"    [TRACE-P6]   orig_has_container={orig_has_container}, new_has_container={new_has_container}")
+        print(f"    [TRACE-P6]   orig: {orig_xpath[:80]}{'...' if len(orig_xpath) > 80 else ''}")
+        print(f"    [TRACE-P6]   new:  {v_xpath[:80]}{'...' if len(v_xpath) > 80 else ''}")
+
+        # 降级保护：原始有容器前缀但验证后没有，保留原始版本，不降级
+        # 根因：容器检测时序问题导致 Phase 6 验证时 count==1（dialog 未完全渲染），
+        # 但 Phase 9 运行时 dialog 已完全打开，count==2 → strict mode violation
         if orig_has_container and not new_has_container:
-            # 方案B: 禁止 DOWNGRADED 覆盖 — 原始有容器前缀但验证后没有，保留原始版本
-            # 根因：容器检测时序问题导致 Phase 6 验证时 count==1（dialog 未完全渲染），
-            # 但 Phase 9 运行时 dialog 已完全打开，count==2 → strict mode violation
             print(f"    [PRESERVED-SCOPED] '{ref}' — 原始 locator 有容器前缀，"
                   f"验证后没有，保留原始版本，不降级")
             return
-        # M10: 升级方向 — 原 locator 无前缀，验证通过的有容器前缀
-        elif not orig_has_container and new_has_container:
+
+        # M10: 升级方向 — 原 Locator 无前缀，验证通过的有容器前缀
+        if not orig_has_container and new_has_container:
             # 确定容器类型标记
             upgrade_ct = None
             for cm in CONTAINER_MARKERS:
@@ -159,6 +167,7 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
     is_new_field: True = append new field to group (cross-group writeback create)
     module: BUG-5 — when specified, restrict writeback to this module's pages directory
     """
+    print(f"  [TRACE] update_pages_yaml: verified_locators={len(verified_locators)}, module={module}")
     pages_dir = os.path.join(project_dir, 'pages')
     if not os.path.isdir(pages_dir):
         return

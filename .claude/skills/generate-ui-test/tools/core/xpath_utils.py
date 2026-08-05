@@ -286,23 +286,62 @@ def inject_hidden_filter(locator: str, in_iframe: bool = False) -> str:
     final_start = _find_final_segment_start(xpath)
     final_segment = xpath[final_start:]
 
-    # Step 3: 在最终段中找 predicate 的 ] 位置
-    close_pos = _find_predicate_close_in_segment(final_segment)
+    # Step 3: 检测 XPath 轴（axis）模式
+    # 常见轴: ancestor::, descendant::, following-sibling::, preceding-sibling:: 等
+    # 轴名后不能直接加谓词，必须在 ::* 或 ::node_test 之后
+    axis_match = re.match(r'^([a-z-]+)::(\*|[a-zA-Z][a-zA-Z0-9_-]*)', final_segment)
 
-    if close_pos >= 0:
-        # 情况 A/C：在最终元素的 ] 前插入（追加 and filter）
-        abs_close = final_start + close_pos
-        new_xpath = xpath[:abs_close] + HIDDEN_FILTER + xpath[abs_close:]
-    else:
-        # 情况 B/D：最终元素没有 predicate，在标签名后追加 [filter]
-        tag_match = re.match(r'([a-zA-Z*][a-zA-Z0-9_*-]*)', final_segment)
-        if tag_match:
-            tag_end = final_start + tag_match.end()
-            new_xpath = (xpath[:tag_end]
-                         + '[' + HIDDEN_FILTER_NEW_PRED + ']'
-                         + xpath[tag_end:])
+    if axis_match:
+        # 情况 F/G: 轴表达式，谓词必须加在 ::* 或 ::node_test 之后
+        axis_name = axis_match.group(1)  # e.g., "following-sibling"
+        node_test = axis_match.group(2)  # e.g., "*" or "div"
+        axis_end = axis_match.end()  # ::* 之后的位置
+
+        # 检查 ::* 或 ::node_test 之后是否已有谓词
+        rest = final_segment[axis_end:]
+        if rest.startswith('['):
+            # 情况 F: 已有谓词，在 ] 前追加 and filter
+            # 使用简单的括号深度扫描找到匹配的 ]
+            depth = 0
+            close_pos = -1
+            for i, ch in enumerate(rest):
+                if ch == '[':
+                    depth += 1
+                elif ch == ']':
+                    depth -= 1
+                    if depth == 0:
+                        close_pos = i
+                        break
+            if close_pos >= 0:
+                abs_close = final_start + axis_end + close_pos
+                new_xpath = xpath[:abs_close] + HIDDEN_FILTER + xpath[abs_close:]
+            else:
+                return locator  # 无法解析，原样返回
         else:
-            return locator  # 无法解析，原样返回
+            # 情况 G: 没有谓词，在 ::node_test 后添加 [filter]
+            abs_insert = final_start + axis_end
+            new_xpath = (xpath[:abs_insert]
+                        + '[' + HIDDEN_FILTER_NEW_PRED + ']'
+                        + xpath[abs_insert:])
+    else:
+        # 原有逻辑：处理普通标签名
+        # Step 3: 在最终段中找 predicate 的 ] 位置
+        close_pos = _find_predicate_close_in_segment(final_segment)
+
+        if close_pos >= 0:
+            # 情况 A/C：在最终元素的 ] 前插入（追加 and filter）
+            abs_close = final_start + close_pos
+            new_xpath = xpath[:abs_close] + HIDDEN_FILTER + xpath[abs_close:]
+        else:
+            # 情况 B/D：最终元素没有 predicate，在标签名后追加 [filter]
+            tag_match = re.match(r'([a-zA-Z*][a-zA-Z0-9_*-]*)', final_segment)
+            if tag_match:
+                tag_end = final_start + tag_match.end()
+                new_xpath = (xpath[:tag_end]
+                            + '[' + HIDDEN_FILTER_NEW_PRED + ']'
+                            + xpath[tag_end:])
+            else:
+                return locator  # 无法解析，原样返回
 
     # Step 4: 重新包裹 + 恢复前缀
     prefix = 'xpath=' if has_prefix else ''

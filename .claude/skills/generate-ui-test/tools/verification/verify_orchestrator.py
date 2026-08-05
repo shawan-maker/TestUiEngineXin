@@ -570,6 +570,10 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                 keyword = step.get('keyword', '')
                 desc = step.get('desc', '')
 
+                # [TRACE-P6] 每个步骤入口：显示当前容器上下文状态
+                if keyword not in SKIP_KEYWORDS and keyword not in EXECUTE_KEYWORDS:
+                    print(f"  [TRACE-P6] Step {step_idx+1}: '{desc[:60]}' | container_context={container_context}")
+
                 # el-select expand 检测：设置上下文标记
                 if keyword == 'click_element' and '下拉框' in desc:
                     _el_select_context = True
@@ -705,9 +709,17 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                     container_context=container_context
                 )
 
+                # [TRACE-P6] execute_step 返回结果
+                if keyword not in SKIP_KEYWORDS and keyword not in EXECUTE_KEYWORDS:
+                    print(f"  [TRACE-P6] Step {step_idx+1} result: v_ct={v_ct}, v_skip={v_skip}, "
+                          f"v_src={v_src}, container_context_before={container_context}")
+
                 # 更新容器上下文
+                _old_ctx = container_context  # 保存旧值用于日志
                 if v_ct:
                     container_context = v_ct
+                    if _old_ctx != v_ct:
+                        print(f"  [TRACE-P6] container_context updated: {_old_ctx} → {v_ct}")
                 elif (v_ct is None and not v_skip
                       and keyword in ('click_element', 'click')):
                     # 双重确认：检测容器是否真的消失了
@@ -716,11 +728,13 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                         if container_context not in current_containers:
                             old_ct = container_context
                             container_context = None
-                            print(f"    [CONTEXT] 容器 {old_ct} 已关闭，清除上下文")
+                            print(f"  [TRACE-P6] container {old_ct} closed, context cleared")
                         else:
-                            print(f"    [CONTEXT] 容器 {container_context} 仍然存在，保持上下文")
+                            print(f"  [TRACE-P6] container {container_context} still visible, context kept")
                 # open_url/refresh 后清除容器上下文（页面跳转）
                 if keyword in ('open_url', 'refresh'):
+                    if container_context:
+                        print(f"  [TRACE-P6] page navigation detected, container_context cleared")
                     container_context = None
 
                 if v_skip:

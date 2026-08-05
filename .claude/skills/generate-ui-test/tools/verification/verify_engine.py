@@ -52,7 +52,7 @@ except ImportError:
 
 # ─── Local copies of constants (originally defined in verify_locators.py lines 92-124) ───
 # These are also needed by verify_orchestrator.py, which will import from this module.
-DESTRUCTIVE_TRIGGERS = {'删除', '移除', '清空', '重置'}
+DESTRUCTIVE_TRIGGERS = set()  # 已移除破坏性操作跳过机制
 CONTAINER_TYPES = ['dialog', 'drawer', 'message-box']
 _SYSTEM_WORKFLOWS = None
 _PROJECT_WORKFLOWS = {}
@@ -196,30 +196,32 @@ def _generate_el_select_candidates(input_locator):
     sib_pos = input_locator.find(sibling_marker)
     inp_pos = input_locator.find(input_marker)
     if sib_pos >= 0 and inp_pos > sib_pos:
-        # Find matching ] for input[...] using bracket-depth scan
-        bracket_start = inp_pos + len("//input")
-        depth = 0
-        end = -1
-        for i in range(bracket_start, len(input_locator)):
-            if input_locator[i] == '[':
-                depth += 1
-            elif input_locator[i] == ']':
-                depth -= 1
-                if depth == 0:
-                    end = i + 1
-                    break
-        if end > 0:
-            # Replace "//input[...]" with "[contains(@class,'el-select')...]"
-            replacement = "[contains(@class,'el-select') and not(contains(@class,'el-select-dropdown'))]"
-            cand2_raw = input_locator[:inp_pos] + replacement + input_locator[end:]
-            if not cand2_raw.startswith('('):
-                cand2 = f"({cand2_raw})[1]"
-            else:
-                cand2 = cand2_raw
-            return [cand1, cand2]
-    else:
-        # Pattern didn't match, return single candidate
-        return [cand1]
+        # 先剥离原始 ()[N] 包裹，避免替换后 )[N] 残留导致双重包裹
+        from core.xpath_utils import _unwrap_positional, _rewrap_positional
+        loc_inner, orig_wrap = _unwrap_positional(input_locator)
+        # 在剥离后的 inner 上重新定位（偏移可能变化）
+        sib_pos2 = loc_inner.find(sibling_marker)
+        inp_pos2 = loc_inner.find(input_marker)
+        if sib_pos2 >= 0 and inp_pos2 > sib_pos2:
+            bracket_start = inp_pos2 + len("//input")
+            depth = 0
+            end = -1
+            for i in range(bracket_start, len(loc_inner)):
+                if loc_inner[i] == '[':
+                    depth += 1
+                elif loc_inner[i] == ']':
+                    depth -= 1
+                    if depth == 0:
+                        end = i + 1
+                        break
+            if end > 0:
+                replacement = "[contains(@class,'el-select') and not(contains(@class,'el-select-dropdown'))]"
+                cand2_body = loc_inner[:inp_pos2] + replacement + loc_inner[end:]
+                # 重新包裹：保留原始 ()[N] 索引，无则添加 ()[1]
+                cand2 = _rewrap_positional(cand2_body, orig_wrap if orig_wrap else '[1]')
+                return [cand1, cand2]
+    # Pattern didn't match or bracket scan failed, return single candidate
+    return [cand1]
 
 
 # ─── Writeback helpers (used by execute_step Fix-6, also needed by pages_writeback) ───
@@ -266,12 +268,34 @@ def _strip_container_prefix(raw_xpath):
     - 裸 XPath: //div[...]//button → //button
     - 包裹 XPath: (//div[...]//button)[1] → (//button)[1]
 
+    双重 ()[1] 包裹修复：
+    - 输入: ((xpath)[1])[1]
+    - 输出: (xpath)[1]（剥离多余的外层包裹）
+
     Args:
         raw_xpath: 原始 XPath（不含 xpath= 前缀）
 
     Returns:
-        剥离后的 XPath（保持原有包裹格式）
+        剥离后的 XPath（保持单层 ()[N] 包裹格式）
     """
+    from core.xpath_utils import _unwrap_positional, _rewrap_positional
+
+    # 修复双重 ()[1] 包裹：循环剥离多余的外层
+    while True:
+        inner, wrap = _unwrap_positional(raw_xpath)
+        if not wrap:
+            # 没有 ()[N] 包裹，退出循环
+            break
+        # 检查 inner 是否也是 ()[N] 包裹（双重包裹）
+        inner2, wrap2 = _unwrap_positional(inner)
+        if wrap2:
+            # 双重包裹，剥离外层，保留内层
+            raw_xpath = inner
+            continue
+        # 单层包裹，退出循环
+        break
+
+    # 剥离容器前缀
     inner, wrap = _unwrap_positional(raw_xpath)
     stripped = CONTAINER_PREFIX_PATTERN.sub("", inner)
     return _rewrap_positional(stripped, wrap)
@@ -365,6 +389,12 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
                 # 剥离已有容器前缀 → 得到裸 XPath
                 raw_xpath = xpath[6:] if xpath.startswith('xpath=') else xpath
                 bare_xpath = _strip_container_prefix(raw_xpath)
+                _stripped = bare_xpath != raw_xpath
+                # [TRACE-P6] 前缀剥离详情（仅当实际发生剥离时打印）
+                if _stripped:
+                    print(f"    [TRACE-P6]     cand[{candidate_index}] STRIP: had container prefix")
+                    print(f"    [TRACE-P6]       raw:    {raw_xpath[:100]}")
+                    print(f"    [TRACE-P6]       bare:   {bare_xpath[:100]}")
 
                 # 按 prefix 决定的顺序测试 4 种变体
                 if prefix is None:
@@ -391,7 +421,11 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
                     try:
                         count = page.locator(full_xpath).count()
                         # [TRACE-P6] 每个 candidate 的 count 值
-                        print(f"    [TRACE-P6]     cand[{candidate_index}] count={count} test_prefix={test_prefix or 'None'}: "
+                        # 标记：原始候选是否自带容器前缀 + 当前测试的前缀
+                        _orig_had_prefix = 'YES' if _stripped else 'NO'
+                        print(f"    [TRACE-P6]     cand[{candidate_index}] "
+                              f"count={count} test_prefix={test_prefix or 'None'} "
+                              f"(orig_had_prefix={_orig_had_prefix}): "
                               f"{full_xpath[:120]}{'...' if len(full_xpath) > 120 else ''}")
                         if count == 1:
                             return _ret(full_xpath, test_prefix, count, candidate_index)
@@ -839,6 +873,20 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
     except Exception:
         pass
 
+    # 特殊处理 set_random_variable：模拟变量生成并注入 data_dict
+    # 这样后续步骤的 ${random_field_xxx} 可以正确解析
+    if keyword == 'set_random_variable':
+        var_name = params.get('name', '') if isinstance(params, dict) else ''
+        prefix = params.get('prefix', '') if isinstance(params, dict) else ''
+        if var_name:
+            # 解析 prefix 中可能包含的变量引用
+            prefix = resolve_var(prefix, data_dict)
+            # 生成确定性值（非随机，保证 Phase 6 每次一致）
+            simulated_value = f"{prefix}_phase6_test"
+            data_dict[var_name] = simulated_value
+            print(f"    [SIMULATE] set_random_variable: {var_name} = '{simulated_value}'")
+        return None, None, True, False, 'skip'
+
     if keyword in SKIP_KEYWORDS:
         # 浏览器生命周期 / 认证注入 / 日志 — 不影响页面状态，直接跳过
         return None, None, False, False, None
@@ -1003,10 +1051,14 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 current_ct = ct
                 break
 
+    # [TRACE-P6] 容器检测详情
+    print(f"    [TRACE-P6] detect_visible_containers: {visible_containers if visible_containers else 'empty'}")
+    print(f"    [TRACE-P6] current_ct: {current_ct}, container_context(传入): {container_context}, is_new_page: {is_new_page_context}")
+
     # 容器上下文 fallback：当 detect_visible_containers 返回空但有上一步传递的容器上下文时使用
     if current_ct is None and container_context and not is_new_page_context:
         current_ct = container_context
-        print(f"    [CONTEXT] detect_visible_containers 返回空，使用上次容器上下文: {container_context}")
+        print(f"    [TRACE-P6] [CONTEXT-FALLBACK] detect_visible_containers 返回空，使用上次容器上下文: {container_context}")
 
     # ── 统一兜底前缀计算（M11/R5 共用）──
     # 规则：确认类按钮 → el-dialog | 新页面 → 无前缀 | 其他 → current_ct 优先，默认 drawer
@@ -1027,40 +1079,93 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
     # M9: 占位符检测 — xpath=[待确认] 不是真实 locator，跳过作为候选
     is_placeholder = locator in ('xpath=[待确认]', '[待确认]')
 
+    # [TRACE-P6] 候选构建开始
+    print(f"    [TRACE-P6] Building candidates: label='{label}', elem_type={elem_type}, "
+          f"is_placeholder={is_placeholder}")
+
     # 优先级 0: KB templates (highest priority — stable, universal XPath patterns)
     if label:
         kb_locators = _get_kb_locators(elem_type, label)
+        print(f"    [TRACE-P6] KB templates: {len(kb_locators)} locators")
+        for i, kb_xpath in enumerate(kb_locators):
+            has_prefix = 'el-dialog' in kb_xpath or 'el-drawer' in kb_xpath or 'el-message-box' in kb_xpath
+            print(f"    [TRACE-P6]   KB[{i}]: has_prefix={has_prefix}, {kb_xpath[:100]}")
 
         # ─── el-select 展开步骤定位器转换 ───
-        # 当这是 el-select 展开步骤时，将 KB 生成的 input 定位器转换为 el-select 容器定位器
-        # 修复问题：KB 生成 //input[@class='el-input__inner'] 但我们需要
-        # //div[contains(@class,'el-select')] 才能正确点击下拉框触发器
+        # 同时保留 input 候选和转换后的 div 候选，让 VLC 验证哪个 count=1
+        # - input 候选：run8 验证有效（点击 input 展开下拉框）
+        # - div 候选：DOM 中 el-select 容器是 input 的祖先，部分场景必须用 div
         if elem_type == 'el-select':
-            # 从 raw_locator_ref 提取 field_name（如 '${group.field_7ddbe1_expand}' → 'field_7ddbe1_expand'）
             _field_name = ''
             if raw_locator_ref and raw_locator_ref.startswith('${'):
                 _field_name = raw_locator_ref.split('.')[-1].rstrip('}')
 
-            if _is_el_select_expand(_field_name, desc):
-                print(f"    [TRACE-P6] el-select expand: 生成双候选定位器")
-                converted_locators = []
+            _is_expand = _is_el_select_expand(_field_name, desc)
+            # [TRACE-P6-ELSELECT] el-select 类型推断详情
+            print(f"    [TRACE-P6-ELSELECT] field_name='{_field_name}', is_expand={_is_expand}, "
+                  f"desc='{desc}'")
+            if _is_expand:
+                # 打印原始 locator 的索引信息，用于诊断 _2_expand 索引丢失问题
+                _resolved_for_dbg = locator  # 已 resolve 的 locator
+                _idx_match = re.search(r'\)\[(\d+)\]\s*$', _resolved_for_dbg)
+                _idx_val = _idx_match.group(1) if _idx_match else 'N/A(no trailing [n])'
+                print(f"    [TRACE-P6-ELSELECT] resolved_locator index=[{_idx_val}], "
+                      f"locator={_resolved_for_dbg[:120]}")
+                # 检查 _2_ 变体是否索引正确
+                if '_2_' in _field_name and _idx_val == '1':
+                    print(f"    [WARN-ELSELECT] _2_ variant has index [1]! "
+                          f"Expected [2]. field='{_field_name}'")
+
+            if _is_expand:
+                # 提取原始 locator 的索引（用于 _2_expand 等变体）
+                _orig_idx = '1'
+                if locator:
+                    _idx_m = re.search(r'\)\[(\d+)\]\s*$', locator)
+                    if _idx_m:
+                        _orig_idx = _idx_m.group(1)
+                print(f"    [TRACE-P6] el-select expand: 保留 input + 生成 div 双候选, orig_idx=[{_orig_idx}]")
+                div_locators = []
                 for kb_xpath in kb_locators:
                     if 'input[@class' in kb_xpath or 'el-input__inner' in kb_xpath:
-                        # 生成双候选（后代模式 + 直接兄弟模式）
                         dual_cands = _generate_el_select_candidates(kb_xpath)
-                        converted_locators.extend(dual_cands)
+                        # 当原始 locator 索引不是 [1] 时，KB div 候选也要用该索引
+                        if _orig_idx != '1':
+                            dual_cands = [
+                                re.sub(r'\)\[1\](\s*)$', f')[{_orig_idx}]\\1', c)
+                                for c in dual_cands
+                            ]
+                            print(f"    [TRACE-P6-ELSELECT] KB div candidates index adjusted: [1] → [{_orig_idx}]")
+                        div_locators.extend(dual_cands)
+                # input 候选在前（VLC 优先验证），div 候选在后作为补充
+                # 当索引非 [1] 时，将原始 locator 提前到 input 候选之前（VLC 优先验证正确索引）
+                if _orig_idx != '1' and locator and not locator.startswith('${'):
+                    _orig_bare = (locator.replace('xpath=', '', 1)
+                                  if locator.startswith('xpath=') else locator)
+                    candidates.append((_orig_bare, 'original'))
+                    print(f"    [TRACE-P6-ELSELECT] Original locator (idx=[{_orig_idx}]) promoted to front")
+                for kb_xpath in kb_locators:
+                    # 当索引非 [1] 时，KB input 候选也需要调整索引
+                    if _orig_idx != '1':
+                        _kb_adj = re.sub(r'\)\[1\](\s*)$', f')[{_orig_idx}]\\1', kb_xpath)
+                        candidates.append((_kb_adj, 'kb'))
                     else:
-                        converted_locators.append(kb_xpath)
-                kb_locators = converted_locators
+                        candidates.append((kb_xpath, 'kb'))
+                for div_xpath in div_locators:
+                    if not any(c[0] == div_xpath for c in candidates):
+                        candidates.append((div_xpath, 'kb-div'))
+            else:
+                for kb_xpath in kb_locators:
+                    candidates.append((kb_xpath, 'kb'))
+        else:
+            for kb_xpath in kb_locators:
+                candidates.append((kb_xpath, 'kb'))
         # ─── el-select 展开步骤定位器转换结束 ───
-
-        for kb_xpath in kb_locators:
-            candidates.append((kb_xpath, 'kb'))
 
     # 优先级 1: Discovery locator (Phase 4 verified)
     discovery_ct = None
     _discovery_verified = False  # Fix-6 条件：跟踪 discovery 是否已验证
     if discovery_data and label:
+        print(f"    [TRACE-P6] Discovery lookup: preferred_container={current_ct}, elem_type={elem_type}")
         disc_locator, discovery_ct = _find_in_discovery(
             discovery_data, label, preferred_container=current_ct,
             elem_type=elem_type)
@@ -1068,7 +1173,8 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         print(f"    [TRACE-P6] discovery: found={disc_locator is not None}, "
               f"discovery_ct={discovery_ct}")
         if disc_locator:
-            print(f"    [TRACE-P6]   disc_locator={disc_locator[:100]}{'...' if len(disc_locator) > 100 else ''}")
+            has_prefix = 'el-dialog' in disc_locator or 'el-drawer' in disc_locator or 'el-message-box' in disc_locator
+            print(f"    [TRACE-P6]   disc_locator: has_prefix={has_prefix}, {disc_locator[:100]}{'...' if len(disc_locator) > 100 else ''}")
             _discovery_verified = True  # _find_in_discovery 只返回 verified=true 的元素
             disc_raw = (disc_locator.replace('xpath=', '')
                         if disc_locator.startswith('xpath=')
@@ -1076,6 +1182,9 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             # 去重（KB 可能和 discovery 一样）
             if not any(c[0] == disc_raw for c in candidates):
                 candidates.append((disc_raw, 'discovery'))
+                print(f"    [TRACE-P6]   Added to candidates as 'discovery'")
+            else:
+                print(f"    [TRACE-P6]   Skipped (duplicate of existing candidate)")
 
     # F2: candidates 为空时，将有效 locator 加入候选
     #
@@ -1094,8 +1203,16 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         and len(locator) > 5):             # guard 3b: 非退化值
         _resolved_bare = (locator.replace('xpath=', '', 1)
                           if locator.startswith('xpath=') else locator)
+        has_prefix = 'el-dialog' in _resolved_bare or 'el-drawer' in _resolved_bare or 'el-message-box' in _resolved_bare
+        print(f"    [TRACE-P6] Original locator: has_prefix={has_prefix}, {_resolved_bare[:100]}")
         if not any(c[0] == _resolved_bare for c in candidates):    # Fix-6: 去重
             candidates.append((_resolved_bare, 'original'))   # Fix-6: 始终加入尾部作为安全网
+            print(f"    [TRACE-P6]   Added to candidates as 'original'")
+        else:
+            print(f"    [TRACE-P6]   Skipped (duplicate of existing candidate)")
+    else:
+        print(f"    [TRACE-P6] Original locator skipped: is_var={locator.startswith('${')}, "
+              f"is_placeholder={is_placeholder}, len={len(locator) if locator else 0}")
 
     # Priority 3: Click-type wildcard fallback — last resort for click steps only
     # Only applies to button/table-action-button/detail-link types.
@@ -1482,12 +1599,6 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
 
         if 'click' in keyword:
-            # Check destructive operation protection
-            if keyword in ('confirm_dialog', 'confirm_delete') or ('确' in desc and '定' in desc):
-                if should_skip_confirm(steps_so_far):
-                    print(f"    [SKIP] '{desc}' — destructive operation protection")
-                    return verified_locator, matched_prefix or current_ct, True, is_best_guess, hit_source
-
             # BUG-9: For row buttons (ancestor::tbody), hover the row first to reveal hidden buttons
             if 'tbody' in verified_locator:
                 try:
@@ -1532,7 +1643,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             # 加上 _smart_wait 8s，单个 click 最多 ~10s。
             new_containers = detect_visible_containers(page)
             # [TRACE-P6] 容器探测结果
-            print(f"    [TRACE-P6]   containers after click: {list(new_containers.keys()) if new_containers else 'none'}")
+            print(f"    [TRACE-P6]   containers after click: {new_containers if new_containers else 'none'}")
             if not new_containers:
                 # 快速检查未检测到 → 增强等待（容器可能在 API 回调后异步出现）
                 container_ct = _wait_for_container_after_click(page)

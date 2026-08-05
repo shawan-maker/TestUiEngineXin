@@ -710,73 +710,53 @@ class CaseGenerator:
 
     # ─── 容器上下文管理 ───────────────────────────────────────
 
-    _CONTAINER_CLOSE_KEYWORDS = ('取消', '关闭', '返回', '确定', '保存', '提交')
     _CONTAINER_OPEN_KEYWORDS = ('新增', '编辑', '添加', '修改', '创建')
 
-    def _is_container_close(self, parsed):
+    def _extract_button_label(self, parsed):
+        """从任意 ptype 中提取按钮名。
+
+        设计原则：只有按钮点击才触发容器状态判断，
+        非按钮操作（输入、选择、勾选）返回 None，不触发判断。
+        两次按钮点击之间，容器前缀保持不变。
+        """
         ptype = parsed['type']
         args = parsed['args']
-        # ===== 新增：处理 if_visible 包裹的关闭按钮 =====
-        # 当"确定"/"取消"按钮被 if_visible 包裹时，同样需要识别为容器关闭操作
-        if ptype == 'if_visible' and args:
-            label = args[0]
-            return any(kw in label for kw in self._CONTAINER_CLOSE_KEYWORDS)
-        if ptype == 'click_btn' and args:
-            label = args[0]
-            return any(kw in label for kw in self._CONTAINER_CLOSE_KEYWORDS)
-        return ptype in ('go_back', 'refresh')
+        if not args:
+            return None
+        # 所有按钮点击类 ptype，args[0] 就是按钮名
+        if ptype in (
+            'click_btn', 'click_table_row_btn', 'click_detail_link',
+            'if_visible',
+            'click_more_then_click', 'click_more_then',
+            'click_table_action', 'conditional_click_btn',
+        ):
+            return args[0]
+        return None
 
     def _is_container_open(self, parsed):
-        ptype = parsed['type']
-        args = parsed['args']
-        # ===== 新增：处理 if_visible 类型 =====
-        # 当按钮（如"新增"）被 if_visible 包裹时，同样需要识别为容器打开操作
-        if ptype == 'if_visible' and args:
-            label = args[0]
-            entry = self._discovery_trigger_map.get(label)
-            if entry:
-                result_type = entry.get('result_type')
-                is_open = result_type in ('container', 'navigation')
-                _debug_f7(f"  [DEBUG-F7] _is_container_open: if_visible label='{label}', "
-                      f"result_type={result_type} → {is_open}")
-                return is_open
-            # if_visible 不匹配 heuristic（保守策略）
-            _debug_f7(f"  [DEBUG-F7] _is_container_open: if_visible label='{label}' "
-                  f"no trigger_map entry → False")
+        """检查步骤是否会打开容器。
+
+        通用逻辑：从任意按钮点击 ptype 提取按钮名，查询 trigger_map 判断。
+        不再使用 ptype 白名单硬编码。
+        """
+        label = self._extract_button_label(parsed)
+        if not label:
+            _debug_f7(f"  [DEBUG-F7] _is_container_open: no button label → False")
             return False
-        if ptype in ('click_btn', 'click_table_row_btn') and args:
-            label = args[0] if args else ''
-            entry = self._discovery_trigger_map.get(label)
+
+        entry = self._discovery_trigger_map.get(label)
+        if entry:
+            result_type = entry.get('result_type')
+            is_open = result_type in ('container', 'navigation')
             _debug_f7(f"  [DEBUG-F7] _is_container_open: label='{label}', "
-                  f"trigger_map_hit={entry is not None}, "
-                  f"result_type={entry.get('result_type') if entry else 'N/A'}")
-            if entry:
-                result_type = entry.get('result_type')
-                is_open = result_type in ('container', 'navigation')
-                _debug_f7(f"  [DEBUG-F7] → returns {is_open} (from trigger_map)")
-                return is_open
-            heuristic_hit = any(kw in label for kw in self._CONTAINER_OPEN_KEYWORDS)
-            _debug_f7(f"  [DEBUG-F7] → returns {heuristic_hit} (from heuristic: {self._CONTAINER_OPEN_KEYWORDS})")
-            return heuristic_hit
-        if ptype == 'click_table_row_btn' and not args:
-            _debug_f7(f"  [DEBUG-F7] _is_container_open: click_table_row_btn without args → True")
-            return True
-        # 点击详情链接：检查 trigger map 判断是否打开容器/导航
-        if ptype == 'click_detail_link':
-            dl_label = args[0] if args else ''
-            entry = self._discovery_trigger_map.get(dl_label)
-            if entry:
-                result_type = entry.get('result_type')
-                is_open = result_type in ('container', 'navigation')
-                _debug_f7(f"  [DEBUG-F7] _is_container_open: detail_link label='{dl_label}', "
-                      f"result_type={result_type} → {is_open}")
-                return is_open
-            # trigger map 无匹配 → 保守假设不打开容器（保持列表页上下文）
-            _debug_f7(f"  [DEBUG-F7] _is_container_open: detail_link label='{dl_label}' "
-                  f"no trigger_map entry → False (conservative)")
-            return False
-        _debug_f7(f"  [DEBUG-F7] _is_container_open: ptype='{ptype}' → False")
-        return False
+                      f"trigger_map_hit=True, result_type={result_type} → {is_open}")
+            return is_open
+
+        # 启发式回退（无 discovery 数据时）
+        heuristic = any(kw in label for kw in self._CONTAINER_OPEN_KEYWORDS)
+        _debug_f7(f"  [DEBUG-F7] _is_container_open: label='{label}', "
+                  f"trigger_map_hit=False, heuristic={heuristic}")
+        return heuristic
 
     def _is_button_action(self, parsed):
         return parsed.get('type') in self._BUTTON_TYPES
@@ -838,59 +818,37 @@ class CaseGenerator:
             self.current_container = None
 
     def _update_container_context_post(self, parsed):
+        """Post 阶段：按钮点击后更新容器上下文。
+
+        只处理"打开容器/导航"的情况，不猜测"关闭容器"。
+        容器是否关闭由 Phase 6 实际探测决定并写回 pages.yaml。
+        """
         _debug_f7(f"  [DEBUG-F7] _update_container_context_post: "
               f"type='{parsed['type']}', args={parsed['args']}, "
               f"current_context='{self._current_context}'")
 
-        if self._is_container_open(parsed):
-            btn_label = ''
-            if parsed['type'] in ('click_btn', 'click_table_row_btn', 'click_detail_link', 'if_visible') and parsed['args']:
-                btn_label = parsed['args'][0]
+        label = self._extract_button_label(parsed)
+        if not label:
+            # 非按钮操作（输入、选择、勾选等），不触发判断，前缀保持不变
+            _debug_f7(f"  [DEBUG-F7] → 非按钮操作，保持当前前缀")
+            return
 
-            entry = self._discovery_trigger_map.get(btn_label) if btn_label else None
-
-            if entry:
-                result_type = entry.get('result_type')
-                if result_type == 'container':
-                    self.current_container = entry.get('container_type')
-                elif result_type == 'navigation':
-                    self.current_container = 'new_page'
-                    self._pending_nav_wait = True
-                elif result_type == 'inline':
-                    pass
-                self._current_context = btn_label
-                _debug_f7(f"  [DEBUG-F7] → 更新 _current_context='{btn_label}', "
+        entry = self._discovery_trigger_map.get(label)
+        if entry:
+            result_type = entry.get('result_type')
+            if result_type == 'container':
+                self.current_container = entry.get('container_type')
+            elif result_type == 'navigation':
+                self.current_container = 'new_page'
+                self._pending_nav_wait = True
+            elif result_type == 'inline':
+                pass
+            self._current_context = label
+            _debug_f7(f"  [DEBUG-F7] → 更新 _current_context='{label}', "
                       f"current_container='{self.current_container}' (from trigger_map)")
-            else:
-                dominant = self._detect_dominant_container()
-                self.current_container = dominant
-                self._current_context = btn_label or 'unknown'
-                _debug_f7(f"  [DEBUG-F7] → 更新 _current_context='{self._current_context}', "
-                      f"current_container='{self.current_container}' (from heuristic)")
-                if not dominant:
-                    print(f"  [WARN] 按钮 '{btn_label}' 无 discovery 数据且无容器信息")
-        elif self._is_container_close(parsed) and parsed['type'] in ('click_btn', 'if_visible'):
-            self.current_container = None
-            self._current_context = 'list_page'
-            _debug_f7(f"  [DEBUG-F7] → 容器关闭，重置 _current_context='list_page'")
         else:
-            _debug_f7(f"  [DEBUG-F7] → 未触发上下文更新 (is_close={self._is_container_close(parsed)})")
-
-    def _detect_dominant_container(self):
-        """从 resolver groups 推断当前模块的主要容器类型。"""
-        container_fields = {'drawer': 0, 'dialog': 0, 'message-box': 0}
-        groups = self._compat_groups()
-        for gname, fields in groups.items():
-            if gname == 'common_elements':
-                continue
-            for locator in fields.values():
-                if isinstance(locator, str):
-                    ct = _detect_container_type(locator)
-                    if ct and ct in container_fields:
-                        container_fields[ct] += 1
-                        break
-        best = max(container_fields, key=container_fields.get)
-        return best if container_fields[best] > 0 else None
+            # 不在 trigger_map 中 → 不变，保持当前前缀
+            _debug_f7(f"  [DEBUG-F7] → label='{label}' 不在 trigger_map 中，保持当前前缀")
 
     _TRIGGER_TO_SLUG = {
         '新增': 'add', '添加': 'add', '创建': 'add',

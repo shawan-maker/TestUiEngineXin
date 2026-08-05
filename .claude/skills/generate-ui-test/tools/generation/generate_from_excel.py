@@ -222,6 +222,7 @@ def find_discovery_json(discovery_dir, module_slug):
 
 def step_filter_pages(output_dir):
     """过滤 pages YAML，移除 cases/data 未引用的元素（v1 遗留安全网）。"""
+    print(f"  [TRACE] step_filter_pages: output_dir={output_dir}")
     pages_dir = os.path.join(output_dir, 'pages')
     cases_dir = os.path.join(output_dir, 'cases')
     data_dir = os.path.join(output_dir, 'data')
@@ -277,23 +278,27 @@ def step_filter_pages(output_dir):
 
 def _filter_single_pages_yaml(filepath, used_by_group):
     """过滤单个 pages YAML 文件，移除未引用的 field。"""
+    print(f"    [TRACE] _filter_single_pages_yaml: {filepath}")
     ALWAYS_KEEP_GROUPS = {'common_elements', 'page_urls'}
 
     try:
         with open(filepath, encoding='utf-8') as f:
             lines = f.readlines()
+        print(f"      读取 {len(lines)} 行")
     except Exception:
         return 0
 
     new_lines = []
     current_group = None
     removed_count = 0
+    groups_seen = set()
 
     for line in lines:
         stripped = line.rstrip()
 
         if stripped and not line[0].isspace() and stripped.endswith(':') and not stripped.startswith('#'):
             current_group = stripped[:-1].strip()
+            groups_seen.add(current_group)
             new_lines.append(line)
             continue
 
@@ -316,6 +321,8 @@ def _filter_single_pages_yaml(filepath, used_by_group):
         else:
             new_lines.append(line)
 
+    print(f"      groups_seen: {groups_seen}")
+    print(f"      保留 {len(new_lines)} 行, 移除 {removed_count} 个字段")
     if removed_count > 0:
         with open(filepath, 'w', encoding='utf-8') as f:
             f.writelines(new_lines)

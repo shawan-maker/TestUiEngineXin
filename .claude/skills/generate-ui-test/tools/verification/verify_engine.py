@@ -316,13 +316,10 @@ def _verify_count_or_first(page, locator):
     return None
 
 
-def verify_locator_candidates(page, candidates, container_type=None, discovery_ct=None, is_el_select_option=False, return_index=False):
+def verify_locator_candidates(page, candidates, container_type=None, discovery_ct=None, return_index=False):
     """Try multiple locator candidates with multiple container prefixes.
 
     Priority: discovery container_type > default priority > no prefix
-
-    P1-2: el-select options (is_el_select_option=True) — NO container prefix,
-    dropdown panel floats globally outside drawer/dialog.
 
     P2-4: When count>1 in preferred container, fall back to (xpath)[last()]
     for dialog/drawer (last opened = topmost).
@@ -336,10 +333,7 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
         If return_index=True: (matched_locator, matched_prefix, count, candidate_index) or (None, None, 0, None)
     """
     # Build prefix order
-    if is_el_select_option:
-        # P1-2: options are globally in dropdown panel, no container prefix
-        prefix_order = [None]
-    elif discovery_ct:
+    if discovery_ct:
         prefix_order = [discovery_ct] + [p for p in CONTAINER_TYPES if p != discovery_ct] + [None]
     elif container_type:
         prefix_order = [container_type] + [p for p in CONTAINER_TYPES if p != container_type] + [None]
@@ -392,12 +386,7 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
                     else:
                         test_xpath = bare_xpath
 
-                    # C-3 / L-5: el-select options — do NOT inject hidden filter
-                    # (dropdown panel uses display:none internally when not expanded)
-                    if is_el_select_option:
-                        full_xpath = f"xpath={test_xpath}" if not test_xpath.startswith('xpath=') else test_xpath
-                    else:
-                        full_xpath = inject_hidden_filter(f"xpath={test_xpath}")
+                    full_xpath = inject_hidden_filter(f"xpath={test_xpath}")
 
                     try:
                         count = page.locator(full_xpath).count()
@@ -412,7 +401,7 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
                                 continue
                             # 第二轮：保留原有 count>1 逻辑
                             # 3b: strict mode auto-fix — 无前缀时自动尝试容器前缀
-                            if test_prefix is None and not is_el_select_option:
+                            if test_prefix is None:
                                 for try_ct in ['dialog', 'drawer', 'message-box']:
                                     if try_ct not in CONTAINER_XPATH:
                                         continue
@@ -430,7 +419,7 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
                                         # H4: 记录异常（XPath语法错误/超时/其他）便于调试
                                         print(f"    [WARN] H4: 3b strict 前缀探测异常({try_ct}): {_e}")
                             # P2-4: [last()] strategy for dialog/drawer (topmost = last opened)
-                            if test_prefix in ('dialog', 'drawer') and not is_el_select_option:
+                            if test_prefix in ('dialog', 'drawer'):
                                 wrapped_last = f"({test_xpath})[last()]"
                                 full_last = inject_hidden_filter(f"xpath={wrapped_last}")
                                 try:
@@ -441,10 +430,7 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
                                     print(f"    [WARN] H4: [last()] 探测异常: {_e}")
                             # Fallback: [1]
                             wrapped = f"({test_xpath})[1]"
-                            if is_el_select_option:
-                                full_wrapped = f"xpath={wrapped}"
-                            else:
-                                full_wrapped = inject_hidden_filter(f"xpath={wrapped}")
+                            full_wrapped = inject_hidden_filter(f"xpath={wrapped}")
                             count2 = page.locator(full_wrapped).count()
                             if count2 == 1:
                                 return _ret(full_wrapped, test_prefix, 1, candidate_index)
@@ -1134,7 +1120,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
 
     verified_locator, matched_prefix, count, matched_index = verify_locator_candidates(
         page, xpaths, container_type=current_ct, discovery_ct=discovery_ct,
-        is_el_select_option=False, return_index=True
+        return_index=True
     )
 
     # Determine hit source
@@ -1230,7 +1216,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
 
             _alt_vl, _alt_mp, _alt_cnt, _alt_idx = verify_locator_candidates(
                 page, _alt_xpaths, container_type=current_ct,
-                discovery_ct=discovery_ct, is_el_select_option=False,
+                discovery_ct=discovery_ct,
                 return_index=True
             )
             if _alt_vl:

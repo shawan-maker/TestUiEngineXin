@@ -117,11 +117,12 @@ def _execute_direct(page, step, pages_dict, data_dict):
     locator = params.get('locator', '')
     if locator.startswith('${'):
         locator = resolve_locator({'locator': locator}, pages_dict)
+    if '${' in locator:
         locator = resolve_var(locator, data_dict)
 
     # Resolve value (for fill_value)
     value = params.get('value', '')
-    if isinstance(value, str) and value.startswith('${'):
+    if isinstance(value, str) and '${' in value:
         value = resolve_var(value, data_dict)
 
     try:
@@ -221,7 +222,6 @@ def _process_if_element_visible(page, step, pages_dict, data_dict,
             v_loc, v_ct, v_count, v_idx = verify_locator_candidates(
                 page, [cond_xpath],
                 container_type=None,
-                is_el_select_option=False,
                 return_index=True
             )
 

@@ -1092,74 +1092,111 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             print(f"    [TRACE-P6]   KB[{i}]: has_prefix={has_prefix}, {kb_xpath[:100]}")
 
         # ─── el-select 展开步骤定位器转换 ───
-        # 同时保留 input 候选和转换后的 div 候选，让 VLC 验证哪个 count=1
-        # - input 候选：run8 验证有效（点击 input 展开下拉框）
-        # - div 候选：DOM 中 el-select 容器是 input 的祖先，部分场景必须用 div
-        if elem_type == 'el-select':
-            _field_name = ''
-            if raw_locator_ref and raw_locator_ref.startswith('${'):
-                _field_name = raw_locator_ref.split('.')[-1].rstrip('}')
+    # ─── el-select 展开步骤定位器转换 ───
+    # 同时保留 input 候选和转换后的 div 候选，让 VLC 验证哪个 count=1
+    # - input 候选：run8 验证有效（点击 input 展开下拉框）
+    # - div 候选：DOM 中 el-select 容器是 input 的祖先，部分场景必须用 div
+    if elem_type == 'el-select':
+        _field_name = ''
+        if raw_locator_ref and raw_locator_ref.startswith('${'):
+            _field_name = raw_locator_ref.split('.')[-1].rstrip('}')
 
-            _is_expand = _is_el_select_expand(_field_name, desc)
-            # [TRACE-P6-ELSELECT] el-select 类型推断详情
-            print(f"    [TRACE-P6-ELSELECT] field_name='{_field_name}', is_expand={_is_expand}, "
-                  f"desc='{desc}'")
-            if _is_expand:
-                # 打印原始 locator 的索引信息，用于诊断 _2_expand 索引丢失问题
-                _resolved_for_dbg = locator  # 已 resolve 的 locator
-                _idx_match = re.search(r'\)\[(\d+)\]\s*$', _resolved_for_dbg)
-                _idx_val = _idx_match.group(1) if _idx_match else 'N/A(no trailing [n])'
-                print(f"    [TRACE-P6-ELSELECT] resolved_locator index=[{_idx_val}], "
-                      f"locator={_resolved_for_dbg[:120]}")
-                # 检查 _2_ 变体是否索引正确
-                if '_2_' in _field_name and _idx_val == '1':
-                    print(f"    [WARN-ELSELECT] _2_ variant has index [1]! "
-                          f"Expected [2]. field='{_field_name}'")
+        _is_expand = _is_el_select_expand(_field_name, desc)
+        # [TRACE-P6-ELSELECT] el-select 类型推断详情
+        print(f"    [TRACE-P6-ELSELECT] field_name='{_field_name}', is_expand={_is_expand}, "
+              f"desc='{desc}'")
+        if _is_expand:
+            # 打印原始 locator 的索引信息，用于诊断 _2_expand 索引丢失问题
+            _resolved_for_dbg = locator  # 已 resolve 的 locator
+            _idx_match = re.search(r'\)\[(\d+)\]\s*$', _resolved_for_dbg)
+            _idx_val = _idx_match.group(1) if _idx_match else 'N/A(no trailing [n])'
+            print(f"    [TRACE-P6-ELSELECT] resolved_locator index=[{_idx_val}], "
+                  f"locator={_resolved_for_dbg[:120]}")
+            # 检查 _2_ 变体是否索引正确
+            if '_2_' in _field_name and _idx_val == '1':
+                print(f"    [WARN-ELSELECT] _2_ variant has index [1]! "
+                      f"Expected [2]. field='{_field_name}'")
 
-            if _is_expand:
-                # 提取原始 locator 的索引（用于 _2_expand 等变体）
-                _orig_idx = '1'
-                if locator:
-                    _idx_m = re.search(r'\)\[(\d+)\]\s*$', locator)
-                    if _idx_m:
-                        _orig_idx = _idx_m.group(1)
-                print(f"    [TRACE-P6] el-select expand: 保留 input + 生成 div 双候选, orig_idx=[{_orig_idx}]")
-                div_locators = []
-                for kb_xpath in kb_locators:
-                    if 'input[@class' in kb_xpath or 'el-input__inner' in kb_xpath:
-                        dual_cands = _generate_el_select_candidates(kb_xpath)
-                        # 当原始 locator 索引不是 [1] 时，KB div 候选也要用该索引
-                        if _orig_idx != '1':
-                            dual_cands = [
-                                re.sub(r'\)\[1\](\s*)$', f')[{_orig_idx}]\\1', c)
-                                for c in dual_cands
-                            ]
-                            print(f"    [TRACE-P6-ELSELECT] KB div candidates index adjusted: [1] → [{_orig_idx}]")
-                        div_locators.extend(dual_cands)
-                # input 候选在前（VLC 优先验证），div 候选在后作为补充
-                # 当索引非 [1] 时，将原始 locator 提前到 input 候选之前（VLC 优先验证正确索引）
-                if _orig_idx != '1' and locator and not locator.startswith('${'):
-                    _orig_bare = (locator.replace('xpath=', '', 1)
-                                  if locator.startswith('xpath=') else locator)
-                    candidates.append((_orig_bare, 'original'))
-                    print(f"    [TRACE-P6-ELSELECT] Original locator (idx=[{_orig_idx}]) promoted to front")
-                for kb_xpath in kb_locators:
-                    # 当索引非 [1] 时，KB input 候选也需要调整索引
+        if _is_expand:
+            # ─── 方案B：辅助函数 + kb-label 候选生成 ───
+            def _replace_trailing_index(xpath: str, new_idx: str) -> str:
+                """只替换 xpath 最末尾的 )[N]，避免误改中间索引"""
+                m = re.search(r'\)\[(\d+)\]\s*$', xpath)
+                if m and m.group(1) == '1':
+                    return xpath[:m.start()] + f')[{new_idx}]'
+                return xpath
+
+            # 提取原始 locator 的索引（用于 _2_expand 等变体）
+            _orig_idx = '1'
+            if locator:
+                _idx_m = re.search(r'\)\[(\d+)\]\s*$', locator)
+                if _idx_m:
+                    _orig_idx = _idx_m.group(1)
+            print(f"    [TRACE-P6] el-select expand: 保留 input + 生成 div 双候选, orig_idx=[{_orig_idx}]")
+
+            # ─── 方案B：新增 kb-label 候选（基于 //label 的 div 容器）───
+            if label:
+                _kb_label_cands = [
+                    # Pattern L1: label 的兄弟元素后代中的 el-select（标准 Element UI 布局）
+                    f"(//label[contains(.,'{label}')]//following-sibling::*[self::div or self::span]"
+                    f"//div[contains(@class,'el-select') and not(contains(@class,'el-select-dropdown'))])[{_orig_idx}]",
+                    # Pattern L2: label 的兄弟元素本身就是 el-select（紧凑布局）
+                    f"(//label[contains(.,'{label}')]//following-sibling::*[self::div or self::span]"
+                    f"[contains(@class,'el-select') and not(contains(@class,'el-select-dropdown'))])[{_orig_idx}]",
+                ]
+                print(f"    [TRACE-P6-ELSELECT] kb-label candidates generated: {len(_kb_label_cands)} patterns")
+
+            div_locators = []
+            for kb_xpath in kb_locators:
+                if 'input[@class' in kb_xpath or 'el-input__inner' in kb_xpath:
+                    dual_cands = _generate_el_select_candidates(kb_xpath)
+                    # 当原始 locator 索引不是 [1] 时，KB div 候选也要用该索引（修复 bug：只替换尾部索引）
                     if _orig_idx != '1':
-                        _kb_adj = re.sub(r'\)\[1\](\s*)$', f')[{_orig_idx}]\\1', kb_xpath)
-                        candidates.append((_kb_adj, 'kb'))
-                    else:
-                        candidates.append((kb_xpath, 'kb'))
-                for div_xpath in div_locators:
-                    if not any(c[0] == div_xpath for c in candidates):
-                        candidates.append((div_xpath, 'kb-div'))
-            else:
-                for kb_xpath in kb_locators:
+                        dual_cands = [_replace_trailing_index(c, _orig_idx) for c in dual_cands]
+                        print(f"    [TRACE-P6-ELSELECT] KB div candidates index adjusted: [1] → [{_orig_idx}]")
+                    div_locators.extend(dual_cands)
+
+            # ─── 候选排序策略 ───
+            # 1. kb-label 候选（idx=[N]）优先（更可靠的 label 定位器）
+            # 2. 原始 locator（idx=[N]）作为 fallback
+            # 3. kb input 候选（idx 调整后）
+            # 4. kb-div 候选（idx 调整后）
+
+            # Step 1: kb-label 候选（方案B 核心改进）— 优先于 original
+            if label and _kb_label_cands:
+                for _kb_loc in _kb_label_cands:
+                    if not any(c[0] == _kb_loc for c in candidates):
+                        candidates.append((_kb_loc, 'kb-label'))
+                print(f"    [TRACE-P6-ELSELECT] kb-label candidates added: {len(_kb_label_cands)}")
+
+            # Step 2: 原始 locator 作为 fallback
+            if _orig_idx != '1' and locator and not locator.startswith('${'):
+                _orig_bare = (locator.replace('xpath=', '', 1)
+                              if locator.startswith('xpath=') else locator)
+                if not any(c[0] == _orig_bare for c in candidates):
+                    candidates.append((_orig_bare, 'original'))
+                print(f"    [TRACE-P6-ELSELECT] Original locator (idx=[{_orig_idx}]) as fallback")
+
+            # Step 3: kb input 候选
+            for kb_xpath in kb_locators:
+                # 当索引非 [1] 时，KB input 候选也需要调整索引（修复 bug：只替换尾部索引）
+                if _orig_idx != '1':
+                    _kb_adj = _replace_trailing_index(kb_xpath, _orig_idx)
+                    candidates.append((_kb_adj, 'kb'))
+                else:
                     candidates.append((kb_xpath, 'kb'))
+
+            # Step 4: kb-div 候选
+            for div_xpath in div_locators:
+                if not any(c[0] == div_xpath for c in candidates):
+                    candidates.append((div_xpath, 'kb-div'))
         else:
             for kb_xpath in kb_locators:
                 candidates.append((kb_xpath, 'kb'))
-        # ─── el-select 展开步骤定位器转换结束 ───
+    else:
+        for kb_xpath in kb_locators:
+            candidates.append((kb_xpath, 'kb'))
+    # ─── el-select 展开步骤定位器转换结束 ───
 
     # 优先级 1: Discovery locator (Phase 4 verified)
     discovery_ct = None

@@ -2,7 +2,9 @@
 """测试 _generate_xpath_from_kb 的处理逻辑"""
 
 import sys
-sys.path.insert(0, '.claude/skills/generate-ui-test/tools')
+import os
+tools_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools")
+sys.path.insert(0, tools_dir)
 
 from probe.probe_utils import get_kb_patterns
 
@@ -10,7 +12,7 @@ from probe.probe_utils import get_kb_patterns
 def _inject_button_disabled_filter(xpath):
     disabled_check = (
         "not(contains(@class,'is-disabled'))"
-        " and not(ancestor::*[contains(@class,'is-disabled')])"
+        " and not(ancestor-or-self::*[contains(@class,'is-disabled')])"
     )
     last_bracket = xpath.rfind(']')
     if last_bracket < 0:

@@ -19,7 +19,7 @@ if sys.platform == 'win32':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 # 添加 tools 目录到路径
-tools_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '.claude', 'skills', 'generate-ui-test', 'tools'))
+tools_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools")
 sys.path.insert(0, tools_dir)
 
 from verification.verify_engine import _convert_input_to_el_select, _generate_el_select_candidates
@@ -129,8 +129,8 @@ def test_case_3():
         "xpath=(//*[contains(text(),'网络')]"
         "/following-sibling::*[self::div or self::span]"
         "//input[@class='el-input__inner'"
-        " and not(ancestor::*[contains(@class,'is-hidden')])"
-        " and not(ancestor::*[contains(@style,'display: none')])])[2]"
+        " and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
+        " and not(ancestor-or-self::*[contains(@style,'display: none')])])[2]"
     )
 
     print(f"\n输入 (nth=2, 带 hidden filter):")

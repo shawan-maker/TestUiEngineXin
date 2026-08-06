@@ -23,14 +23,14 @@ class TestConvertInputToElSelect:
 
     def test_nested_brackets(self):
         """T2: 嵌套 [] 正确处理（hidden filter）+ //div"""
-        input_locator = "xpath=//label//input[@class='el-input__inner' and not(ancestor::*[contains(@style,'display: none')])]"
+        input_locator = "xpath=//label//input[@class='el-input__inner' and not(ancestor-or-self::*[contains(@style,'display: none')])]"
         expected = "xpath=(//label//div[contains(@class,'el-select') and not(contains(@class,'el-select-dropdown'))])[1]"
         result = _convert_input_to_el_select(input_locator)
         assert result == expected
 
     def test_user_actual_scenario(self):
         """T3: 用户实际场景（项目字段）+ //div"""
-        input_locator = "xpath=//*[contains(text(),'项目')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner' and not(ancestor::*[contains(@style,'display: none')])]"
+        input_locator = "xpath=//*[contains(text(),'项目')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner' and not(ancestor-or-self::*[contains(@style,'display: none')])]"
         expected = "xpath=(//*[contains(text(),'项目')]/following-sibling::*[self::div or self::span]//div[contains(@class,'el-select') and not(contains(@class,'el-select-dropdown'))])[1]"
         result = _convert_input_to_el_select(input_locator)
         assert result == expected
@@ -59,7 +59,7 @@ class TestConvertInputToElSelect:
 
     def test_preserve_n2(self):
         """T7: 已包裹 ()[2] — 保留 [2] 不变"""
-        input_locator = "xpath=(//*[contains(text(),'网络')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner' and not(ancestor::*[contains(@style,'display: none')])])[2]"
+        input_locator = "xpath=(//*[contains(text(),'网络')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner' and not(ancestor-or-self::*[contains(@style,'display: none')])])[2]"
         result = _convert_input_to_el_select(input_locator)
         assert result.endswith(')[2]')
         assert '//div[contains' in result
@@ -78,7 +78,7 @@ class TestConvertInputToElSelect:
     def test_bracket_counting(self):
         """T9: 括号计数验证（复杂嵌套场景）"""
         result = _convert_input_to_el_select(
-            "xpath=//input[@class='el-input__inner' and not(ancestor::*[contains(@style,'display: none')])]"
+            "xpath=//input[@class='el-input__inner' and not(ancestor-or-self::*[contains(@style,'display: none')])]"
         )
         assert result.count('(') == result.count(')')
         xpath = result[6:]
@@ -102,7 +102,7 @@ class TestGenerateElSelectCandidates:
 
     def test_dual_candidates_standard_pattern(self):
         """T1: 标准 following-sibling 模式 → 生成双候选"""
-        input_locator = "//*[contains(text(),'网络')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner' and not(ancestor::*[contains(@style,'display: none')])]"
+        input_locator = "//*[contains(text(),'网络')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner' and not(ancestor-or-self::*[contains(@style,'display: none')])]"
 
         from verification.verify_engine import _generate_el_select_candidates
         candidates = _generate_el_select_candidates(input_locator)
@@ -158,7 +158,7 @@ class TestGenerateElSelectCandidates:
 
     def test_bracket_balance(self):
         """T5: 括号平衡验证"""
-        input_locator = "//*[contains(text(),'网络')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner' and not(ancestor::*[contains(@style,'display: none')])]"
+        input_locator = "//*[contains(text(),'网络')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner' and not(ancestor-or-self::*[contains(@style,'display: none')])]"
 
         from verification.verify_engine import _generate_el_select_candidates
         candidates = _generate_el_select_candidates(input_locator)

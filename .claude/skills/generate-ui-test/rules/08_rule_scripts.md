@@ -133,7 +133,7 @@ Cookie 和 localStorage 认证信息统一在 `config.yaml` 中维护，suite �
 pages YAML 中所有 XPath 定位器的**最终元素标签**中必须加上隐藏过滤属性：
 
 ```xpath
-and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])
+and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])
 ```
 
 **例外**：`//*[contains(.,'xx')]` 这类通用文本匹配断言定位器不需要。
@@ -146,7 +146,7 @@ el-select 的下拉面板可能出现在输入框上方（`top-start`）或下�
 
 ```yaml
 # ✅ 正确 — 匹配双向面板
-option: "xpath=(//div[(@x-placement='bottom-start' or @x-placement='top-start') and not(ancestor::*[contains(@style,'display: none')])]//li[contains(.,'选项文本')])[1]"
+option: "xpath=(//div[(@x-placement='bottom-start' or @x-placement='top-start') and not(ancestor-or-self::*[contains(@style,'display: none')])]//li[contains(.,'选项文本')])[1]"
 
 # ❌ 错误 — 只匹配下方面板
 option: "xpath=//div[@x-placement='bottom-start']//li[contains(.,'选项文本')]"
@@ -372,7 +372,7 @@ locator: ".el-select >> nth=0"
 
 1. **团队习惯** — 项目组成员习惯使用 XPath，统一降低认知成本
 2. **一致性** — 所有定位器格式统一，便于审查和维护
-3. **隐藏过滤统一** — 纯 XPath 可以在每层都加上 `not(ancestor::*[contains(@class,'is-hidden')])` 过滤
+3. **隐藏过滤统一** — 纯 XPath 可以在每层都加上 `not(ancestor-or-self::*[contains(@class,'is-hidden')])` 过滤
 4. **精确度** — XPath 可以加更多限定条件，CSS 类选择器过于宽泛
 
 ## R4.22 断言策略：统一 except_to_be_visible
@@ -614,9 +614,9 @@ XPath 中禁止使用 `text()='xxx'`（精确等号），根据场景区分使�
 **正确**（容器前缀根据实际 UI 选择 el-drawer 或 el-dialog，参见 R4.38）：
 ```yaml
 # ✅ 抽屉内的确认按钮
-confirm_btn: "xpath=//div[contains(@class,'el-drawer')]//button[contains(.,'确') and contains(.,'定') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]"
+confirm_btn: "xpath=//div[contains(@class,'el-drawer')]//button[contains(.,'确') and contains(.,'定') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]"
 # ✅ 对话框内的确认按钮
-confirm_btn: "xpath=//div[contains(@class,'el-dialog')]//button[contains(.,'确') and contains(.,'定') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]"
+confirm_btn: "xpath=//div[contains(@class,'el-dialog')]//button[contains(.,'确') and contains(.,'定') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]"
 ```
 
 **禁止**：

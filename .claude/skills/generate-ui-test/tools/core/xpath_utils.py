@@ -18,8 +18,8 @@ import re
 # ============================================================================
 
 HIDDEN_FILTER = (
-    " and not(ancestor::*[contains(@class,'is-hidden')])"
-    " and not(ancestor::*[contains(@style,'display: none')])"
+    " and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
+    " and not(ancestor-or-self::*[contains(@style,'display: none')])"
 )
 
 # 新建 predicate 时，去掉开头的 " and "
@@ -56,19 +56,21 @@ CONTAINER_CLASS_PATTERNS = [
 _OUTER_WRAP_RE = re.compile(r'^\(.*\)\[(\d+|last\(\))\]$')
 
 
-_HIDDEN_FILTER_SIGNATURE = "not(ancestor::*[contains(@class,'is-hidden')])"
+_HIDDEN_FILTER_SIGNATURE = "not(ancestor-or-self::*[contains(@class,'is-hidden')])"
 
 def has_hidden_filter(locator: str) -> bool:
-    """检测 locator 是否已包含隐藏过滤属性（精确签名匹配）
+    """检测 locator 是否已包含隐藏过滤属性（兼容新旧两种签名）
 
-    使用完整的 not(ancestor::...) 签名匹配，避免 is-hidden 作为
-    class 名匹配（如 contains(@class,'is-hidden')）时的子串误判。
+    使用完整的 not(ancestor-or-self::...) / not(ancestor::...) 签名匹配，
+    避免 is-hidden 作为 class 名匹配时的子串误判。
     HIDDEN_FILTER 总是同时注入 is-hidden + display:none 两个条件，
     检测其中一个的完整签名即可。
+    兼容旧版 ancestor:: 和新版 ancestor-or-self:: 两种写法。
     """
     if not locator or not isinstance(locator, str):
         return False
-    return _HIDDEN_FILTER_SIGNATURE in locator
+    return (_HIDDEN_FILTER_SIGNATURE in locator
+            or "not(ancestor::*[contains(@class,'is-hidden')])" in locator)
 
 
 def _is_exempt(locator: str) -> bool:
@@ -406,7 +408,7 @@ def apply_hidden_filters_to_pages(pages_data: dict, source_files: dict, pages_di
 
 # R3.14：禁止使用 not(ancestor::...) 负向排除
 _NOT_ANCESTOR_RE = re.compile(
-    r"\s+and\s+not\(ancestor::\*\[contains\(@class,'(?:el-drawer|el-dialog|el-message-box)'\)\]\)"
+    r"\s+and\s+not\(ancestor(?:-or-self)?::\*\[contains\(@class,'(?:el-drawer|el-dialog|el-message-box)'\)\]\)"
 )
 
 

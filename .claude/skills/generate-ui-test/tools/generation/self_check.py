@@ -240,7 +240,7 @@ class SelfCheckLayer:
                 if text and isinstance(text, str) and not text.startswith('${'):
                     new_locator = (
                         f"xpath=//*[contains(.,'{text}') and "
-                        f"not(ancestor::*[contains(@style,'display:none') or "
+                        f"not(ancestor-or-self::*[contains(@style,'display:none') or "
                         f"contains(@style,'display: none')])]"
                     )
                     step['keyword'] = 'except_to_be_visible'

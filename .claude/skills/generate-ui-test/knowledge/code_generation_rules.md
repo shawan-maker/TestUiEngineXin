@@ -352,7 +352,7 @@ case 中出现的**每一个** locator（包括 L3 关键字内部的）都必�
 所有 XPath 定位器的**最终元素标签**中必须包含隐藏过滤属性：
 
 ```xpath
-and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])
+and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])
 ```
 
 **处理时机**（三道防线，确保不遗漏）：
@@ -366,10 +366,10 @@ and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(
 **正确示例**：
 ```yaml
 # ✅ 隐藏过滤在最终元素 span 上
-option: "xpath=//li[@role='menuitem']//span[contains(text(),'{option_text}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]"
+option: "xpath=//li[@role='menuitem']//span[contains(text(),'{option_text}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]"
 
 # ❌ 隐藏过滤只在父元素 li 上（子元素 span 可能被隐藏但未被过滤）
-option: "xpath=//li[@role='menuitem' and not(ancestor::*[contains(@class,'is-hidden')])]//span[contains(text(),'{option_text}')]"
+option: "xpath=//li[@role='menuitem' and not(ancestor-or-self::*[contains(@class,'is-hidden')])]//span[contains(text(),'{option_text}')]"
 ```
 
 **例外**：以下定位器不需要隐藏过滤：
@@ -390,7 +390,7 @@ el-select 的下拉面板可能出现在输入框上方（`top-start`）或下�
 
 ```yaml
 # ✅ 正确 — 匹配双向面板
-option: "xpath=(//div[(@x-placement='bottom-start' or @x-placement='top-start') and not(ancestor::*[contains(@style,'display: none')])]//li[contains(.,'选项文本')])[1]"
+option: "xpath=(//div[(@x-placement='bottom-start' or @x-placement='top-start') and not(ancestor-or-self::*[contains(@style,'display: none')])]//li[contains(.,'选项文本')])[1]"
 
 # ❌ 错误 — 只匹配下方面板
 option: "xpath=//div[@x-placement='bottom-start']//li[contains(.,'选项文本')]"

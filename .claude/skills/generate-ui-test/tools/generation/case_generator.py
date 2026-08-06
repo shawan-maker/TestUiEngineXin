@@ -425,8 +425,8 @@ class CaseGenerator:
             "(//div[(@x-placement='bottom-start' "
             "or @x-placement='top-start')]//li"
             "[contains(@class,'el-select-dropdown__item')"
-            " and not(ancestor::*[contains(@class,'is-hidden')])"
-            " and not(ancestor::*[contains(@style,'display: none')])])[1]"
+            " and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
+            " and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
         )
         self._track_field(group, f'{field}_first_option',
                           locator=f'xpath={first_option_xpath}',
@@ -452,8 +452,8 @@ class CaseGenerator:
             f"(//div[(@x-placement='bottom-start' "
             f"or @x-placement='top-start')]//li"
             f"[contains(.,'{option_ref}')"
-            f" and not(ancestor::*[contains(@class,'is-hidden')])"
-            f" and not(ancestor::*[contains(@style,'display: none')])])[1]"
+            f" and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
+            f" and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
         )
 
         # === Step 1: 点击下拉框 ===
@@ -1435,8 +1435,8 @@ class CaseGenerator:
                 f"(//label[contains(.,'{label}')]"
                 f"//following-sibling::*[self::div or self::span]"
                 f"//*[contains(text(),'{card_value_ref}')"
-                f" and not(ancestor::*[contains(@class,'is-hidden')])"
-                f" and not(ancestor::*[contains(@style,'display: none')])])[1]"
+                f" and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
+                f" and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
             )
             inline_xpath = apply_container_prefix(inline_xpath, self.current_container)
 
@@ -2039,7 +2039,7 @@ class CaseGenerator:
                     'keyword': 'wait_for_time',
                     'params': {'timeout': 1000},
                 })
-                option_ref = f"xpath=//*[(@x-placement='top-end' or @x-placement='bottom-end')]//*[contains(text(),'{action}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]"
+                option_ref = f"xpath=//*[(@x-placement='top-end' or @x-placement='bottom-end')]//*[contains(text(),'{action}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]"
                 steps.append({
                     'desc': f'选择「{action}」',
                     'keyword': 'click_element',
@@ -2050,7 +2050,7 @@ class CaseGenerator:
                     'desc': "[待确认] 点击更多按钮",
                     'keyword': 'click_element',
                     'params': {'locator': "xpath=(//*[contains(text(),'更多')]"
-                               "[not(ancestor::*[contains(@class,'el-select-dropdown')])]"
+                               "[not(ancestor-or-self::*[contains(@class,'el-select-dropdown')])]"
                                "[ancestor::tbody])[1]"},
                 })
                 steps.append({
@@ -2060,8 +2060,8 @@ class CaseGenerator:
                 })
                 option_ref = (f"xpath=//*[(@x-placement='top-end' or @x-placement='bottom-end')]"
                               f"//*[contains(text(),'{action}')"
-                              f" and not(ancestor::*[contains(@class,'is-hidden')])"
-                              f" and not(ancestor::*[contains(@style,'display: none')])]")
+                              f" and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
+                              f" and not(ancestor-or-self::*[contains(@style,'display: none')])]")
                 steps.append({
                     'desc': f'[待确认] 选择「{action}」',
                     'keyword': 'click_element',
@@ -2098,7 +2098,7 @@ class CaseGenerator:
                     'keyword': 'wait_for_time',
                     'params': {'timeout': 1000},
                 })
-                option_ref = f"xpath=//*[(@x-placement='top-end' or @x-placement='bottom-end')]//*[contains(text(),'{action}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]"
+                option_ref = f"xpath=//*[(@x-placement='top-end' or @x-placement='bottom-end')]//*[contains(text(),'{action}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]"
                 steps.append({
                     'desc': f'点击「{action}」',
                     'keyword': 'click_element',
@@ -2120,7 +2120,7 @@ class CaseGenerator:
                         'desc': "[待确认] 点击更多按钮",
                         'keyword': 'click_element',
                         'params': {'locator': "xpath=(//*[contains(text(),'更多')]"
-                                   "[not(ancestor::*[contains(@class,'el-select-dropdown')])]"
+                                   "[not(ancestor-or-self::*[contains(@class,'el-select-dropdown')])]"
                                    "[ancestor::tbody])[1]"},
                     })
                 steps.append({
@@ -2130,8 +2130,8 @@ class CaseGenerator:
                 })
                 option_ref = (f"xpath=//*[(@x-placement='top-end' or @x-placement='bottom-end')]"
                               f"//*[contains(text(),'{action}')"
-                              f" and not(ancestor::*[contains(@class,'is-hidden')])"
-                              f" and not(ancestor::*[contains(@style,'display: none')])]")
+                              f" and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
+                              f" and not(ancestor-or-self::*[contains(@style,'display: none')])]")
                 steps.append({
                     'desc': f'点击「{action}」',
                     'keyword': 'click_element',
@@ -2151,8 +2151,8 @@ class CaseGenerator:
                 detail_locator = (
                     f"xpath=//td[not(contains(@class,'is-hidden'))]"
                     f"//*[contains(text(),'{safe_text}')"
-                    f" and not(ancestor::*[contains(@class,'is-hidden')])"
-                    f" and not(ancestor::*[contains(@style,'display: none')])]"
+                    f" and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
+                    f" and not(ancestor-or-self::*[contains(@style,'display: none')])]"
                 )
                 # 使用唯一 field key 避免多 case 冲突
                 case_suffix = self.current_case_prefix.replace('case', '').rstrip('_') or '00'
@@ -2502,8 +2502,8 @@ class CaseGenerator:
                 xpath = (
                     f"//*[contains(text(),'{label}')]//following-sibling::i"
                     f"[contains(@class,'el-icon-close')"
-                    f" and not(ancestor::*[contains(@class,'is-hidden')])"
-                    f" and not(ancestor::*[contains(@style,'display: none')])]"
+                    f" and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
+                    f" and not(ancestor-or-self::*[contains(@style,'display: none')])]"
                 )
                 steps.append({
                     'desc': f'点击「{label}」的关闭按钮',
@@ -2514,8 +2514,8 @@ class CaseGenerator:
                 # 无标签：生成通用 XPath（KB 模板 pattern[1] + 隐藏过滤）
                 xpath = (
                     "//i[contains(@class,'el-icon-close')"
-                    " and not(ancestor::*[contains(@class,'is-hidden')])"
-                    " and not(ancestor::*[contains(@style,'display: none')])]"
+                    " and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
+                    " and not(ancestor-or-self::*[contains(@style,'display: none')])]"
                 )
                 steps.append({
                     'desc': '点击关闭按钮',

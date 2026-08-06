@@ -14,7 +14,7 @@
 **所有元素表达式的最后一个标签中必须加上隐藏过滤属性**（查找非隐藏的元素）：
 
 ```xpath
-and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])
+and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])
 ```
 
 如果标签已有属性条件，前面加 `and` 连接。
@@ -32,13 +32,13 @@ and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(
 ### 通用输入框
 
 ```xpath
-//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner' and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner' and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ### 通用文本框
 
 ```xpath
-//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//textarea[not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//textarea[not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ---
@@ -52,7 +52,7 @@ _点击展开下拉框_
 - **关键字**：`click_element`
 
 ```xpath
-//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner' and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner' and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ### Step 2：运行时判断是否可编辑（`_editable`）
@@ -63,7 +63,7 @@ _条件分支：可编辑走 fill+选项，readonly 走第一项_
 - **timeout**：`500`（避免 readonly 分支 3 秒空等）
 
 ```xpath
-//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner' and not(@readonly) and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner' and not(@readonly) and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 > 与 `_select` 相同的 XPath，额外加了 `and not(@readonly)` 条件。
@@ -77,7 +77,7 @@ _条件分支：可编辑走 fill+选项，readonly 走第一项_
 - **关键字**：`fill_value`
 
 ```xpath
-//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner' and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner' and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 **选择匹配选项**（`_option`）：
@@ -85,7 +85,7 @@ _条件分支：可编辑走 fill+选项，readonly 走第一项_
 - **关键字**：`click_element`
 
 ```xpath
-(//div[(@x-placement='bottom-start' or @x-placement='top-start') and not(ancestor::*[contains(@style,'display: none')])]//li[not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])][contains(.,'{option_text}')])[1]
+(//div[(@x-placement='bottom-start' or @x-placement='top-start') and not(ancestor-or-self::*[contains(@style,'display: none')])]//li[not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])][contains(.,'{option_text}')])[1]
 ```
 
 #### else_steps（readonly 分支）
@@ -95,7 +95,7 @@ _条件分支：可编辑走 fill+选项，readonly 走第一项_
 - **关键字**：`click_element`
 
 ```xpath
-(//div[(@x-placement='bottom-start' or @x-placement='top-start') and not(ancestor::*[contains(@style,'display: none')])]//li[contains(@class,'el-select-dropdown__item') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])])[1]
+(//div[(@x-placement='bottom-start' or @x-placement='top-start') and not(ancestor-or-self::*[contains(@style,'display: none')])]//li[contains(@class,'el-select-dropdown__item') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]
 ```
 
 > ⚠️ then_steps 搜索文本与选项文本必须一致（均来自用户用例），禁止从 probe 的 select_options 中随意选取。
@@ -112,7 +112,7 @@ _点击展开级联面板_
 - **关键字**：`click_element`
 
 ```xpath
-//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner' and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner' and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ### 第二步及后续：勾选/展开某一级（可重复多次）
@@ -122,11 +122,11 @@ _勾选/展开某一级_
 - **关键字**：`click_element`
 
 ```xpath
-//li[@role='menuitem' and contains(.,'{option_text}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]//span[@class='el-checkbox__inner']
+//li[@role='menuitem' and contains(.,'{option_text}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]//span[@class='el-checkbox__inner']
 ```
 
 ```xpath
-//li[@role='menuitem' and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]//span[contains(text(),'{option_text}')]
+//li[@role='menuitem' and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]//span[contains(text(),'{option_text}')]
 ```
 
 ---
@@ -140,7 +140,7 @@ _点击展开日期面板_
 - **关键字**：`click_element`
 
 ```xpath
-//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner' and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner' and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ### 选择今天（用 class="today" 匹配，不是文本）
@@ -150,7 +150,7 @@ _选择今天_
 - **关键字**：`click_element`
 
 ```xpath
-//div[@x-placement='bottom-start' or @x-placement='top-start']//table[not(contains(@style,'display: none')) and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]//td[contains(@class,'today')]
+//div[@x-placement='bottom-start' or @x-placement='top-start']//table[not(contains(@style,'display: none')) and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]//td[contains(@class,'today')]
 ```
 
 ### 选择此刻
@@ -160,7 +160,7 @@ _选择此刻_
 - **关键字**：`click_element`
 
 ```xpath
-//div[@x-placement='bottom-start' or @x-placement='top-start']//table[not(contains(@style,'display: none')) and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]//button[contains(.,'此刻')]
+//div[@x-placement='bottom-start' or @x-placement='top-start']//table[not(contains(@style,'display: none')) and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]//button[contains(.,'此刻')]
 ```
 
 ### 选择当月
@@ -170,7 +170,7 @@ _选择当月_
 - **关键字**：`click_element`
 
 ```xpath
-//table[@class='el-month-table' and not(contains(@style,'display: none')) and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]//td[@class='today' or @class='current']
+//table[@class='el-month-table' and not(contains(@style,'display: none')) and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]//td[@class='today' or @class='current']
 ```
 
 ### 选择起始时间（日期范围）
@@ -180,7 +180,7 @@ _选择起始时间_
 - **关键字**：`click_element`
 
 ```xpath
-(//div[contains(@class,'is-left') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]//*[contains(@class,'available')])[1]
+(//div[contains(@class,'is-left') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]//*[contains(@class,'available')])[1]
 ```
 
 ### 选择结束时间
@@ -190,7 +190,7 @@ _选择结束时间_
 - **关键字**：`click_element`
 
 ```xpath
-(//div[contains(@class,'is-right') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]//*[@class='available'])[1]
+(//div[contains(@class,'is-right') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]//*[@class='available'])[1]
 ```
 
 > ⚠️ "今天"用 `class="today"` 匹配，Element UI 日期选择器的"今天"单元格**不显示"今天"文字**。
@@ -200,15 +200,15 @@ _选择结束时间_
 ## 五、下载导出按钮
 
 ```xpath
-//span[(contains(.,'导出') or contains(.,'下载')) and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//span[(contains(.,'导出') or contains(.,'下载')) and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ```xpath
-//i[@class='el-icon-download' and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//i[@class='el-icon-download' and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ```xpath
-//div[@role='tabpanel' and not(contains(@style,'display: none'))]//i[@class='el-icon-download' and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//div[@role='tabpanel' and not(contains(@style,'display: none'))]//i[@class='el-icon-download' and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ---
@@ -216,19 +216,19 @@ _选择结束时间_
 ## 六、搜索按钮
 
 ```xpath
-(//i[@class='el-icon-search' and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])])[last()]
+(//i[@class='el-icon-search' and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])])[last()]
 ```
 
 ```xpath
-//i[@class='el-icon-search' and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//i[@class='el-icon-search' and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ```xpath
-//button[contains(@class,'search') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//button[contains(@class,'search') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ```xpath
-//button[contains(.,'搜') and contains(.,'索') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//button[contains(.,'搜') and contains(.,'索') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ---
@@ -242,19 +242,19 @@ _选择结束时间_
 **模式 2（最优先）— button + 完整文本**：
 
 ```xpath
-//button[contains(.,'{label}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//button[contains(.,'{label}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 **模式 1（次选）— 拆字 contains**：
 
 ```xpath
-//button[contains(.,'{char1}') and contains(.,'{char2}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//button[contains(.,'{char1}') and contains(.,'{char2}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 **模式 3（最后，按钮禁止使用）**：
 
 ```xpath
-//*[contains(text(),'{label}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//*[contains(text(),'{label}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 > 替换规则：`{label}` 填入完整按钮名称（如"查询"、"新增"），`{char1}/{char2}` 为首尾字符
@@ -268,25 +268,25 @@ _选择结束时间_
 **模式 1（优先，固定右列）**：
 
 ```xpath
-//div[contains(@class,'el-table__fixed-right')]//tbody/tr[1]//span[contains(.,'{label}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//div[contains(@class,'el-table__fixed-right')]//tbody/tr[1]//span[contains(.,'{label}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 **模式 2（普通表格体）**：
 
 ```xpath
-//div[contains(@class,'el-table__body-wrapper')]//tbody/tr[1]//span[contains(.,'{label}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//div[contains(@class,'el-table__body-wrapper')]//tbody/tr[1]//span[contains(.,'{label}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 **模式 3（固定体包裹）**：
 
 ```xpath
-//div[contains(@class,'el-table__fixed-body-wrapper')]//tbody/tr[1]//span[contains(.,'{label}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//div[contains(@class,'el-table__fixed-body-wrapper')]//tbody/tr[1]//span[contains(.,'{label}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 **模式 4（多 tab 场景）**：
 
 ```xpath
-//div[@role='tabpanel' and not(contains(@style,'display: none'))]//div[@class='el-table__fixed-right']//tbody/tr[1]//span[contains(.,'{label}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//div[@role='tabpanel' and not(contains(@style,'display: none'))]//div[@class='el-table__fixed-right']//tbody/tr[1]//span[contains(.,'{label}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 > 不是所有表格都有固定右侧列，必须通过 probe 确认使用哪种路径。手动添加时默认使用模式 1。
@@ -306,25 +306,25 @@ _点击更多按钮_
 **模式 1（优先，固定右列）**：
 
 ```xpath
-//div[contains(@class,'el-table__fixed-right')]//tbody/tr[1]//span[contains(.,'更多') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//div[contains(@class,'el-table__fixed-right')]//tbody/tr[1]//span[contains(.,'更多') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 **模式 2（普通表格体）**：
 
 ```xpath
-//div[contains(@class,'el-table__body-wrapper')]//tbody/tr[1]//span[contains(.,'更多') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//div[contains(@class,'el-table__body-wrapper')]//tbody/tr[1]//span[contains(.,'更多') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 **模式 3（固定体包裹）**：
 
 ```xpath
-//div[contains(@class,'el-table__fixed-body-wrapper')]//tbody/tr[1]//span[contains(.,'更多') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//div[contains(@class,'el-table__fixed-body-wrapper')]//tbody/tr[1]//span[contains(.,'更多') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 **模式 4（多 tab 场景）**：
 
 ```xpath
-//div[@role='tabpanel' and not(contains(@style,'display: none'))]//div[@class='el-table__fixed-right']//tbody/tr[1]//span[contains(.,'更多') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//div[@role='tabpanel' and not(contains(@style,'display: none'))]//div[@class='el-table__fixed-right']//tbody/tr[1]//span[contains(.,'更多') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ### 第二步：点击对应的操作按钮
@@ -334,7 +334,7 @@ _点击菜单项_
 - **关键字**：`click_element`
 
 ```xpath
-//*[(@x-placement='top-end' or @x-placement='bottom-end') and not(ancestor::*[contains(@style,'display: none')])]//*[not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])][contains(text(),'{label}')]
+//*[(@x-placement='top-end' or @x-placement='bottom-end') and not(ancestor-or-self::*[contains(@style,'display: none')])]//*[not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])][contains(text(),'{label}')]
 ```
 
 ---
@@ -342,7 +342,7 @@ _点击菜单项_
 ## 十、点击侧边的目录
 
 ```xpath
-//*[@class='el-menu-item' and contains(.,'{label}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//*[@class='el-menu-item' and contains(.,'{label}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ---
@@ -350,19 +350,19 @@ _点击菜单项_
 ## 十一、进入详情页
 
 ```xpath
-//td[not(contains(@class,'is-hidden'))]//*[contains(text(),'{label}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//td[not(contains(@class,'is-hidden'))]//*[contains(text(),'{label}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ```xpath
-//td[not(contains(@class,'is-hidden'))]//*[contains(@class,'link-style') or contains(@class,'click-list') or contains(@class,'resource-id') or contains(@class,'name')][contains(.,'{label}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//td[not(contains(@class,'is-hidden'))]//*[contains(@class,'link-style') or contains(@class,'click-list') or contains(@class,'resource-id') or contains(@class,'name')][contains(.,'{label}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ```xpath
-//td[not(contains(@class,'is-hidden'))]//*[contains(@class,'link-style') or contains(@class,'click-list') or contains(@class,'resource-id') or contains(@class,'name')][contains(.,'{label}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]/div[@class='resource-id' and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//td[not(contains(@class,'is-hidden'))]//*[contains(@class,'link-style') or contains(@class,'click-list') or contains(@class,'resource-id') or contains(@class,'name')][contains(.,'{label}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]/div[@class='resource-id' and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ```xpath
-//td[not(contains(@class,'is-hidden'))]//*[@class='edit-name' and contains(.,'{label}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]/preceding-sibling::div[contains(@class,'link-style')]
+//td[not(contains(@class,'is-hidden'))]//*[@class='edit-name' and contains(.,'{label}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]/preceding-sibling::div[contains(@class,'link-style')]
 ```
 
 ---
@@ -370,7 +370,7 @@ _点击菜单项_
 ## 十二、点击批量全选
 
 ```xpath
-//div[@class='el-table__header-wrapper']//span[@class='el-checkbox__inner' and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//div[@class='el-table__header-wrapper']//span[@class='el-checkbox__inner' and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ---
@@ -416,7 +416,7 @@ _获取tab的aria-controls属性_
 - **关键字**：`click_element`
 
 ```xpath
-//*[contains(text(),'{tab_name}') and @role='tab' and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//*[contains(text(),'{tab_name}') and @role='tab' and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ### 第三步：tab 作用域内的按钮
@@ -426,27 +426,27 @@ _tab作用域内的元素（按钮、输入框、链接等均需加作用域前�
 - **关键字**：`click_element`
 
 ```xpath
-//div[@id='{element_id}']//button[contains(.,'{label}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//div[@id='{element_id}']//button[contains(.,'{label}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ```xpath
-//div[@id='{element_id}']//span[contains(.,'{label}') and @role='button' and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//div[@id='{element_id}']//span[contains(.,'{label}') and @role='button' and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ```xpath
-//div[@id='{element_id}']//div[contains(@class,'el-table__fixed-right')]//tbody/tr[1]//span[contains(.,'{label}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//div[@id='{element_id}']//div[contains(@class,'el-table__fixed-right')]//tbody/tr[1]//span[contains(.,'{label}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ```xpath
-//div[@id='{element_id}']//div[contains(@class,'el-table__body-wrapper')]//tbody/tr[1]//span[contains(.,'{label}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//div[@id='{element_id}']//div[contains(@class,'el-table__body-wrapper')]//tbody/tr[1]//span[contains(.,'{label}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ```xpath
-//div[@id='{element_id}']//div[contains(@class,'el-table__fixed-body-wrapper')]//tbody/tr[1]//span[contains(.,'{label}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//div[@id='{element_id}']//div[contains(@class,'el-table__fixed-body-wrapper')]//tbody/tr[1]//span[contains(.,'{label}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ```xpath
-//div[@id='{element_id}']//div[@role='tabpanel' and not(contains(@style,'display: none'))]//div[@class='el-table__fixed-right']//tbody/tr[1]//span[contains(.,'{label}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//div[@id='{element_id}']//div[@role='tabpanel' and not(contains(@style,'display: none'))]//div[@class='el-table__fixed-right']//tbody/tr[1]//span[contains(.,'{label}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ### 第三步：tab 作用域内的输入框
@@ -456,11 +456,11 @@ _tab作用域内的输入框_
 - **关键字**：`click_element`
 
 ```xpath
-//div[@id='{element_id}']//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner' and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//div[@id='{element_id}']//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner' and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ```xpath
-//div[@id='{element_id}']//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//textarea[not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//div[@id='{element_id}']//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//textarea[not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ### 第三步：tab 作用域内的详情链接
@@ -470,11 +470,11 @@ _tab作用域内的详情页链接_
 - **关键字**：`click_element`
 
 ```xpath
-//div[@id='{element_id}']//td[not(contains(@class,'is-hidden'))]//*[contains(text(),'{label}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//div[@id='{element_id}']//td[not(contains(@class,'is-hidden'))]//*[contains(text(),'{label}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ```xpath
-//div[@id='{element_id}']//td[not(contains(@class,'is-hidden'))]//*[contains(@class,'link-style') or contains(@class,'click-list') or contains(@class,'resource-id') or contains(@class,'name')][contains(.,'{label}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//div[@id='{element_id}']//td[not(contains(@class,'is-hidden'))]//*[contains(@class,'link-style') or contains(@class,'click-list') or contains(@class,'resource-id') or contains(@class,'name')][contains(.,'{label}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 ### 第三步：tab 作用域内的侧边目录
@@ -484,7 +484,7 @@ _tab作用域内的侧边目录_
 - **关键字**：`click_element`
 
 ```xpath
-//div[@id='{element_id}']//*[@class='el-menu-item' and contains(.,'{label}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]
+//div[@id='{element_id}']//*[@class='el-menu-item' and contains(.,'{label}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]
 ```
 
 > ⚠️ 多 tab 时，**所有元素**（不光是按钮）都要先切换 tab → 获取 aria-controls → 在 xpath 前加 `//div[@id='{变量}']` 前缀。
@@ -594,12 +594,12 @@ case 中用内联 XPath + `${data}` 引用：
 - desc: 在「架构」选项卡中选择「ARM 计算」
   keyword: click_element
   params:
-    locator: 'xpath=(//label[contains(.,"架构")]//following-sibling::*[self::div or self::span]//*[contains(.,"${compute_data.case01_field_0eaa6a_card_value}") and not(ancestor::*[contains(@class,"is-hidden")]) and not(ancestor::*[contains(@style,"display: none")])])[1]'
+    locator: 'xpath=(//label[contains(.,"架构")]//following-sibling::*[self::div or self::span]//*[contains(.,"${compute_data.case01_field_0eaa6a_card_value}") and not(ancestor-or-self::*[contains(@class,"is-hidden")]) and not(ancestor-or-self::*[contains(@style,"display: none")])])[1]'
 
 - desc: 在「架构」选项卡中选择「ARM计算型」
   keyword: click_element
   params:
-    locator: 'xpath=(//label[contains(.,"架构")]//following-sibling::*[self::div or self::span]//*[contains(.,"${compute_data.case01_field_0eaa6a_card_value_2}") and not(ancestor::*[contains(@class,"is-hidden")]) and not(ancestor::*[contains(@style,"display: none")])])[1]'
+    locator: 'xpath=(//label[contains(.,"架构")]//following-sibling::*[self::div or self::span]//*[contains(.,"${compute_data.case01_field_0eaa6a_card_value_2}") and not(ancestor-or-self::*[contains(@class,"is-hidden")]) and not(ancestor-or-self::*[contains(@style,"display: none")])])[1]'
 ```
 
 ### 同 label 多值处理
@@ -622,7 +622,7 @@ case 中用内联 XPath + `${data}` 引用：
 ### 完整内联 XPath
 
 ```xpath
-(//label[contains(.,'{label}')]//following-sibling::*[self::div or self::span]//*[contains(.,'{card_value_ref}') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])])[1]
+(//label[contains(.,'{label}')]//following-sibling::*[self::div or self::span]//*[contains(.,'{card_value_ref}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]
 ```
 
 其中 `{card_value_ref}` 是 `${compute_data.case01_field_xxx_card_value}` 形式的 data 引用。

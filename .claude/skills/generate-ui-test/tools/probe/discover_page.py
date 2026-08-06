@@ -119,11 +119,11 @@ def _inject_button_disabled_filter(xpath):
 
     Checks both:
       - not(contains(@class,'is-disabled')) — element itself
-      - not(ancestor::*[contains(@class,'is-disabled')]) — ancestor chain
+      - not(ancestor-or-self::*[contains(@class,'is-disabled')]) — ancestor chain
     """
     disabled_check = (
         "not(contains(@class,'is-disabled'))"
-        " and not(ancestor::*[contains(@class,'is-disabled')])"
+        " and not(ancestor-or-self::*[contains(@class,'is-disabled')])"
     )
     last_bracket = xpath.rfind(']')
     if last_bracket < 0:

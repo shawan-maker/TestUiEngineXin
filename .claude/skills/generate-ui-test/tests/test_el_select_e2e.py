@@ -71,13 +71,13 @@ option_xpath = (
     f"(//div[(@x-placement='bottom-start' "
     f"or @x-placement='top-start')]//li"
     f"[contains(.,'{option_ref}')"
-    f" and not(ancestor::*[contains(@class,'is-hidden')])"
-    f" and not(ancestor::*[contains(@style,'display: none')])])[1]"
+    f" and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
+    f" and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
 )
 
 assert "is-hidden" in option_xpath
 assert "display: none" in option_xpath
-assert "ancestor::" in option_xpath
+assert "ancestor-or-self::" in option_xpath
 assert option_xpath.startswith("(")
 assert option_xpath.endswith(")[1]")
 print(f"  option_xpath: {option_xpath[:80]}...")
@@ -90,8 +90,8 @@ first_option_xpath = (
     "(//div[(@x-placement='bottom-start' "
     "or @x-placement='top-start')]//li"
     "[contains(@class,'el-select-dropdown__item')"
-    " and not(ancestor::*[contains(@class,'is-hidden')])"
-    " and not(ancestor::*[contains(@style,'display: none')])])[1]"
+    " and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
+    " and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
 )
 
 assert "is-hidden" in first_option_xpath

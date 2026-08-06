@@ -60,16 +60,16 @@ except ImportError:
 _OPTION_XPATH_TEMPLATE = (
     "(//div[(@x-placement='bottom-start' or @x-placement='top-start')]//"
     "li[{match_expr}"
-    " and not(ancestor::*[contains(@class,'is-hidden')])"
-    " and not(ancestor::*[contains(@style,'display: none')])])[1]"
+    " and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
+    " and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
 )
 
 # el-select _first_option 通用 XPath（带 hidden filter，排除虚拟滚动隐藏项）
 _FIRST_OPTION_XPATH = (
     "(//div[(@x-placement='bottom-start' or @x-placement='top-start')]//"
     "li[contains(@class,'el-select-dropdown__item')"
-    " and not(ancestor::*[contains(@class,'is-hidden')])"
-    " and not(ancestor::*[contains(@style,'display: none')])])[1]"
+    " and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
+    " and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
 )
 
 # 通用定位器模板
@@ -77,8 +77,8 @@ DEFAULT_COMMON_ELEMENTS = OrderedDict([
     ('loading_mask', "xpath=//div[contains(@class,'el-loading-mask')]"),
     ('success_text', "xpath=//*[contains(.,'成功')]"),
     ('error_text', "xpath=//*[contains(.,'失败') or contains(.,'错误')]"),
-    ('confirm_btn', "xpath=//button[contains(.,'确') and contains(.,'定') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]"),
-    ('cancel_btn', "xpath=//button[contains(.,'取') and contains(.,'消') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]"),
+    ('confirm_btn', "xpath=//button[contains(.,'确') and contains(.,'定') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]"),
+    ('cancel_btn', "xpath=//button[contains(.,'取') and contains(.,'消') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]"),
 ])
 
 # 正则
@@ -391,7 +391,7 @@ class PagesWriter:
             f'#\n'
             f'# 如需添加 probe 未覆盖的元素（如详情页字段），请在末尾追加，\n'
             f'# 并确保 XPath 包含隐藏过滤:\n'
-            f'#   and not(ancestor::*[contains(@class,\'is-hidden\')])\n'
+            f'#   and not(ancestor-or-self::*[contains(@class,\'is-hidden\')])\n'
             f'#\n\n'
         )
 

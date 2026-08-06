@@ -8,7 +8,7 @@ import sys
 import os
 
 # 添加 tools 目录到路径
-tools_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '.claude', 'skills', 'generate-ui-test', 'tools'))
+tools_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools")
 sys.path.insert(0, tools_dir)
 
 from core.xpath_utils import inject_hidden_filter
@@ -23,7 +23,7 @@ def test_axis_with_predicate():
     print(f"  输出: {result}")
 
     # 验证：谓词应该在 ::* 之后，不在轴名之后
-    assert "following-sibling::*[self::div or self::span and not(ancestor::" in result, \
+    assert "following-sibling::*[self::div or self::span and not(ancestor-or-self::" in result, \
         f"Predicate position error: {result}"
     assert "following-sibling[" not in result, \
         f"Error: predicate added after axis name: {result}"
@@ -39,7 +39,7 @@ def test_axis_without_predicate():
     print(f"  输出: {result}")
 
     # 验证：谓词应该在 ::* 之后
-    assert "following-sibling::*[not(ancestor::" in result, \
+    assert "following-sibling::*[not(ancestor-or-self::" in result, \
         f"谓词位置错误: {result}"
     assert "following-sibling[" not in result, \
         f"错误：在轴名后加了谓词: {result}"
@@ -54,7 +54,7 @@ def test_regular_tag():
     print(f"  输入: {input_xpath}")
     print(f"  输出: {result}")
 
-    assert "button[contains(.,'查询') and not(ancestor::" in result, \
+    assert "button[contains(.,'查询') and not(ancestor-or-self::" in result, \
         f"谓词注入错误: {result}"
     print("  ✓ 通过\n")
 
@@ -67,7 +67,7 @@ def test_complex_axis():
     print(f"  输入: {input_xpath}")
     print(f"  输出: {result}")
 
-    assert "following-sibling::*[self::div or self::span and not(ancestor::" in result, \
+    assert "following-sibling::*[self::div or self::span and not(ancestor-or-self::" in result, \
         f"谓词位置错误: {result}"
     assert result.startswith("(xpath="), f"外层包裹丢失: {result}"
     assert result.endswith(")[1]"), f"外层包裹丢失: {result}"

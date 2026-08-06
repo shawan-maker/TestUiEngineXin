@@ -48,7 +48,7 @@ def check_hidden_filter(xpath: str) -> Tuple[bool, str]:
     """检查 XPath 的最终元素是否包含隐藏过滤
 
     规则：所有元素表达式的最后一个标签中必须加上属性：
-    not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])
+    not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])
 
     例外：//*[contains(.,'xx')] 这类通用断言定位器不需要
     """

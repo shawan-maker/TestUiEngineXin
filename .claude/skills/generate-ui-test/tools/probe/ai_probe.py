@@ -483,7 +483,7 @@ def _build_prompt(desc, label, elem_type, container_type, page_url,
 3. 对于输入框: 定位 input[@class='el-input__inner'] 或 textarea 或 .ql-editor
 4. 对于按钮: 定位 button 元素
 5. 对于 el-select: 定位 .el-select 的 input（触发器）
-6. 加隐藏过滤: not(ancestor::*[contains(@style,'display: none')])
+6. 加隐藏过滤: not(ancestor-or-self::*[contains(@style,'display: none')])
 7. 避免硬编码 index（div[3]），优先用 class 或文本
 8. 只返回一个 XPath，不要解释，不要 ``` 代码块"""
 

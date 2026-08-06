@@ -8,7 +8,7 @@
 
 示例：
     # 学习单步按钮
-    python learn_probe.py TSManager/_probe/knowledge.json single_step button 查询 "//button[contains(.,'查') and contains(.,'询') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])]" case_18
+    python learn_probe.py TSManager/_probe/knowledge.json single_step button 查询 "//button[contains(.,'查') and contains(.,'询') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]" case_18
 
     # 学习多步 el-select 的 select 步骤
     python learn_probe.py TSManager/_probe/knowledge.json multi_step el-select:select 项目名称 "(//div[(@x-placement='bottom-start' or @x-placement='top-start')]//li[contains(.,'{option_text}')])[1]" case_01

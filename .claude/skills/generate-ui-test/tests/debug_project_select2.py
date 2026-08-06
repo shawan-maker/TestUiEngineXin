@@ -38,9 +38,9 @@ sys.stdout = TeeWriter(LOG_FILE)
 URL = "http://console-estack-intel.cmecloud.cn/estack/web/op-compute-web/#/order/vm?orderSource=consoleList"
 COOKIE = "sensorsdata2015jssdkcross=%7B%22distinct_id%22%3A%2219f8deb566317b8-096a7938f589068-4c657b58-3686400-19f8deb56641354%22%2C%22first_id%22%3A%22%22%2C%22props%22%3A%7B%22%24latest_traffic_source_type%22%3A%22%E7%9B%B4%E6%8E%A5%E6%B5%81%E9%87%8F%22%2C%22%24latest_search_keyword%22%3A%22%E6%9C%AA%E5%8F%96%E5%88%B0%E5%80%BC_%E7%9B%B4%E6%8E%A5%E6%89%93%E5%BC%80%22%2C%22%24latest_referrer%22%3A%22%22%7D%2C%22%24device_id%22%3A%2219f8deb566317b8-096a7938f589068-4c657b58-3686400-19f8deb56641354%22%7D; __upayegisid=fb946e77-10ad-4bcd-9835-4cc758c05f09aa; estack_lang=zh-CN; accessToken=4ee94445-5ac8-4e0b-93c3-69a19ef61951"
 
-LOCATOR_EXPAND = "xpath=(//*[contains(text(),'项目')]/following-sibling::*[self::div or self::span]//div[contains(@class,'el-select') and not(contains(@class,'el-select-dropdown')) and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])])[1]"
-LOCATOR_SELECT_INPUT = "xpath=(//*[contains(text(),'项目')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner' and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])])[1]"
-LOCATOR_OPTION = "xpath=(//div[(@x-placement='bottom-start' or @x-placement='top-start')]//li[contains(.,'Project-060f0629') and not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])])[1]"
+LOCATOR_EXPAND = "xpath=(//*[contains(text(),'项目')]/following-sibling::*[self::div or self::span]//div[contains(@class,'el-select') and not(contains(@class,'el-select-dropdown')) and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
+LOCATOR_SELECT_INPUT = "xpath=(//*[contains(text(),'项目')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner' and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
+LOCATOR_OPTION = "xpath=(//div[(@x-placement='bottom-start' or @x-placement='top-start')]//li[contains(.,'Project-060f0629') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
 
 SEARCH_VALUE = "Project-060f0629"
 

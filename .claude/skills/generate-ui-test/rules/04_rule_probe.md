@@ -42,7 +42,7 @@
 ## R3.3 隐藏过滤自动处理
 
 知识库所有 XPath 已内置隐藏过滤，探测时无需手动添加：
-`not(ancestor::*[contains(@class,'is-hidden')]) and not(ancestor::*[contains(@style,'display: none')])`
+`not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])`
 
 ## R3.4 多步操作完整性
 
@@ -324,7 +324,7 @@ first_remove_btn: "xpath=//div[contains(@class,'el-table__body-wrapper')]//tbody
 
 ## R3.14 禁止负向排除，改用正向容器前缀 + 降级策略
 
-**禁止**使用 `not(ancestor::*[contains(@class,'el-drawer')])` 等负向排除条件来区分同名元素。改用**正向容器前缀 + 探测降级**策略。
+**禁止**使用 `not(ancestor-or-self::*[contains(@class,'el-drawer')])` 等负向排除条件来区分同名元素。改用**正向容器前缀 + 探测降级**策略。
 
 ### 问题背景
 
@@ -343,13 +343,13 @@ first_remove_btn: "xpath=//div[contains(@class,'el-table__body-wrapper')]//tbody
 
 - **正向优先**：如果元素在容器内，使用 `//div[contains(@class,'el-drawer')]//...` 正向容器前缀
 - **降级兜底**：如果正向容器前缀匹配不到，降级到无前缀版本
-- **禁止负向**：绝对不要在 XPath 中使用 `not(ancestor::*[contains(@class,...)])`
+- **禁止负向**：绝对不要在 XPath 中使用 `not(ancestor-or-self::*[contains(@class,...)])`
 
 ### 禁止事项
 
-- ❌ 禁止生成 `not(ancestor::*[contains(@class,'el-drawer')])` 排除条件
-- ❌ 禁止生成 `not(ancestor::*[contains(@class,'el-dialog')])` 排除条件
-- ❌ 禁止生成 `not(ancestor::*[contains(@class,'el-message-box')])` 排除条件
+- ❌ 禁止生成 `not(ancestor-or-self::*[contains(@class,'el-drawer')])` 排除条件
+- ❌ 禁止生成 `not(ancestor-or-self::*[contains(@class,'el-dialog')])` 排除条件
+- ❌ 禁止生成 `not(ancestor-or-self::*[contains(@class,'el-message-box')])` 排除条件
 - ✅ 允许使用 `//div[contains(@class,'el-drawer')]//...` 正向容器前缀
 - ✅ 允许无前缀版本作为降级兜底
 

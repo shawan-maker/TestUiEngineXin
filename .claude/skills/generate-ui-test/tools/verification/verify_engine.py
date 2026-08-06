@@ -142,8 +142,9 @@ def _try_find_in_iframes(page, locator: str, max_iframes=10):
     print(f"    [DEBUG-IFRAME] 原始 XPath: {xpath[:120]}")
 
     # 剥离 hidden filter（iframe 内不需要）
-    xpath = re.sub(r'\s*and\s+not\(ancestor::\*\[contains\(@class,\'is-hidden\'\)\]\)', '', xpath)
-    xpath = re.sub(r'\s*and\s+not\(ancestor::\*\[contains\(@style,\'display:\s*none\'\)\]\)', '', xpath)
+    # 兼容旧版 ancestor:: 和新版 ancestor-or-self:: 两种写法
+    xpath = re.sub(r'\s*and\s+not\(ancestor(?:-or-self)?::\*\[contains\(@class,\'is-hidden\'\)\]\)', '', xpath)
+    xpath = re.sub(r'\s*and\s+not\(ancestor(?:-or-self)?::\*\[contains\(@style,\'display:\s*none\'\)\]\)', '', xpath)
 
     # [DEBUG-IFRAME] 剥离 hidden filter 后
     print(f"    [DEBUG-IFRAME] 剥离 hidden filter: {xpath[:120]}")

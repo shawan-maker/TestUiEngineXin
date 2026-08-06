@@ -589,6 +589,14 @@ def _update_case_iframe_keywords(project_dir, iframe_discoveries, module=None):
                 if not isinstance(step, dict):
                     continue
 
+                # 防御性校验：确认步骤的 keyword 与 discovery 记录的 keyword 一致
+                # 防止索引偏移导致把 frame_* 写入错误的步骤
+                current_keyword = step.get('keyword')
+                if current_keyword != old_keyword:
+                    print(f"  [WARN] Step {step_index+1}: keyword 不匹配 "
+                          f"({current_keyword} ≠ {old_keyword})，跳过")
+                    continue
+
                 # 映射 keyword → frame_keyword
                 frame_keyword_map = {
                     'click_element': 'frame_click_element',

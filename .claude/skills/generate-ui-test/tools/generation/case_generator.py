@@ -136,7 +136,9 @@ class CaseGenerator:
 
         [H4] 使用 raw dict（self._discovery_element_map 的值是 dict，非 ElementEntry）
         [H5] 同时检查 iframe_context 和 has_iframe（向后兼容 rich_text）
-        [C4] 为所有 companion 后缀注册，确保 el-select 检测能找到
+        [C4] 保守策略：只标记探测确认的 base_field + _iframe 引用字段，
+             不扩散到伴随后缀（_select/_input/_editable 等）。
+             未标记的 companion 由 Phase 6 _try_find_in_iframes 运行时兜底。
         """
         for (ctx, label), elem in self._discovery_element_map.items():
             iframe_ctx = elem.get('iframe_context')
@@ -152,14 +154,15 @@ class CaseGenerator:
             # 去掉容器 hash 后缀
             base_field = self._CT_HASH_RE.sub('', field)
 
-            # 为主字段和所有 companion 后缀注册 [C4]
-            for suffix in ('', '_select', '_input', '_editable', '_first_option',
-                           '_textarea', '_btn', '_iframe'):
-                self.field_meta[(group, f'{base_field}{suffix}')] = {
-                    'type': 'iframe',
-                    'iframe_context': iframe_ctx,
-                    'iframe_field': f'{base_field}_iframe',
-                }
+            # 只标记探测确认的字段 + _iframe 引用字段
+            # 不扩散到 _select/_input/_editable 等伴随后缀 — Phase 6 运行时兜底
+            meta_entry = {
+                'type': 'iframe',
+                'iframe_context': iframe_ctx,
+                'iframe_field': f'{base_field}_iframe',
+            }
+            self.field_meta[(group, base_field)] = meta_entry
+            self.field_meta[(group, f'{base_field}_iframe')] = meta_entry
 
     # ─── 兼容适配层 ───────────────────────────────────────────
 

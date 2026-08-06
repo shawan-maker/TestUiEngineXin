@@ -1077,6 +1077,11 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
     params = step.get('params', {})
     desc = step.get('desc', '')
 
+    # 清空上一次执行的 iframe 发现（防止跨步骤状态泄漏）
+    # 只有调用 verify_locator() 的步骤才会重新设置此变量
+    global _last_iframe_discovery
+    _last_iframe_discovery = None
+
     # [TRACE-P6] 函数入口上下文
     _raw_locator_param = params.get('locator', '') if isinstance(params, dict) else ''
     print(f"    [TRACE-P6] entry: keyword={keyword}, desc='{desc[:60]}'")
@@ -1849,7 +1854,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 print(f"    [TRACE-P6]   iframe discovery success, return raw locator (no container prefix needed in iframe)")
 
         # 存储 iframe discovery 到模块级变量（供 verify_orchestrator 读取）
-        global _last_iframe_discovery
+        # global 声明已在函数开头（行1082）
         _last_iframe_discovery = _iframe_discovery
 
         if not verified_locator:

@@ -5,7 +5,7 @@
 """
 
 
-def wait_for_dom_stable(page, timeout_ms=3000, interval_ms=300, debug=False):
+def wait_for_dom_stable(page, timeout_ms=3000, interval_ms=500, debug=False):
     """等待 DOM 表单元素 + 表格行数同时稳定。
 
     用于 Vue/React 渲染周期完成检测，替代固定 sleep。

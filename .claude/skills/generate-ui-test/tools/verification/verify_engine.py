@@ -986,6 +986,80 @@ def _detect_actual_element_type(page, label, container_prefix=''):
     return None
 
 
+def _iframe_execute_action(keyword, element_loc, verified_locator, page, params, data_dict, desc):
+    """iframe 内执行具体操作（点击/填充/悬停等），统一返回格式。
+
+    Args:
+        keyword: frame_* 关键字
+        element_loc: Playwright Locator（已在 iframe 内定位到目标元素）
+        verified_locator: 验证通过的定位器字符串
+        page: Playwright page 对象
+        params: 步骤参数 dict
+        data_dict: 数据变量字典
+        desc: 步骤描述（仅用于日志）
+
+    Returns:
+        tuple: (verified_locator, container_ct, is_skip, is_best_guess, hit_source)
+    """
+    try:
+        if keyword == 'frame_click_element':
+            element_loc.first.click(timeout=5000)
+            _smart_wait_after_action(page)
+            print(f"    [OK] frame_click_element: '{desc}'")
+            return verified_locator, None, False, False, 'iframe'
+
+        elif keyword == 'frame_fill_value':
+            value = params.get('value', '') if isinstance(params, dict) else ''
+            value = resolve_var(value, data_dict)
+            if not value:
+                value = PROBE_FILL_VALUES.get('input', '测试')
+            element_loc.first.fill(value, timeout=5000)
+            print(f"    [OK] frame_fill_value: '{desc}'")
+            return verified_locator, None, False, False, 'iframe'
+
+        elif keyword == 'frame_hover':
+            element_loc.first.hover(timeout=5000)
+            print(f"    [OK] frame_hover: '{desc}'")
+            return verified_locator, None, False, False, 'iframe'
+
+        elif keyword == 'frame_focus_element':
+            element_loc.first.focus(timeout=5000)
+            print(f"    [OK] frame_focus_element: '{desc}'")
+            return verified_locator, None, False, False, 'iframe'
+
+        elif keyword == 'frame_select_option':
+            opt_value = params.get('value', '') if isinstance(params, dict) else ''
+            opt_value = resolve_var(opt_value, data_dict)
+            element_loc.first.select_option(opt_value, timeout=5000)
+            print(f"    [OK] frame_select_option: '{desc}'")
+            return verified_locator, None, False, False, 'iframe'
+
+        elif keyword in ('frame_except_to_be_visible', 'frame_except_to_be_hidden', 'frame_except_to_have_text'):
+            from playwright.sync_api import expect
+            if keyword == 'frame_except_to_be_visible':
+                expect(element_loc.first).to_be_visible(timeout=5000)
+            elif keyword == 'frame_except_to_be_hidden':
+                expect(element_loc.first).to_be_hidden(timeout=5000)
+            elif keyword == 'frame_except_to_have_text':
+                expected_text = params.get('expect_results', '') if isinstance(params, dict) else ''
+                expected_text = resolve_var(expected_text, data_dict)
+                expect(element_loc.first).to_contain_text(expected_text, timeout=5000)
+            print(f"    [OK] {keyword}: '{desc}'")
+            return verified_locator, None, False, False, 'iframe'
+
+        else:
+            print(f"    [WARN] 未实现的 frame 关键字: {keyword}，仅验证 locator 存在")
+            return verified_locator, None, False, False, 'iframe'
+
+    except Exception as e:
+        err_str = str(e)
+        if 'Timeout' in err_str:
+            print(f"    [ERROR] iframe 元素操作超时: {verified_locator[:80]}")
+        else:
+            print(f"    [ERROR] {keyword} 执行失败: {err_str[:100]}")
+        return None, None, False, False, None
+
+
 def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data=None, project_dir=None,
                  is_new_page_context=False, container_context=None):
     """Execute a single case step in the browser.
@@ -1166,77 +1240,69 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
 
         print(f"    [TRACE-P6] iframe 快速通道: frame='{frame_selector}', locator='{locator[:80]}'")
 
+        # 提取纯 XPath（用于回退扫描）
+        _iframe_xpath = locator.replace('xpath=', '', 1) if locator.startswith('xpath=') else locator
+
+        # ── 策略 1: 用指定选择器尝试 ──
+        _frame_found = False
         try:
-            frame_loc = page.frame_locator(frame_selector)
-            element_loc = frame_loc.locator(locator)
-            count = element_loc.count()
-            print(f"    [TRACE-P6] iframe element count={count}")
+            page.wait_for_selector(frame_selector, state='attached', timeout=10000)
+            page.wait_for_timeout(1000)
+            _frame_found = True
+        except Exception:
+            print(f"    [TRACE-P6] iframe 选择器 '{frame_selector}' 未找到，回退扫描所有 iframe")
 
-            if count > 0:
-                verified_locator = locator
+        if _frame_found:
+            try:
+                frame_loc = page.frame_locator(frame_selector)
+                element_loc = frame_loc.locator(locator)
 
-                if keyword == 'frame_click_element':
-                    element_loc.first.click(timeout=5000)
-                    _smart_wait_after_action(page)
-                    print(f"    [OK] frame_click_element: '{desc}'")
-                    return verified_locator, None, False, False, 'iframe'
+                count = 0
+                for retry in range(5):
+                    count = element_loc.count()
+                    if count > 0:
+                        break
+                    print(f"    [TRACE-P6] iframe element count=0, retry {retry+1}/5...")
+                    page.wait_for_timeout(1000)
 
-                elif keyword == 'frame_fill_value':
-                    value = params.get('value', '') if isinstance(params, dict) else ''
-                    value = resolve_var(value, data_dict)
-                    if not value:
-                        value = PROBE_FILL_VALUES.get('input', '测试')
-                    element_loc.first.fill(value, timeout=5000)
-                    print(f"    [OK] frame_fill_value: '{desc}'")
-                    return verified_locator, None, False, False, 'iframe'
+                print(f"    [TRACE-P6] iframe element count={count}")
+                if count > 0:
+                    verified_locator = locator
+                    return _iframe_execute_action(keyword, element_loc, verified_locator,
+                                                  page, params, data_dict, desc)
+            except Exception as e:
+                print(f"    [TRACE-P6] 指定 iframe 操作失败: {str(e)[:80]}，回退扫描")
 
-                elif keyword == 'frame_hover':
-                    element_loc.first.hover(timeout=5000)
-                    print(f"    [OK] frame_hover: '{desc}'")
-                    return verified_locator, None, False, False, 'iframe'
+        # ── 策略 2: 回退 — 扫描所有 iframe 查找目标元素 ──
+        _iframe_result = _try_find_in_iframes(page, locator)
+        if _iframe_result and _iframe_result.get('count', 0) > 0:
+            _fb_selector = _iframe_result['frame_selector']
+            _frame_name = _iframe_result.get('frame_name', '')
+            _clean_xpath = _iframe_result.get('clean_xpath', '')
+            print(f"    [TRACE-P6] iframe 回退成功: selector='{_fb_selector}', name='{_frame_name}', clean_xpath='{_clean_xpath[:60]}'")
+            verified_locator = locator
 
-                elif keyword == 'frame_focus_element':
-                    element_loc.first.focus(timeout=5000)
-                    print(f"    [OK] frame_focus_element: '{desc}'")
-                    return verified_locator, None, False, False, 'iframe'
+            # 关键修复：用 page.frame(name=...) 直接获取 Frame 对象，而不是 frame_locator(css)
+            # 因为 confirmIframe 在 DOM 中不可达（CSS 选择器找不到），但 page.frames 能按 name 找到
+            frame_obj = None
+            if _frame_name:
+                frame_obj = page.frame(name=_frame_name)
+                print(f"    [TRACE-P6] 使用 page.frame(name='{_frame_name}') 获取 Frame 对象")
 
-                elif keyword == 'frame_select_option':
-                    opt_value = params.get('value', '') if isinstance(params, dict) else ''
-                    opt_value = resolve_var(opt_value, data_dict)
-                    element_loc.first.select_option(opt_value, timeout=5000)
-                    print(f"    [OK] frame_select_option: '{desc}'")
-                    return verified_locator, None, False, False, 'iframe'
+            if not frame_obj:
+                # 回退：尝试用 frame_locator
+                frame_obj = page.frame_locator(_fb_selector)
+                print(f"    [TRACE-P6] 回退使用 frame_locator('{_fb_selector}')")
 
-                elif keyword in ('frame_except_to_be_visible', 'frame_except_to_be_hidden', 'frame_except_to_have_text'):
-                    from playwright.sync_api import expect
-                    if keyword == 'frame_except_to_be_visible':
-                        expect(element_loc.first).to_be_visible(timeout=5000)
-                    elif keyword == 'frame_except_to_be_hidden':
-                        expect(element_loc.first).to_be_hidden(timeout=5000)
-                    elif keyword == 'frame_except_to_have_text':
-                        expected_text = params.get('expect_results', '') if isinstance(params, dict) else ''
-                        expected_text = resolve_var(expected_text, data_dict)
-                        expect(element_loc.first).to_contain_text(expected_text, timeout=5000)
-                    print(f"    [OK] {keyword}: '{desc}'")
-                    return verified_locator, None, False, False, 'iframe'
+            # 使用清理后的 XPath（去掉 hidden filter 和 [1] 索引），避免 iframe 内定位失败
+            _fb_locator = f'xpath={_clean_xpath}' if _clean_xpath else locator
+            element_loc = frame_obj.locator(_fb_locator)
+            return _iframe_execute_action(keyword, element_loc, verified_locator,
+                                          page, params, data_dict, desc)
 
-                else:
-                    print(f"    [WARN] 未实现的 frame 关键字: {keyword}，仅验证 locator 存在")
-                    return verified_locator, None, False, False, 'iframe'
-            else:
-                print(f"    [ERROR] iframe 内未找到元素 (count=0): '{desc}'")
-                print(f"    [ERROR]   frame='{frame_selector}', locator='{locator[:100]}'")
-                return None, None, False, False, None
-
-        except Exception as e:
-            err_str = str(e)
-            if 'frame' in err_str.lower() or 'No frame' in err_str:
-                print(f"    [ERROR] iframe 未找到: {frame_selector}")
-            elif 'Timeout' in err_str:
-                print(f"    [ERROR] iframe 元素操作超时: {locator[:80]}")
-            else:
-                print(f"    [ERROR] {keyword} 执行失败: {err_str[:100]}")
-            return None, None, False, False, None
+        print(f"    [ERROR] iframe 内未找到元素: '{desc}'")
+        print(f"    [ERROR]   frame='{frame_selector}', locator='{locator[:100]}'")
+        return None, None, False, False, None
 
     # Fix-2b-A: 类型推断 + discovery 交叉验证
     # _infer_elem_type 是纯函数（不依赖 discovery），对"编辑/删除/查看/详情"
@@ -2094,71 +2160,50 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             if frame_selector.startswith('css='):
                 frame_selector = frame_selector[4:]
 
+            print(f"    [TRACE-P6] iframe 快速通道: frame='{frame_selector}', locator='{verified_locator[:80]}'")
+
+            # ── 策略 1: 用指定选择器尝试 ──
+            _frame_found = False
             try:
-                frame_loc = page.frame_locator(frame_selector)
-                element_loc = frame_loc.locator(verified_locator)
+                page.wait_for_selector(frame_selector, state='attached', timeout=10000)
+                page.wait_for_timeout(1000)
+                _frame_found = True
+            except Exception:
+                print(f"    [TRACE-P6] iframe 选择器 '{frame_selector}' 未找到，回退扫描所有 iframe")
 
-                if keyword == 'frame_click_element':
-                    element_loc.first.click(timeout=5000)
-                    _smart_wait_after_action(page)
-                    print(f"    [OK] frame_click_element: '{desc}'")
-                    return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
+            if _frame_found:
+                try:
+                    frame_loc = page.frame_locator(frame_selector)
+                    element_loc = frame_loc.locator(verified_locator)
 
-                elif keyword == 'frame_fill_value':
-                    value = params.get('value', '') if isinstance(params, dict) else ''
-                    value = resolve_var(value, data_dict)
-                    if not value:
-                        value = PROBE_FILL_VALUES.get('input', '测试')
-                    element_loc.first.fill(value, timeout=5000)
-                    print(f"    [OK] frame_fill_value: '{desc}'")
-                    return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
+                    count = 0
+                    for retry in range(5):
+                        count = element_loc.count()
+                        if count > 0:
+                            break
+                        print(f"    [TRACE-P6] iframe element count=0, retry {retry+1}/5...")
+                        page.wait_for_timeout(1000)
 
-                elif keyword == 'frame_hover':
-                    element_loc.first.hover(timeout=5000)
-                    print(f"    [OK] frame_hover: '{desc}'")
-                    return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
-
-                elif keyword == 'frame_focus_element':
-                    element_loc.first.focus(timeout=5000)
-                    print(f"    [OK] frame_focus_element: '{desc}'")
-                    return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
-
-                elif keyword == 'frame_select_option':
-                    opt_value = params.get('value', '') if isinstance(params, dict) else ''
-                    opt_value = resolve_var(opt_value, data_dict)
-                    element_loc.first.select_option(opt_value, timeout=5000)
-                    print(f"    [OK] frame_select_option: '{desc}'")
-                    return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
-
-                elif keyword in ('frame_except_to_be_visible', 'frame_except_to_be_hidden', 'frame_except_to_have_text'):
-                    from playwright.sync_api import expect
-                    if keyword == 'frame_except_to_be_visible':
-                        expect(element_loc.first).to_be_visible(timeout=5000)
-                    elif keyword == 'frame_except_to_be_hidden':
-                        expect(element_loc.first).to_be_hidden(timeout=5000)
-                    elif keyword == 'frame_except_to_have_text':
-                        expected_text = params.get('expect_results', '') if isinstance(params, dict) else ''
-                        expected_text = resolve_var(expected_text, data_dict)
-                        expect(element_loc.first).to_contain_text(expected_text, timeout=5000)
-                    print(f"    [OK] {keyword}: '{desc}'")
-                    return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
-
-                else:
-                    print(f"    [WARN] 未实现的 frame 关键字: {keyword}，仅验证 locator 存在")
-                    count = element_loc.count()
+                    print(f"    [TRACE-P6] iframe element count={count}")
                     if count > 0:
-                        return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
-                    return None, matched_prefix or current_ct, False, False, hit_source
+                        return _iframe_execute_action(keyword, element_loc, verified_locator,
+                                                      page, params, data_dict, desc)
+                except Exception as e:
+                    print(f"    [TRACE-P6] 指定 iframe 操作失败: {str(e)[:80]}，回退扫描")
 
-            except Exception as e:
-                err_str = str(e)
-                if 'frame' in err_str.lower() or 'No frame' in err_str:
-                    print(f"    [ERROR] iframe 未找到: {frame_selector}")
-                elif 'Timeout' in err_str:
-                    print(f"    [ERROR] iframe 元素操作超时: {verified_locator}")
-                else:
-                    print(f"    [ERROR] {keyword} 执行失败: {err_str[:100]}")
-                return None, matched_prefix or current_ct, False, False, hit_source
+            # ── 策略 2: 回退 — 扫描所有 iframe 查找目标元素 ──
+            _iframe_result = _try_find_in_iframes(page, verified_locator)
+            if _iframe_result and _iframe_result.get('count', 0) > 0:
+                _fb_selector = _iframe_result['frame_selector']
+                print(f"    [TRACE-P6] iframe 回退成功: selector='{_fb_selector}'")
+                frame_loc = page.frame_locator(_fb_selector)
+                element_loc = frame_loc.locator(verified_locator)
+                return _iframe_execute_action(keyword, element_loc, verified_locator,
+                                              page, params, data_dict, desc)
+
+            print(f"    [ERROR] iframe 内未找到元素: '{desc}'")
+            print(f"    [ERROR]   frame='{frame_selector}', locator='{verified_locator[:100]}'")
+            return None, matched_prefix or current_ct, False, False, hit_source
 
         elif keyword == 'wait_for_element_visible':
             page.locator(verified_locator).first.wait_for(state='visible', timeout=5000)

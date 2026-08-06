@@ -54,6 +54,9 @@ from core.element_types import normalize_type as _normalize_type
 # Container priority for select_priority_container
 CONTAINER_TYPE_PRIORITY = ['dialog', 'drawer', 'message-box']
 
+# Page recycling interval — every N buttons, close and recreate page to release memory
+PAGE_RECYCLE_INTERVAL = 8
+
 
 # ============================================================================
 # Navigation with networkidle fallback (§X)
@@ -71,8 +74,9 @@ def _navigate_with_fallback(page, url, timeout_ms=10000):
         page.goto(url, wait_until="networkidle", timeout=timeout_ms)
     except Exception as e:
         err_str = str(e).lower()
-        if "timeout" in err_str or "crashed" in err_str:
-            print(f"    [INFO] networkidle failed ({'crash' if 'crashed' in err_str else 'timeout'}), fallback to domcontentloaded")
+        if "timeout" in err_str or "crashed" in err_str or "connection" in err_str:
+            reason = 'crash' if 'crashed' in err_str else ('connection' if 'connection' in err_str else 'timeout')
+            print(f"    [INFO] networkidle failed ({reason}), fallback to domcontentloaded")
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
         else:
             raise
@@ -84,7 +88,7 @@ def _reload_with_fallback(page, timeout_ms=10000):
         page.reload(wait_until="networkidle", timeout=timeout_ms)
     except Exception as e:
         err_str = str(e).lower()
-        if "timeout" in err_str or "crashed" in err_str:
+        if "timeout" in err_str or "crashed" in err_str or "connection" in err_str:
             page.reload(wait_until="domcontentloaded", timeout=30000)
         else:
             raise
@@ -96,7 +100,7 @@ def _wait_for_load_state_fallback(page, timeout_ms=10000):
         page.wait_for_load_state("networkidle", timeout=timeout_ms)
     except Exception as e:
         err_str = str(e).lower()
-        if "timeout" in err_str or "crashed" in err_str:
+        if "timeout" in err_str or "crashed" in err_str or "connection" in err_str:
             page.wait_for_load_state("domcontentloaded", timeout=30000)
         else:
             raise
@@ -1482,7 +1486,10 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
 
     pw = sync_playwright().start()
     try:
-        browser = pw.chromium.launch(headless=True)
+        browser = pw.chromium.launch(
+            headless=True,
+            args=['--disable-dev-shm-usage', '--disable-gpu'],
+        )
         domain = urlparse(url).hostname
         cookies = parse_cookie(cookie, domain)
 
@@ -1654,6 +1661,28 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
         # Step 4: Click each button and discover containers
         # ================================================================
         containers = []
+
+        # F4: Page recycling — close and recreate page every N buttons
+        # to release accumulated JS heap / DOM tree memory
+        def _recycle_page():
+            """Close current page and create a fresh one, re-injecting auth."""
+            nonlocal page
+            print(f"  [RECYCLE] Closing page and creating fresh context...")
+            try:
+                page.close()
+            except Exception:
+                pass
+            page = context.new_page()
+            # Re-inject cookies (context-level, should persist, but verify)
+            context.add_cookies(cookies)
+            # Re-inject localStorage
+            _navigate_with_fallback(page, baseline_url, timeout_ms=10000)
+            _wait_for_dom_stable(page, timeout_ms=3000, debug=False)
+            for k, v in local_storage.items():
+                page.evaluate("([k, v]) => localStorage.setItem(k, v)", [k, v])
+            _navigate_with_fallback(page, baseline_url, timeout_ms=10000)
+            _wait_for_dom_stable(page, timeout_ms=3000, debug=False)
+            print(f"  [RECYCLE] Fresh page ready")
 
         # BUG-12: EXPAND_LABELS 必须在 discover() 作用域内定义
         # （_discover_row_buttons_with_hover 内的同名变量不在 _process_button 的闭包中）
@@ -2222,37 +2251,38 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
 
         # 4a. Toolbar buttons first
         print(f"\n[Discover] === Toolbar buttons ({len(toolbar_unique)}) ===")
-        for btn in toolbar_unique:
+        for i_btn, btn in enumerate(toolbar_unique):
+            if i_btn > 0 and i_btn % PAGE_RECYCLE_INTERVAL == 0:
+                _recycle_page()
             try:
                 _process_button(btn, is_row=False)
             except Exception as e:
-                err_str = str(e)
-                if "crashed" in err_str.lower():
-                    print(f"  [WARN] Page crashed on button '{btn.get('text', '?')}', skip and continue")
-                    # 尝试恢复页面
+                err_str = str(e).lower()
+                if "crashed" in err_str or "connection" in err_str:
+                    print(f"  [WARN] Page error on button '{btn.get('text', '?')}': {type(e).__name__}, recycle and continue")
                     try:
-                        _navigate_with_fallback(page, baseline_url, timeout_ms=10000)
-                        _wait_for_dom_stable(page, timeout_ms=3000, debug=False)
+                        _recycle_page()
                     except Exception:
-                        print(f"  [WARN] Page recovery failed, skip remaining buttons")
+                        print(f"  [WARN] Page recycle failed, skip remaining buttons")
                         break
                 else:
                     raise
 
         # 4b. Row buttons second
         print(f"\n[Discover] === Row buttons ({len(row_unique)}) ===")
-        for btn in row_unique:
+        for i_btn, btn in enumerate(row_unique):
+            if i_btn > 0 and i_btn % PAGE_RECYCLE_INTERVAL == 0:
+                _recycle_page()
             try:
                 _process_button(btn, is_row=True)
             except Exception as e:
-                err_str = str(e)
-                if "crashed" in err_str.lower():
-                    print(f"  [WARN] Page crashed on row button '{btn.get('text', '?')}', skip and continue")
+                err_str = str(e).lower()
+                if "crashed" in err_str or "connection" in err_str:
+                    print(f"  [WARN] Page error on row button '{btn.get('text', '?')}': {type(e).__name__}, recycle and continue")
                     try:
-                        _navigate_with_fallback(page, baseline_url, timeout_ms=10000)
-                        _wait_for_dom_stable(page, timeout_ms=3000, debug=False)
+                        _recycle_page()
                     except Exception:
-                        print(f"  [WARN] Page recovery failed, skip remaining row buttons")
+                        print(f"  [WARN] Page recycle failed, skip remaining row buttons")
                         break
                 else:
                     raise
@@ -2410,9 +2440,9 @@ def main():
                     'containers': single_result.get('containers', []),
                 })
             except Exception as e:
-                err_str = str(e)
-                if "crashed" in err_str.lower():
-                    print(f"[WARN] URL [{idx+1}/{len(multi_urls)}] browser crashed, skip and continue")
+                err_str = str(e).lower()
+                if "crashed" in err_str or "connection" in err_str:
+                    print(f"[WARN] URL [{idx+1}/{len(multi_urls)}] browser error ({type(e).__name__}), skip and continue")
                     pages.append({
                         'name': page_name,
                         'url': page_url,

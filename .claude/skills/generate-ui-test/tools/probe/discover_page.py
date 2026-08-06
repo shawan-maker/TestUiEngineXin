@@ -987,7 +987,25 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
                             if (target) target.click();
                         }})()
                     """)
-                    page.wait_for_timeout(500)
+                    # DOM 稳定性检测: 轮询等待下拉菜单项出现（而非固定延时）
+                    _menu_ready = False
+                    _menu_sel = (
+                        '.el-dropdown-menu .el-dropdown-menu__item, '
+                        '.el-dropdown-menu li, '
+                        '.el-popover .el-button, '
+                        '.el-tooltip__popper .el-button, '
+                        'div[x-placement] div.el-tooltip.clickClass, '
+                        'div[x-placement] div.clickClass'
+                    )
+                    for _poll in range(10):  # 最多 3s (10 × 300ms)
+                        page.wait_for_timeout(300)
+                        _cnt = page.evaluate(
+                            f"""(sel) => document.querySelectorAll(sel).length""",
+                            _menu_sel
+                        )
+                        if _cnt > 0:
+                            _menu_ready = True
+                            break
                     # Scan newly visible dropdown menu items (Element UI el-dropdown-menu)
                     menu_items = page.evaluate("""
                         () => {
@@ -997,7 +1015,9 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
                                 '.el-dropdown-menu .el-dropdown-menu__item, '
                                 + '.el-dropdown-menu li, '
                                 + '.el-popover .el-button, '
-                                + '.el-tooltip__popper .el-button'
+                                + '.el-tooltip__popper .el-button, '
+                                + 'div[x-placement] div.el-tooltip.clickClass, '
+                                + 'div[x-placement] div.clickClass'
                             ).forEach(el => {
                                 const rect = el.getBoundingClientRect();
                                 const style = window.getComputedStyle(el);
@@ -1732,8 +1752,23 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                                 }}
                             }})()
                         """)
-                        # Python 级等待: Vue nextTick 异步渲染菜单 DOM
-                        page.wait_for_timeout(800)
+                        # Python 级等待: 轮询等待菜单项出现（Vue nextTick 异步渲染）
+                        _menu_sel_expand = (
+                            '.el-dropdown-menu .el-dropdown-menu__item, '
+                            '.el-dropdown-menu li, '
+                            '.el-popover .el-button, '
+                            '.el-tooltip__popper .el-button, '
+                            'div[x-placement] div.el-tooltip.clickClass, '
+                            'div[x-placement] div.clickClass'
+                        )
+                        for _poll in range(10):
+                            page.wait_for_timeout(300)
+                            _cnt = page.evaluate(
+                                f"""(sel) => document.querySelectorAll(sel).length""",
+                                _menu_sel_expand
+                            )
+                            if _cnt > 0:
+                                break
 
                         # 第二次: 在菜单浮层中搜索目标并点击
                         page.evaluate(f"""
@@ -1743,7 +1778,9 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                                     '.el-dropdown-menu .el-dropdown-menu__item',
                                     '.el-dropdown-menu li',
                                     '.el-popover .el-button',
-                                    '.el-tooltip__popper .el-button'
+                                    '.el-tooltip__popper .el-button',
+                                    'div[x-placement] div.el-tooltip.clickClass',
+                                    'div[x-placement] div.clickClass'
                                 ];
                                 for (const sel of menuSelectors) {{
                                     if (target) break;

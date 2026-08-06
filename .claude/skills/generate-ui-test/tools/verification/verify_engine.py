@@ -114,9 +114,10 @@ def _try_find_in_iframes(page, locator: str, max_iframes=10):
     """在 iframe 中查找元素（当主页面 count=0 时）
 
     策略：
-    1. 遍历页面中所有 iframe
-    2. 在每个 iframe 内尝试定位元素
-    3. 返回第一个找到的 iframe context
+    1. 等待 iframe 出现（最多 3s）
+    2. 遍历页面中所有 iframe
+    3. 在每个 iframe 内尝试定位元素
+    4. 返回第一个找到的 iframe context
 
     Args:
         page: Playwright page 对象
@@ -126,8 +127,13 @@ def _try_find_in_iframes(page, locator: str, max_iframes=10):
     Returns:
         dict: {frame_selector, frame_locator, count} 或 None
     """
+    import time
     if not locator or 'xpath=' not in locator:
+        print(f"    [DEBUG-IFRAME] Early exit: locator is None or not xpath")
         return None
+
+    print(f"    [DEBUG-IFRAME] ========== _try_find_in_iframes START ==========")
+    print(f"    [DEBUG-IFRAME] Timestamp: {time.strftime('%H:%M:%S')}")
 
     # 提取纯 XPath
     xpath = locator.replace('xpath=', '', 1)
@@ -153,6 +159,14 @@ def _try_find_in_iframes(page, locator: str, max_iframes=10):
 
     # 获取所有 iframe
     try:
+        # 等待 iframe 出现（最多 3s），解决时序问题
+        print(f"    [DEBUG-IFRAME] 等待 iframe 出现（最多 3s）...")
+        try:
+            page.wait_for_selector('iframe', state='attached', timeout=3000)
+            print(f"    [DEBUG-IFRAME] iframe 元素已出现")
+        except Exception as wait_err:
+            print(f"    [DEBUG-IFRAME] 等待 iframe 超时: {str(wait_err)[:60]}")
+
         iframes = page.frames
         print(f"    [DEBUG-IFRAME] page.frames 数量: {len(iframes)}")
 
@@ -1745,6 +1759,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         # ── iframe 探测：当主页面所有候选都 count=0 时，尝试在 iframe 中查找 ──
         if not verified_locator and locator and 'xpath=' in locator:
             print(f"    [TRACE-P6]   iframe 探测: 主页面所有候选 count=0，尝试 iframe")
+            print(f"    [DEBUG-IFRAME] 触发条件: desc='{desc}', locator='{locator[:80]}...'")
             iframe_result = _try_find_in_iframes(page, locator)
             if iframe_result:
                 # 提取 locator_ref（用于 writeback）
@@ -1962,6 +1977,15 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 _post_click_url = page.url
                 _post_click_title = page.title()
                 print(f"    [TRACE-P6]   click success: url={_post_click_url[:80]}, title={_post_click_title[:40]}")
+                # [DEBUG-IFRAME] 记录 click 后的 iframe 状态
+                _frames_count = len(page.frames)
+                print(f"    [DEBUG-IFRAME] page.frames after click: {_frames_count}")
+                if _frames_count > 1:
+                    for _fi, _fr in enumerate(page.frames):
+                        if _fr != page.main_frame:
+                            _fr_name = _fr.name or 'unnamed'
+                            _fr_url = _fr.url[:60] if _fr.url else 'N/A'
+                            print(f"    [DEBUG-IFRAME]   Frame[{_fi}]: name='{_fr_name}', url='{_fr_url}'")
             except Exception:
                 pass
             # P3-2: smart wait replaces fixed 500ms (含 DOM 稳定检测)

@@ -716,8 +716,9 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                 # 收集 iframe 探测结果
                 if _ve._last_iframe_discovery:
                     iframe_disc = _ve._last_iframe_discovery
-                    # 提取 group.field 信息
-                    _ref_match = re.match(r'\$\{([^}]+)\.([^}]+)\}', iframe_disc.get('locator_ref', ''))
+                    # 提取 group.field 信息（支持两种格式：${group.field} 或 group.field）
+                    _locator_ref = iframe_disc.get('locator_ref', '')
+                    _ref_match = re.match(r'(?:\$\{)?([^}]+)\.([^}]+?)(?:\})?$', _locator_ref)
                     if _ref_match:
                         iframe_discoveries.append({
                             'case_name': case_name,

@@ -128,6 +128,39 @@ class CaseGenerator:
         _debug_f7(f"[DEBUG-F7] _discovery_element_map ({len(self._discovery_element_map)} 个元素)")
         _debug_f7(f"[DEBUG-F7] _current_context = '{self._current_context}'\n")
 
+        # 填充 iframe field_meta
+        self._populate_field_meta()
+
+    def _populate_field_meta(self):
+        """从 resolver 元素中提取 iframe 信息，填充 field_meta。
+
+        [H4] 使用 raw dict（self._discovery_element_map 的值是 dict，非 ElementEntry）
+        [H5] 同时检查 iframe_context 和 has_iframe（向后兼容 rich_text）
+        [C4] 为所有 companion 后缀注册，确保 el-select 检测能找到
+        """
+        for (ctx, label), elem in self._discovery_element_map.items():
+            iframe_ctx = elem.get('iframe_context')
+            has_iframe = elem.get('has_iframe')
+            if not (iframe_ctx or has_iframe):
+                continue
+
+            group = elem.get('group_name')
+            field = elem.get('field_key')
+            if not group or not field:
+                continue
+
+            # 去掉容器 hash 后缀
+            base_field = self._CT_HASH_RE.sub('', field)
+
+            # 为主字段和所有 companion 后缀注册 [C4]
+            for suffix in ('', '_select', '_input', '_editable', '_first_option',
+                           '_textarea', '_btn', '_iframe'):
+                self.field_meta[(group, f'{base_field}{suffix}')] = {
+                    'type': 'iframe',
+                    'iframe_context': iframe_ctx,
+                    'iframe_field': f'{base_field}_iframe',
+                }
+
     # ─── 兼容适配层 ───────────────────────────────────────────
 
     def _compat_groups(self):
@@ -197,7 +230,8 @@ class CaseGenerator:
             # BUG-14: 先剥离容器哈希后缀（4 hex chars），再剥离标准后缀
             field_without_ct = self._CT_HASH_RE.sub('', field_key)
             field_prefix = field_without_ct
-            for suf in ('_select', '_input', '_editable', '_first_option',
+            # C1: _iframe 放最前面，避免 submit_btn_iframe 先匹配 _btn
+            for suf in ('_iframe', '_select', '_input', '_editable', '_first_option',
                         '_textarea', '_btn', '_tab', '_link', '_row_link',
                         '_row', '_option', '_card', '_cascader'):
                 if field_without_ct.endswith(suf):
@@ -244,6 +278,56 @@ class CaseGenerator:
             带容器前缀的 XPath（如果适用），否则原样返回
         """
         return apply_container_prefix(xpath, self.current_container)
+
+    def _wrap_click_for_iframe(self, group, field, keyword='click_element', **extra_params):
+        """将 click_element 包装为 frame_click_element（如果在 iframe 内）。
+
+        Args:
+            group: 元素组名
+            field: 元素字段名
+            keyword: 原始关键字（默认 click_element）
+            **extra_params: 额外参数（如 button='right'）
+        Returns:
+            (keyword, params) 元组
+        """
+        meta = self.field_meta.get((group, field))
+        if meta and meta.get('type') == 'iframe':
+            iframe_ref = f"${{{group}.{meta['iframe_field']}}}"
+            params = {
+                'frame': iframe_ref,
+                'locator': f"${{{group}.{field}}}",
+            }
+            params.update(extra_params)
+            return 'frame_click_element', params
+        else:
+            params = {'locator': f"${{{group}.{field}}}"}
+            params.update(extra_params)
+            return keyword, params
+
+    def _wrap_fill_for_iframe(self, group, field, value, keyword='fill_value'):
+        """将 fill_value 包装为 frame_fill_value（如果在 iframe 内）。
+
+        Args:
+            group: 元素组名
+            field: 元素字段名
+            value: 填充值
+            keyword: 原始关键字（默认 fill_value）
+        Returns:
+            (keyword, params) 元组
+        """
+        meta = self.field_meta.get((group, field))
+        if meta and meta.get('type') == 'iframe':
+            iframe_ref = f"${{{group}.{meta['iframe_field']}}}"
+            return 'frame_fill_value', {
+                'frame': iframe_ref,
+                'locator': f"${{{group}.{field}}}",
+                'value': value,
+            }
+        else:
+            return keyword, {
+                'locator': f"${{{group}.{field}}}",
+                'value': value,
+            }
 
     def _emit_el_select_steps(self, steps, label, value, nth=1):
         """生成 el-select 完整 3 步条件分支（始终使用 KB 标准 XPath）。
@@ -1416,12 +1500,30 @@ class CaseGenerator:
                         'keyword': 'frame_fill_value',
                         'params': {'frame': frame_ref, 'locator': body_ref, 'value': data_ref},
                     })
-                else:
+                elif meta and meta.get('type') == 'iframe':
+                    # iframe 内的输入框
+                    kw, params = self._wrap_fill_for_iframe(group, f'{field}_textarea', data_ref)
                     steps.append({
                         'desc': f"在「{label}」中输入",
-                        'keyword': 'fill_value',
-                        'params': {'locator': locator_ref, 'value': data_ref},
+                        'keyword': kw,
+                        'params': params,
                     })
+                else:
+                    # 检查是否是 iframe 内的普通输入框
+                    input_meta = self.field_meta.get((group, f'{field}_input'))
+                    if input_meta and input_meta.get('type') == 'iframe':
+                        kw, params = self._wrap_fill_for_iframe(group, f'{field}_input', data_ref)
+                        steps.append({
+                            'desc': f"在「{label}」中输入",
+                            'keyword': kw,
+                            'params': params,
+                        })
+                    else:
+                        steps.append({
+                            'desc': f"在「{label}」中输入",
+                            'keyword': 'fill_value',
+                            'params': {'locator': locator_ref, 'value': data_ref},
+                        })
             else:
                 # Fallback 路径 — Scheme 2b: 统一类型守卫
                 disc_elem = self._discovery_lookup(label)
@@ -1486,11 +1588,32 @@ class CaseGenerator:
                     print(f"    [WARN] 按钮「{label}」在当前上下文 "
                           f"({self.current_container or 'list_page'}) "
                           f"有 {len(all_candidates)} 个候选，取第一个")
-                steps.append({
-                    'desc': f'点击「{label}」按钮',
-                    'keyword': 'click_element',
-                    'params': {'locator': all_candidates[0]['ref']},
-                })
+
+                # 检查是否在 iframe 内
+                ref = all_candidates[0]['ref']
+                if ref.startswith('${') and ref.endswith('}'):
+                    # 提取 group 和 field
+                    inner = ref[2:-1]  # 去掉 ${ }
+                    if '.' in inner:
+                        group, field = inner.split('.', 1)
+                        kw, params = self._wrap_click_for_iframe(group, field)
+                        steps.append({
+                            'desc': f'点击「{label}」按钮',
+                            'keyword': kw,
+                            'params': params,
+                        })
+                    else:
+                        steps.append({
+                            'desc': f'点击「{label}」按钮',
+                            'keyword': 'click_element',
+                            'params': {'locator': ref},
+                        })
+                else:
+                    steps.append({
+                        'desc': f'点击「{label}」按钮',
+                        'keyword': 'click_element',
+                        'params': {'locator': ref},
+                    })
             else:
                 disc_elem = self._discovery_lookup(label)
                 disc_ref = self._elem_to_ref(disc_elem) if disc_elem else None

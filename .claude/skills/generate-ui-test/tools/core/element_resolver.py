@@ -49,7 +49,7 @@ class ElementEntry:
     __slots__ = ('group', 'field', 'locator', 'label', 'verified',
                  'container_type', 'trigger', 'from_expand',
                  'select_options', 'companion_fields',
-                 'elem_type', 'raw')
+                 'elem_type', 'raw', 'iframe_context')  # iframe 支持
 
     def __init__(self, **kwargs):
         for slot in self.__slots__:
@@ -860,6 +860,7 @@ class ElementResolver:
             select_options=elem.get('select_options'),
             elem_type=elem.get('type', ''),
             raw=elem,
+            iframe_context=elem.get('iframe_context'),  # iframe 支持
         )
 
         # 注册到 element_map（向后兼容）

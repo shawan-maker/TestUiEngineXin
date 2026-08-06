@@ -417,45 +417,107 @@ _DISCOVER_JS = """
         results.inputs.push({ label: label, type: 'textarea', locator: null });
     });
 
-    // 4b. iframe 内富文本编辑器（TinyMCE / UEditor / Quill）— §9.2 P3
-    root.querySelectorAll('iframe').forEach(iframe => {
+    // 4b. iframe 内全元素扫描（通用 iframe 支持）
+    root.querySelectorAll('iframe').forEach((iframe, iframeIdx) => {
         try {
             const doc = iframe.contentDocument;
-            if (!doc) return;
-            // 跨域 iframe：contentDocument 为 null 或访问抛异常，都走 catch
-            const editables = doc.querySelectorAll(
-                '[contenteditable="true"], body.mce-content-body, body.ql-editor'
-            );
-            editables.forEach(el => {
-                // 反向推导 label: 从 iframe 在主 frame 的父级找最近的 .el-form-item__label
-                let label = '';
-                let parent = iframe.parentElement;
+            if (!doc) return; // 跨域 iframe 由 Python 层处理
+
+            // 生成 iframe CSS 选择器（用于 frame_locator）
+            let iframeSelector = '';
+            if (iframe.id) {
+                iframeSelector = 'iframe#' + iframe.id;
+            } else if (iframe.name) {
+                iframeSelector = 'iframe[name="' + iframe.name + '"]';
+            } else {
+                iframeSelector = 'iframe:nth-of-type(' + (iframeIdx + 1) + ')';
+            }
+
+            // Helper: 从 iframe 父级查找 label
+            function findIframeLabel(iframeEl) {
+                let parent = iframeEl.parentElement;
                 let depth = 0;
                 while (parent && depth < 8) {
-                    const formItem = parent.closest
-                        ? parent.closest('.el-form-item')
-                        : null;
+                    const formItem = parent.closest ? parent.closest('.el-form-item') : null;
                     if (formItem) {
                         const lbl = formItem.querySelector('.el-form-item__label');
-                        if (lbl) {
-                            label = lbl.textContent.trim().replace(/^\\s*[*＊]\\s*|\\s*[*＊]\\s*$/g, '');
-                            break;
-                        }
+                        if (lbl) return lbl.textContent.trim()
+                            .replace(/^\\s*[*＊]\\s*|\\s*[*＊]\\s*$/g, '');
                     }
                     parent = parent.parentElement;
                     depth++;
                 }
-                if (!label) return;  // 找不到 label 的跳过
+                return '';
+            }
+
+            // 扫描按钮
+            doc.querySelectorAll('button, [role="button"], .el-button, .ec-button')
+               .forEach(el => {
+                if (!isVisible(el)) return;
+                const text = getText(el);
+                if (!text || text.length > 30) return;
+                results.buttons.push({
+                    text: text,
+                    type: getButtonSubtype(el),
+                    disabled: isDisabled(el),
+                    locator: null,
+                    is_row_button: false,
+                    iframe_context: iframeSelector,
+                    iframe_index: iframeIdx,
+                });
+            });
+
+            // 扫描 input/textarea
+            doc.querySelectorAll('input:not([type="hidden"]), textarea')
+               .forEach(el => {
+                if (!isVisible(el)) return;
+                if (el.closest('.el-select') || el.closest('.el-date-editor')) return;
+                const label = findAssociatedLabel(el) || findIframeLabel(iframe);
+                if (!label) return;
+                const inputType = el.tagName === 'TEXTAREA' ? 'textarea' : 'input';
+                results.inputs.push({
+                    label: label,
+                    type: inputType,
+                    locator: null,
+                    iframe_context: iframeSelector,
+                    iframe_index: iframeIdx,
+                });
+            });
+
+            // 扫描 el-select
+            doc.querySelectorAll('.el-select .el-input__inner').forEach(el => {
+                if (!isVisible(el)) return;
+                const label = findAssociatedLabel(el) || findIframeLabel(iframe);
+                if (!label) return;
+                results.inputs.push({
+                    label: label,
+                    type: 'el-select',
+                    locator: null,
+                    iframe_context: iframeSelector,
+                    iframe_index: iframeIdx,
+                });
+            });
+
+            // 富文本编辑器（保留现有逻辑）
+            const editables = doc.querySelectorAll(
+                '[contenteditable="true"], body.mce-content-body, body.ql-editor'
+            );
+            editables.forEach(el => {
+                let label = findIframeLabel(iframe);
+                if (!label) return;
                 results.inputs.push({
                     label: label,
                     type: 'rich_text',
                     locator: null,
                     has_iframe: true,
-                    recommended_keyword: 'frame_fill_value'
+                    recommended_keyword: 'frame_fill_value',
+                    iframe_context: iframeSelector,
+                    iframe_index: iframeIdx,
                 });
             });
+
         } catch (e) {
-            // cross-origin iframe — 静默跳过
+            // cross-origin iframe — 静默跳过（Python 层补充处理）
         }
     });
 
@@ -482,7 +544,7 @@ _DISCOVER_JS = """
 
     // 8. Row buttons (inside tbody) — C7: all typed as table-action-button
     //    Fix-2: 增加 el-dropdown 内 span 按钮（"更多"展开菜单等）
-    root.querySelectorAll('tbody .el-button, tbody .ec-button, tbody button, tbody .el-dropdown span.el-dropdown-link, tbody .el-dropdown span[style*="cursor"]').forEach(el => {
+    root.querySelectorAll('tbody .el-button, tbody .ec-button, tbody button, tbody .el-dropdown span.el-dropdown-link, tbody .ec-dropdown span.el-dropdown-link, tbody span.el-dropdown-link, tbody .el-dropdown span[style*="cursor"], tbody .ec-dropdown span[style*="cursor"]').forEach(el => {
         if (!isVisible(el)) return;
         const text = getText(el);
         if (!text) return;
@@ -582,6 +644,102 @@ _DISCOVER_JS = """
 """
 
 
+# ============================================================================
+# Cross-origin iframe scanning (M1)
+# ============================================================================
+
+def _discover_cross_origin_iframes(page, max_iframes=10):
+    """Scan cross-origin iframes using Playwright frame API.
+
+    JS scanning can only access same-origin iframes (contentDocument).
+    This function uses page.frames() to enumerate ALL frames including
+    cross-origin ones, and evaluates a simplified scan script in each.
+
+    :param page: Playwright Page object
+    :param max_iframes: maximum number of iframes to scan (performance guard)
+    :returns: dict with 'buttons' and 'inputs' lists
+    """
+    iframe_elements = {'buttons': [], 'inputs': []}
+    main_frame = page.main_frame
+
+    scan_js = """
+    () => {
+        const results = {buttons: [], inputs: []};
+        const isVisible = el => el.offsetParent !== null && el.offsetWidth > 0;
+
+        // 扫描按钮
+        document.querySelectorAll('button, [role="button"], .el-button, .ec-button')
+            .forEach(el => {
+                if (!isVisible(el)) return;
+                const text = (el.textContent || '').trim();
+                if (!text || text.length > 30) return;
+                results.buttons.push({text: text, type: 'button', locator: null});
+            });
+
+        // 扫描 input/textarea
+        document.querySelectorAll('input:not([type="hidden"]), textarea')
+            .forEach(el => {
+                if (!isVisible(el)) return;
+                if (el.closest('.el-select') || el.closest('.el-date-editor')) return;
+                const label = el.getAttribute('placeholder') ||
+                              el.getAttribute('aria-label') ||
+                              el.getAttribute('name') || '';
+                if (!label) return;
+                results.inputs.push({
+                    label: label,
+                    type: el.tagName === 'TEXTAREA' ? 'textarea' : 'input',
+                    locator: null
+                });
+            });
+
+        return results;
+    }
+    """
+
+    scanned = 0
+    for frame in page.frames:
+        if frame == main_frame:
+            continue
+        if scanned >= max_iframes:
+            print(f"  [WARN] iframe scan limit reached ({max_iframes}), skipping remaining")
+            break
+
+        try:
+            result = frame.evaluate(scan_js)
+            if not result:
+                continue
+
+            # Generate iframe CSS selector
+            frame_name = frame.name or ''
+            if frame_name:
+                iframe_selector = f'iframe[name="{frame_name}"]'
+            else:
+                # Fallback: position-based selector
+                frame_idx = page.frames.index(frame)
+                iframe_selector = f'iframe:nth-of-type({frame_idx})'
+
+            # Tag elements with iframe_context [C2]
+            for btn in result.get('buttons', []):
+                btn['iframe_context'] = iframe_selector
+                btn['iframe_index'] = scanned
+                btn['is_row_button'] = False
+                btn['disabled'] = False
+                iframe_elements['buttons'].append(btn)
+
+            for inp in result.get('inputs', []):
+                inp['iframe_context'] = iframe_selector
+                inp['iframe_index'] = scanned
+                iframe_elements['inputs'].append(inp)
+
+            scanned += 1
+
+        except Exception:
+            # Frame may have been detached or navigated away
+            pass
+
+    return iframe_elements
+
+
 def discover_all_elements(page, scope_selector=''):
     """Scan all interactive elements on the page via JS.
 
@@ -590,10 +748,20 @@ def discover_all_elements(page, scope_selector=''):
         E.g. 'div.el-drawer' = only scan inside drawer.
     """
     try:
-        return page.evaluate(_DISCOVER_JS, scope_selector)
+        js_result = page.evaluate(_DISCOVER_JS, scope_selector)
     except Exception as e:
         print(f"  [WARN] discover JS error: {e}")
-        return {'buttons': [], 'inputs': [], 'tabs': [], 'row_buttons': [], 'detail_links': [], 'checkboxes': [], 'menu_items': []}
+        js_result = {'buttons': [], 'inputs': [], 'tabs': [], 'row_buttons': [], 'detail_links': [], 'checkboxes': [], 'menu_items': []}
+
+    # 补充跨域 iframe 扫描
+    try:
+        iframe_result = _discover_cross_origin_iframes(page)
+        js_result['buttons'].extend(iframe_result['buttons'])
+        js_result['inputs'].extend(iframe_result['inputs'])
+    except Exception as e:
+        print(f"  [WARN] cross-origin iframe scan error: {e}")
+
+    return js_result
 
 
 # D2: Container selectors for scoped scanning
@@ -676,7 +844,7 @@ _ROW_HOVER_JS = """
         const row = rows[rowIndex];
         if (!row) continue;
         // Fix-2: 增加 el-dropdown span（hover 展开的"更多"菜单按钮）
-        row.querySelectorAll('.el-button, .ec-button, button, [role="button"], .el-dropdown span.el-dropdown-link, .el-dropdown span[style*="cursor"]').forEach(el => {
+        row.querySelectorAll('.el-button, .ec-button, button, [role="button"], .el-dropdown span.el-dropdown-link, .ec-dropdown span.el-dropdown-link, span.el-dropdown-link, .el-dropdown span[style*="cursor"], .ec-dropdown span[style*="cursor"]').forEach(el => {
             const rect = el.getBoundingClientRect();
             const style = window.getComputedStyle(el);
             // Relaxed visibility: only reject truly hidden elements (§9.2 P4 fix)
@@ -812,7 +980,7 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
                                         : (({i} < mainRows.length) ? mainRows[{i}] : null);
                             if (!row) return;
                             let target = null;
-                            row.querySelectorAll('.el-button, .ec-button, button, [role="button"], .el-dropdown span.el-dropdown-link, .el-dropdown span[style*="cursor"]').forEach(el => {{
+                            row.querySelectorAll('.el-button, .ec-button, button, [role="button"], .el-dropdown span.el-dropdown-link, .ec-dropdown span.el-dropdown-link, span.el-dropdown-link, .el-dropdown span[style*="cursor"], .ec-dropdown span[style*="cursor"]').forEach(el => {{
                                 const t = (el.textContent || '').trim();
                                 if ({json.dumps(list(EXPAND_LABELS), ensure_ascii=False)}.includes(t)) target = el;
                             }});
@@ -1550,7 +1718,10 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                                     searchRow.querySelectorAll(
                                         '.el-button, button, [role="button"], '
                                         + '.el-dropdown span.el-dropdown-link, '
-                                        + '.el-dropdown span[style*="cursor"]'
+                                        + '.ec-dropdown span.el-dropdown-link, '
+                                        + 'span.el-dropdown-link, '
+                                        + '.el-dropdown span[style*="cursor"], '
+                                        + '.ec-dropdown span[style*="cursor"]'
                                     ).forEach(el => {{
                                         const t = (el.textContent || '').trim();
                                         if (expandLabels.includes(t) && !expandTrigger) {{
@@ -1611,7 +1782,7 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                                     : (({row_idx} < mainRows.length) ? mainRows[{row_idx}] : null);
                                 let target = null;
                                 if (searchRow) {{
-                                    searchRow.querySelectorAll('.el-button, .ec-button, button, [role=\"button\"], .el-dropdown span.el-dropdown-link, .el-dropdown span[style*=\"cursor\"]').forEach(el => {{
+                                    searchRow.querySelectorAll('.el-button, .ec-button, button, [role=\"button\"], .el-dropdown span.el-dropdown-link, .ec-dropdown span.el-dropdown-link, span.el-dropdown-link, .el-dropdown span[style*=\"cursor\"], .ec-dropdown span[style*=\"cursor\"]').forEach(el => {{
                                         const t = (el.textContent || '').trim();
                                         if (t === {json.dumps(btn_text, ensure_ascii=False)}) target = el;
                                     }});

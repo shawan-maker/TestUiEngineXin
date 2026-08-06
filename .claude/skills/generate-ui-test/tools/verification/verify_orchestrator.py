@@ -86,6 +86,7 @@ from verification.verify_engine import (
     PROBE_ISOLATION_PREFIX, PROBE_FILL_VALUES,
     _HAS_AI_PROBE,
 )
+import verification.verify_engine as _ve  # 用于访问 _last_iframe_discovery 模块级变量
 from verification.pages_writeback import (
     update_pages_yaml, _store_verified_locator,
 )
@@ -431,6 +432,9 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
     skipped_count = 0
     error_count = 0
 
+    # Track iframe discoveries for writeback
+    iframe_discoveries = []  # [{case_name, step_index, group, field, frame_selector}]
+
     pw = sync_playwright().start()
     try:
         # headed=True 时有头模式，headed=False 时默认 headless
@@ -709,6 +713,22 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                     container_context=container_context
                 )
 
+                # 收集 iframe 探测结果
+                if _ve._last_iframe_discovery:
+                    iframe_disc = _ve._last_iframe_discovery
+                    # 提取 group.field 信息
+                    _ref_match = re.match(r'\$\{([^}]+)\.([^}]+)\}', iframe_disc.get('locator_ref', ''))
+                    if _ref_match:
+                        iframe_discoveries.append({
+                            'case_name': case_name,
+                            'step_index': step_idx,
+                            'group': _ref_match.group(1),
+                            'field': _ref_match.group(2),
+                            'frame_selector': iframe_disc.get('frame_selector', ''),
+                            'keyword': iframe_disc.get('keyword', ''),
+                        })
+                        print(f"  [IFRAME] Step {step_idx+1}: 发现 iframe 元素，frame={iframe_disc.get('frame_selector')}")
+
                 # [TRACE-P6] execute_step 返回结果
                 if keyword not in SKIP_KEYWORDS and keyword not in EXECUTE_KEYWORDS:
                     print(f"  [TRACE-P6] Step {step_idx+1} result: v_ct={v_ct}, v_skip={v_skip}, "
@@ -794,7 +814,15 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
     print(f"  Skipped (destructive): {skipped_count}")
     print(f"  Failed: {fallback_count}")
     print(f"  Writeback pending: {len(verified_locators)}")
+    if iframe_discoveries:
+        print(f"  Iframe discoveries: {len(iframe_discoveries)}")
     print(f"{'='*60}\n")
+
+    # Iframe writeback: 更新 pages YAML 和 case YAML
+    if iframe_discoveries:
+        from verification.pages_writeback import _write_iframe_companion_fields, _update_case_iframe_keywords
+        _write_iframe_companion_fields(project_dir, iframe_discoveries, module=module)
+        _update_case_iframe_keywords(project_dir, iframe_discoveries, module=module)
 
     # R6: Flush AI probe diagnostics
     if _HAS_AI_PROBE:
@@ -807,6 +835,7 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
         'failed': fallback_count,
         'verified_locators': verified_locators,
         'writeback_count': len(verified_locators),
+        'iframe_discoveries': len(iframe_discoveries) if iframe_discoveries else 0,
     }
 
 def main():

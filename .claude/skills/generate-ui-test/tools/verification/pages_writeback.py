@@ -369,3 +369,253 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
     if stripped_count > 0:
         print(f"  R3.14: 清除 {stripped_count} 个定位器的 not(ancestor::) 排除")
 
+
+def _write_iframe_companion_fields(project_dir, iframe_discoveries, module=None):
+    """在 pages YAML 中追加 iframe 伴侣字段（方案 B：保留原有格式）
+
+    对于每个 iframe 发现，在对应的 pages YAML 中追加 `{field}_iframe` 字段，
+    值为 iframe 的 CSS 选择器。
+
+    Args:
+        project_dir: 项目根目录
+        iframe_discoveries: [{group, field, frame_selector}, ...]
+        module: 模块名（可选，用于定位 pages 目录）
+    """
+    if not iframe_discoveries:
+        return
+
+    print(f"\n[IFRAME] 写入 {len(iframe_discoveries)} 个 iframe 伴侣字段...")
+
+    # BUG-5: Build module-scoped search directory
+    pages_dir = os.path.join(project_dir, 'pages')
+    if module:
+        module_dir = module.replace('_', '-')
+        search_root = os.path.join(pages_dir, module_dir)
+        if not os.path.isdir(search_root):
+            search_root = pages_dir
+    else:
+        search_root = pages_dir
+
+    # 按文件分组
+    updates_by_file = {}  # {filepath: [{group, field, frame_selector}, ...]}
+
+    for disc in iframe_discoveries:
+        group = disc.get('group')
+        field = disc.get('field')
+        frame_selector = disc.get('frame_selector')
+
+        if not (group and field and frame_selector):
+            continue
+
+        # 查找包含该 group 的 YAML 文件
+        target_file = None
+        for root, dirs, files in os.walk(search_root):
+            for f in files:
+                if f.endswith(('.yaml', '.yml')):
+                    path = os.path.join(root, f)
+                    try:
+                        with open(path, encoding='utf-8') as fh:
+                            data = yaml.safe_load(fh)
+                        if isinstance(data, dict) and group in data:
+                            target_file = path
+                            break
+                    except Exception:
+                        pass
+            if target_file:
+                break
+
+        if not target_file:
+            print(f"  [WARN] 未找到包含 group '{group}' 的 YAML 文件")
+            continue
+
+        if target_file not in updates_by_file:
+            updates_by_file[target_file] = []
+        updates_by_file[target_file].append({
+            'group': group,
+            'field': field,
+            'frame_selector': frame_selector,
+        })
+
+    # 逐个文件处理
+    for filepath, updates in updates_by_file.items():
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+
+            # 对每个更新，找到 field 所在位置，在其后插入 _iframe 伴侣字段
+            for update in updates:
+                group = update['group']
+                field = update['field']
+                frame_selector = update['frame_selector']
+                iframe_field = f'{field}_iframe'
+
+                # 检查是否已存在 _iframe 字段
+                iframe_exists = False
+                for line in lines:
+                    if line.strip().startswith(f'{iframe_field}:'):
+                        iframe_exists = True
+                        break
+
+                if iframe_exists:
+                    print(f"  [SKIP] {group}.{iframe_field} 已存在")
+                    continue
+
+                # 找到 field 所在位置
+                insert_pos = None
+                field_indent = None
+                in_target_group = False
+                for i, line in enumerate(lines):
+                    stripped = line.strip()
+
+                    # 进入目标 group
+                    if stripped.startswith(f'{group}:'):
+                        in_target_group = True
+                        continue
+
+                    # 离开 group（遇到新的顶层 key）
+                    if in_target_group and stripped and not line.startswith(' ') and ':' in stripped:
+                        in_target_group = False
+
+                    # 在 group 内找到目标 field
+                    if in_target_group and stripped.startswith(f'{field}:'):
+                        insert_pos = i + 1
+                        # 检测实际缩进
+                        field_indent = len(line) - len(line.lstrip())
+                        break
+
+                if insert_pos is None:
+                    print(f"  [WARN] 未在 {filepath} 中找到 {group}.{field}")
+                    continue
+
+                # 插入 _iframe 伴侣字段（使用与目标 field 相同的缩进）
+                indent = ' ' * (field_indent if field_indent else 2)
+                new_line = f'{indent}{iframe_field}: css={frame_selector}  # iframe 定位器（自动发现）\n'
+                lines.insert(insert_pos, new_line)
+                print(f"  [OK] {group}.{iframe_field} = css={frame_selector}")
+
+            # 写回文件
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.writelines(lines)
+
+        except Exception as e:
+            print(f"  [ERROR] 处理 {filepath} 失败: {e}")
+
+
+def _update_case_iframe_keywords(project_dir, iframe_discoveries, module=None):
+    """在 case YAML 中将 iframe 内步骤的 keyword 更新为 frame_* 形式
+
+    对于每个 iframe 发现，将对应步骤的 keyword 从 click_element/fill_value
+    更新为 frame_click_element/frame_fill_value，并添加 frame 参数。
+
+    Args:
+        project_dir: 项目根目录
+        iframe_discoveries: [{case_name, step_index, group, field, keyword}, ...]
+        module: 模块名（可选，用于定位 cases 目录）
+    """
+    if not iframe_discoveries:
+        return
+
+    print(f"\n[IFRAME] 更新 {len(iframe_discoveries)} 个 case 步骤的 keyword...")
+
+    # 按 case 文件分组
+    updates_by_case = {}  # {case_filepath: [{step_index, group, field, keyword}, ...]}
+
+    cases_dir = os.path.join(project_dir, 'cases')
+    if module:
+        module_dir = module.replace('_', '-')
+        search_root = os.path.join(cases_dir, module_dir)
+        if not os.path.isdir(search_root):
+            search_root = cases_dir
+    else:
+        search_root = cases_dir
+
+    for disc in iframe_discoveries:
+        case_name = disc.get('case_name')
+        step_index = disc.get('step_index')
+        group = disc.get('group')
+        field = disc.get('field')
+        keyword = disc.get('keyword', '')
+
+        if case_name is None or step_index is None or not (group and field):
+            continue
+
+        # 查找 case 文件
+        target_file = None
+        for root, dirs, files in os.walk(search_root):
+            for f in files:
+                if f.endswith(('.yaml', '.yml')) and case_name in f:
+                    target_file = os.path.join(root, f)
+                    break
+            if target_file:
+                break
+
+        if not target_file:
+            print(f"  [WARN] 未找到 case 文件: {case_name}")
+            continue
+
+        if target_file not in updates_by_case:
+            updates_by_case[target_file] = []
+        updates_by_case[target_file].append({
+            'step_index': step_index,
+            'group': group,
+            'field': field,
+            'keyword': keyword,
+        })
+
+    # 逐个文件处理
+    for filepath, updates in updates_by_case.items():
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            data = yaml.safe_load(content)
+            if not data or not isinstance(data, dict) or 'steps' not in data:
+                print(f"  [WARN] {filepath} 格式异常，跳过")
+                continue
+
+            steps = data['steps']
+            updated_count = 0
+
+            for update in updates:
+                step_index = update['step_index']
+                group = update['group']
+                field = update['field']
+                old_keyword = update['keyword']
+
+                if step_index >= len(steps):
+                    continue
+
+                step = steps[step_index]
+                if not isinstance(step, dict):
+                    continue
+
+                # 映射 keyword → frame_keyword
+                frame_keyword_map = {
+                    'click_element': 'frame_click_element',
+                    'fill_value': 'frame_fill_value',
+                    'click': 'frame_click_element',
+                }
+                new_keyword = frame_keyword_map.get(old_keyword)
+                if not new_keyword:
+                    continue
+
+                # 更新 keyword
+                step['keyword'] = new_keyword
+
+                # 添加 frame 参数
+                iframe_ref = f'${{{group}.{field}_iframe}}'
+                if 'params' not in step:
+                    step['params'] = {}
+                step['params']['frame'] = iframe_ref
+
+                updated_count += 1
+                print(f"  [OK] Step {step_index+1}: {old_keyword} → {new_keyword} (frame={iframe_ref})")
+
+            if updated_count > 0:
+                # 写回 YAML（保留格式）
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+                print(f"  [OK] Updated: {filepath} ({updated_count} steps)")
+
+        except Exception as e:
+            print(f"  [ERROR] 处理 {filepath} 失败: {e}")

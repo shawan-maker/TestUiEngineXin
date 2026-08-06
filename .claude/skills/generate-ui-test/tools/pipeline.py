@@ -1128,7 +1128,7 @@ class PipelineExecutor:
             try:
                 result = subprocess.run(
                     [sys.executable, str(report_generator), self.project_dir, str(output_path)],
-                    capture_output=True, text=True, timeout=120
+                    capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120
                 )
                 if result.returncode != 0:
                     errors.append(f"generate_report.py 失败 (exit {result.returncode})")
@@ -1142,7 +1142,7 @@ class PipelineExecutor:
         if report_validator.exists():
             result = subprocess.run(
                 [sys.executable, str(report_validator), self.project_dir],
-                capture_output=True, text=True, timeout=120
+                capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120
             )
             if result.returncode != 0:
                 errors.append("validate_09_report.py 失败")
@@ -1153,7 +1153,7 @@ class PipelineExecutor:
             try:
                 result = subprocess.run(
                     [sys.executable, str(issues_generator), self.project_dir],
-                    capture_output=True, text=True, timeout=120
+                    capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120
                 )
                 if result.returncode != 0:
                     errors.append("generate_issues_report.py 失败")

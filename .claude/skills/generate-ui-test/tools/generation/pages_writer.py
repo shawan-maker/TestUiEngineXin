@@ -270,10 +270,18 @@ class PagesWriter:
                         fields[field_key] = (f'xpath={locator}', comment)
 
         # 2. R4.11 隐藏过滤注入
+        resolver_groups = self._resolver.get_groups()
         for group_name, fields in groups.items():
+            resolver_fields = resolver_groups.get(group_name, {})
             for field_key, (locator, comment) in list(fields.items()):
                 if isinstance(locator, str) and locator.startswith('xpath='):
-                    locator = _inject_hidden_filter(locator)
+                    # H1: 跳过 iframe companion 字段（CSS 选择器不是 XPath）
+                    if field_key.endswith('_iframe'):
+                        continue
+                    # 检查是否为 iframe 内元素
+                    entry = resolver_fields.get(field_key)
+                    in_iframe = bool(entry and entry.iframe_context)
+                    locator = _inject_hidden_filter(locator, in_iframe=in_iframe)
                     fields[field_key] = (locator, comment)
 
         # 3. el-select companion 字段自动补全
@@ -289,6 +297,9 @@ class PagesWriter:
                     new_locator = fix_el_select_div_to_input(locator)
                     if new_locator != locator:
                         fields[field_key] = (new_locator, comment)
+
+        # 5.5 iframe companion 字段生成 [C5]
+        self._inject_iframe_companion_fields(groups)
 
         # 6. append 模式 — 字段级合并（N4 修复）
         if append and os.path.exists(output_path):
@@ -564,6 +575,40 @@ class PagesWriter:
                         f'xpath={xpath}',
                         f'{opt_text}（选项）'
                     )
+
+    def _inject_iframe_companion_fields(self, groups):
+        """为 iframe 内元素生成 {field}_iframe companion 字段。
+
+        iframe 元素需要两个 locator：
+        1. {field}: 元素在 iframe 内的 XPath
+        2. {field}_iframe: iframe 本身的 CSS 选择器（用于 frame_locator）
+
+        [C5] 对 el-select companion 字段也生成 _iframe
+        """
+        resolver_groups = self._resolver.get_groups()
+
+        for group_name, fields in list(groups.items()):
+            resolver_fields = resolver_groups.get(group_name, {})
+            new_fields = OrderedDict()
+
+            for field_key, (locator, comment) in fields.items():
+                new_fields[field_key] = (locator, comment)
+
+                # 检查是否为 iframe 元素
+                entry = resolver_fields.get(field_key)
+                if entry and entry.iframe_context:
+                    iframe_key = f'{field_key}_iframe'
+                    if iframe_key not in fields and iframe_key not in new_fields:
+                        iframe_selector = entry.iframe_context
+                        # 确保 iframe 选择器有 css= 前缀
+                        if not iframe_selector.startswith(('css=', '#', 'iframe')):
+                            iframe_selector = f'css={iframe_selector}'
+                        new_fields[iframe_key] = (
+                            iframe_selector,
+                            f'{comment}（iframe 定位器）'
+                        )
+
+            groups[group_name] = new_fields
 
     def _write_yaml_with_comments(self, filepath, groups, header=''):
         """手写 YAML，保留每个 key 后的中文注释。

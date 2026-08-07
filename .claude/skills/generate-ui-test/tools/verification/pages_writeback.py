@@ -125,13 +125,12 @@ def _store_verified_locator(v_loc, v_ct, step, pages_dict, verified_locators,
         print(f"    [TRACE-P6]   orig: {orig_xpath[:80]}{'...' if len(orig_xpath) > 80 else ''}")
         print(f"    [TRACE-P6]   new:  {v_xpath[:80]}{'...' if len(v_xpath) > 80 else ''}")
 
-        # 降级保护：原始有容器前缀但验证后没有，保留原始版本，不降级
-        # 根因：容器检测时序问题导致 Phase 6 验证时 count==1（dialog 未完全渲染），
-        # 但 Phase 9 运行时 dialog 已完全打开，count==2 → strict mode violation
+        # 降级警告（原 PRESERVED-SCOPED 已移除）：允许容器前缀降级
+        # 原设计：强制保留强前缀防止 strict mode violation
+        # 现设计：允许降级，依赖 Phase 6 运行时验证器检测 strict mode violation 并回退
         if orig_has_container and not new_has_container:
-            print(f"    [PRESERVED-SCOPED] '{ref}' — 原始 locator 有容器前缀，"
-                  f"验证后没有，保留原始版本，不降级")
-            return
+            print(f"    [WARN: CONTAINER-DOWNGRADE] '{ref}' — 容器前缀降级: "
+                  f"{orig_xpath[:60]} → {v_xpath[:60]}")
 
         # M10: 升级方向 — 原 Locator 无前缀，验证通过的有容器前缀
         if not orig_has_container and new_has_container:

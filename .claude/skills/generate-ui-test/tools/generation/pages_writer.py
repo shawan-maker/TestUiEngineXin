@@ -600,9 +600,12 @@ class PagesWriter:
                     iframe_key = f'{field_key}_iframe'
                     if iframe_key not in fields and iframe_key not in new_fields:
                         iframe_selector = entry.iframe_context
-                        # 确保 iframe 选择器有 css= 前缀
-                        if not iframe_selector.startswith(('css=', '#', 'iframe')):
-                            iframe_selector = f'css={iframe_selector}'
+                        # 2026-08-07: 全 XPath 格式，不再强制添加 css= 前缀
+                        # 如果已经是 xpath= 开头则保留，否则保留原始格式
+                        if not iframe_selector.startswith(('xpath=', 'css=')):
+                            # 兼容旧格式：如果不是 xpath= 也不是 css=，假设是 CSS 选择器并转换为 XPath
+                            # 这种情况很少见，仅在旧数据中出现
+                            iframe_selector = f'xpath={iframe_selector}'
                         new_fields[iframe_key] = (
                             iframe_selector,
                             f'{comment}（iframe 定位器）'

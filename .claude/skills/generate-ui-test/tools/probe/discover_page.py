@@ -713,14 +713,29 @@ def _discover_cross_origin_iframes(page, max_iframes=10):
             if not result:
                 continue
 
-            # Generate iframe CSS selector
-            frame_name = frame.name or ''
-            if frame_name:
-                iframe_selector = f'iframe[name="{frame_name}"]'
-            else:
-                # Fallback: position-based selector
+            # Generate iframe XPath selector (2026-08-07: use DOM attributes, not frame.name)
+            # Priority: id > class > name > index
+            iframe_selector = None
+            try:
+                iframe_el = frame.frame_element()
+                iframe_id = iframe_el.get_attribute('id')
+                if iframe_id:
+                    iframe_selector = f'xpath=//iframe[@id="{iframe_id}"]'
+                else:
+                    iframe_class = iframe_el.get_attribute('class')
+                    if iframe_class:
+                        iframe_selector = f'xpath=//iframe[@class="{iframe_class}"]'
+                    else:
+                        iframe_name = iframe_el.get_attribute('name')
+                        if iframe_name:
+                            iframe_selector = f'xpath=//iframe[@name="{iframe_name}"]'
+            except Exception:
+                pass
+
+            # Fallback: position-based selector
+            if not iframe_selector:
                 frame_idx = page.frames.index(frame)
-                iframe_selector = f'iframe:nth-of-type({frame_idx})'
+                iframe_selector = f'xpath=(//iframe)[{frame_idx + 1}]'
 
             # Tag elements with iframe_context [C2]
             for btn in result.get('buttons', []):

@@ -26,17 +26,16 @@ class IFrameMixin(BaseBrowser):
         self.page.frame_locator(frame).locator(locator).fill(value, timeout=timeout)
 
     @KeyWordManager.register("frame_click_element", "框架点击")
-    def frame_click_element(self, frame, locator, button='left', count=1, timeout=3000):
+    def frame_click_element(self, frame, locator, button='left', timeout=3000):
         """
         点击 iframe 内元素
         :param frame: iframe 定位表达式
         :param locator: 元素的定位表达式
         :param button: 鼠标按键 : "left", "middle", "right"
-        :param count: 点击次数
         :param timeout: 等待元素可见的最大超时时间
         """
         self.log.debug_log(f"正在点击元素:{locator}")
-        self.page.frame_locator(frame).locator(locator).click(button=button, count=count, timeout=timeout)
+        self.page.frame_locator(frame).locator(locator).click(button=button, timeout=timeout)
 
     @KeyWordManager.register("frame_hover", "框架悬停")
     def frame_hover(self, frame, locator, timeout=3000):

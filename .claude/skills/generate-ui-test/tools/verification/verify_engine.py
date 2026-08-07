@@ -214,20 +214,73 @@ def _try_find_in_iframes(page, locator: str, max_iframes=10):
                     print(f"    [TRACE-P6-IFRAME] [OK] iframe '{frame_name}' found {count} matches")
                     print(f"    [DEBUG-IFRAME] 匹配的 XPath: {xpath[:120]}")
 
-                    # 生成 frame selector（用于 frame_locator API）
-                    # 优先使用 name，其次使用 URL
-                    if frame.name:
-                        frame_selector = f'iframe[name="{frame.name}"]'
-                        print(f"    [DEBUG-IFRAME] 使用 name 生成 selector: {frame_selector}")
-                    else:
-                        # 使用 iframe 在页面中的位置
-                        try:
-                            frame_index = iframes.index(frame)
-                            frame_selector = f'iframe:nth-of-type({frame_index})'
-                            print(f"    [DEBUG-IFRAME] 使用 index 生成 selector: {frame_selector}")
-                        except ValueError:
-                            frame_selector = f'iframe[src*="{frame.url[:50]}"]'
-                            print(f"    [DEBUG-IFRAME] 使用 src 生成 selector: {frame_selector}")
+                    # 生成 frame selector（全 XPath 格式，2026-08-07）
+                    # 优先读取 DOM 属性，而非 Playwright frame.name
+                    frame_selector = None
+                    try:
+                        iframe_el = frame.frame_element()
+                        # 优先级 1: id
+                        iframe_id = iframe_el.get_attribute('id')
+                        if iframe_id:
+                            candidate = f'xpath=//iframe[@id="{iframe_id}"]'
+                            if page.locator(candidate).count() == 1:
+                                frame_selector = candidate
+                                print(f"    [DEBUG-IFRAME] 使用 id 生成 selector: {frame_selector}")
+
+                        # 优先级 2: class
+                        if not frame_selector:
+                            iframe_class = iframe_el.get_attribute('class')
+                            if iframe_class:
+                                candidate = f'xpath=//iframe[@class="{iframe_class}"]'
+                                cnt = page.locator(candidate).count()
+                                if cnt == 1:
+                                    frame_selector = candidate
+                                    print(f"    [DEBUG-IFRAME] 使用 class 生成 selector: {frame_selector}")
+                                elif cnt > 1:
+                                    frame_selector = f'({candidate})[1]'
+                                    print(f"    [DEBUG-IFRAME] class 不唯一(count={cnt})，加索引: {frame_selector}")
+
+                        # 优先级 3: DOM name 属性
+                        if not frame_selector:
+                            iframe_name = iframe_el.get_attribute('name')
+                            if iframe_name:
+                                candidate = f'xpath=//iframe[@name="{iframe_name}"]'
+                                if page.locator(candidate).count() >= 1:
+                                    frame_selector = candidate
+                                    print(f"    [DEBUG-IFRAME] 使用 DOM name 生成 selector: {frame_selector}")
+
+                        # 优先级 4: src 特征路径
+                        if not frame_selector and frame.url and frame.url != 'about:blank':
+                            src_fragment = frame.url.split('/')[-2] if '/' in frame.url else frame.url[:30]
+                            if src_fragment and len(src_fragment) > 3:
+                                candidate = f'xpath=//iframe[contains(@src,"{src_fragment}")]'
+                                if page.locator(candidate).count() >= 1:
+                                    frame_selector = candidate
+                                    print(f"    [DEBUG-IFRAME] 使用 src 生成 selector: {frame_selector}")
+
+                        # 优先级 5: DOM 位置索引
+                        if not frame_selector:
+                            try:
+                                all_iframes = page.locator('iframe')
+                                total = all_iframes.count()
+                                for idx in range(total):
+                                    if all_iframes.nth(idx) == iframe_el:
+                                        frame_selector = f'xpath=(//iframe)[{idx + 1}]'
+                                        print(f"    [DEBUG-IFRAME] 使用位置索引生成 selector: {frame_selector}")
+                                        break
+                            except Exception:
+                                pass
+                    except Exception as dom_err:
+                        print(f"    [DEBUG-IFRAME] DOM 属性读取失败: {dom_err}")
+
+                    # 最终回退：Playwright frame.name（不推荐，可能不在 DOM 中）
+                    if not frame_selector:
+                        if frame.name:
+                            frame_selector = f'xpath=//iframe[@name="{frame.name}"]'
+                            print(f"    [DEBUG-IFRAME] [WARN] 回退到 frame.name: {frame_selector}")
+                        else:
+                            frame_selector = f'xpath=(//iframe)[{scanned}]'
+                            print(f"    [DEBUG-IFRAME] [WARN] 回退到位置索引: {frame_selector}")
 
                     return {
                         'frame_selector': frame_selector,
@@ -1237,11 +1290,14 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             print(f"    [ERROR] {keyword} 缺少 frame 参数: '{desc}'")
             return None, None, False, False, None
 
-        # 解析 frame 参数
+        # 解析 frame 参数（兼容 xpath= 和 css= 前缀）
         frame_selector = resolve_var(frame_ref, data_dict)
         if '${' in frame_selector:
             frame_selector = resolve_locator({'locator': frame_selector}, pages_dict)
-        if frame_selector.startswith('css='):
+        # 剥离前缀供 Playwright API 使用
+        if frame_selector.startswith('xpath='):
+            frame_selector = frame_selector[6:]
+        elif frame_selector.startswith('css='):
             frame_selector = frame_selector[4:]
 
         print(f"    [TRACE-P6] iframe 快速通道: frame='{frame_selector}', locator='{locator[:80]}'")
@@ -2163,7 +2219,10 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             frame_selector = resolve_var(frame_ref, data_dict)
             if '${' in frame_selector:
                 frame_selector = resolve_locator({'locator': frame_selector}, pages_dict)
-            if frame_selector.startswith('css='):
+            # 剥离前缀供 Playwright API 使用（兼容 xpath= 和 css=）
+            if frame_selector.startswith('xpath='):
+                frame_selector = frame_selector[6:]
+            elif frame_selector.startswith('css='):
                 frame_selector = frame_selector[4:]
 
             print(f"    [TRACE-P6] iframe 快速通道: frame='{frame_selector}', locator='{verified_locator[:80]}'")

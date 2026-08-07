@@ -486,11 +486,16 @@ def _write_iframe_companion_fields(project_dir, iframe_discoveries, module=None)
                     print(f"  [WARN] 未在 {filepath} 中找到 {group}.{field}")
                     continue
 
-                # 插入 _iframe 伴侣字段（使用与目标 field 相同的缩进）
+                # 插入 _iframe 伴侣字段（全 XPath 格式，2026-08-07）
                 indent = ' ' * (field_indent if field_indent else 2)
-                new_line = f'{indent}{iframe_field}: css={frame_selector}  # iframe 定位器（自动发现）\n'
+                # 检查 frame_selector 是否已经是 xpath= 开头
+                if frame_selector.startswith('xpath='):
+                    new_line = f'{indent}{iframe_field}: \'{frame_selector}\'  # iframe 定位器（自动发现）\n'
+                else:
+                    # 兼容旧的 CSS 格式，转换为 XPath
+                    new_line = f'{indent}{iframe_field}: \'{frame_selector}\'  # iframe 定位器（待转换）\n'
                 lines.insert(insert_pos, new_line)
-                print(f"  [OK] {group}.{iframe_field} = css={frame_selector}")
+                print(f"  [OK] {group}.{iframe_field} = {frame_selector}")
 
             # 写回文件
             with open(filepath, 'w', encoding='utf-8') as f:
@@ -574,6 +579,7 @@ def _update_case_iframe_keywords(project_dir, iframe_discoveries, module=None):
 
             steps = data['steps']
             updated_count = 0
+            inserted_indices = []  # Track inserted indices to avoid duplicate insertions
 
             for update in updates:
                 step_index = update['step_index']
@@ -581,10 +587,13 @@ def _update_case_iframe_keywords(project_dir, iframe_discoveries, module=None):
                 field = update['field']
                 old_keyword = update['keyword']
 
-                if step_index >= len(steps):
+                # Adjust step_index for previously inserted steps
+                adjusted_index = step_index + sum(1 for idx in inserted_indices if idx <= step_index)
+
+                if adjusted_index >= len(steps):
                     continue
 
-                step = steps[step_index]
+                step = steps[adjusted_index]
                 if not isinstance(step, dict):
                     continue
 
@@ -592,7 +601,7 @@ def _update_case_iframe_keywords(project_dir, iframe_discoveries, module=None):
                 # 防止索引偏移导致把 frame_* 写入错误的步骤
                 current_keyword = step.get('keyword')
                 if current_keyword != old_keyword:
-                    print(f"  [WARN] Step {step_index+1}: keyword 不匹配 "
+                    print(f"  [WARN] Step {adjusted_index+1}: keyword 不匹配 "
                           f"({current_keyword} ≠ {old_keyword})，跳过")
                     continue
 
@@ -606,17 +615,34 @@ def _update_case_iframe_keywords(project_dir, iframe_discoveries, module=None):
                 if not new_keyword:
                     continue
 
-                # 更新 keyword
-                step['keyword'] = new_keyword
-
                 # 添加 frame 参数
                 iframe_ref = f'${{{group}.{field}_iframe}}'
                 if 'params' not in step:
                     step['params'] = {}
                 step['params']['frame'] = iframe_ref
 
+                # 在 frame_click_element/frame_fill_value 前插入 wait_for_element 步骤
+                # 等待 iframe 出现，确保后续操作能成功
+                if new_keyword.startswith('frame_'):
+                    iframe_locator_ref = f'${{{group}.{field}_iframe}}'
+                    wait_step = {
+                        'desc': f'等待 iframe 出现（{group}.{field}）',
+                        'keyword': 'wait_for_element',
+                        'params': {
+                            'locator': iframe_locator_ref,
+                            'state': 'attached',
+                            'timeout': 10000
+                        }
+                    }
+                    steps.insert(adjusted_index, wait_step)
+                    inserted_indices.append(adjusted_index)
+                    print(f"  [OK] 插入 wait_for_element 步骤: {iframe_locator_ref}")
+
+                # 更新 keyword
+                step['keyword'] = new_keyword
+
                 updated_count += 1
-                print(f"  [OK] Step {step_index+1}: {old_keyword} → {new_keyword} (frame={iframe_ref})")
+                print(f"  [OK] Step {adjusted_index+1}: {old_keyword} → {new_keyword} (frame={iframe_ref})")
 
             if updated_count > 0:
                 # 写回 YAML（保留格式）

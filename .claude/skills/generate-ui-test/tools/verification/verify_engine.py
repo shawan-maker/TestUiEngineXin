@@ -1339,7 +1339,6 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                             iframe_result = _try_find_in_iframes(page, locator)
                             if iframe_result and iframe_result.get('count', 0) > 0:
                                 # 设置 _iframe_discovery 触发回写
-                                global _last_iframe_discovery
                                 _last_iframe_discovery = {
                                     'frame_selector': iframe_result['frame_selector'],
                                     'frame_name': iframe_result['frame_name'],

@@ -579,21 +579,20 @@ def _update_case_iframe_keywords(project_dir, iframe_discoveries, module=None):
 
             steps = data['steps']
             updated_count = 0
-            inserted_indices = []  # Track inserted indices to avoid duplicate insertions
 
-            for update in updates:
+            # 关键修复：倒序处理 updates，避免插入步骤导致后续索引偏移
+            updates_sorted = sorted(updates, key=lambda u: u['step_index'], reverse=True)
+
+            for update in updates_sorted:
                 step_index = update['step_index']
                 group = update['group']
                 field = update['field']
                 old_keyword = update['keyword']
 
-                # Adjust step_index for previously inserted steps
-                adjusted_index = step_index + sum(1 for idx in inserted_indices if idx <= step_index)
-
-                if adjusted_index >= len(steps):
+                if step_index >= len(steps):
                     continue
 
-                step = steps[adjusted_index]
+                step = steps[step_index]
                 if not isinstance(step, dict):
                     continue
 
@@ -601,7 +600,7 @@ def _update_case_iframe_keywords(project_dir, iframe_discoveries, module=None):
                 # 防止索引偏移导致把 frame_* 写入错误的步骤
                 current_keyword = step.get('keyword')
                 if current_keyword != old_keyword:
-                    print(f"  [WARN] Step {adjusted_index+1}: keyword 不匹配 "
+                    print(f"  [WARN] Step {step_index+1}: keyword 不匹配 "
                           f"({current_keyword} ≠ {old_keyword})，跳过")
                     continue
 
@@ -615,34 +614,49 @@ def _update_case_iframe_keywords(project_dir, iframe_discoveries, module=None):
                 if not new_keyword:
                     continue
 
+                # 更新 keyword
+                step['keyword'] = new_keyword
+
                 # 添加 frame 参数
                 iframe_ref = f'${{{group}.{field}_iframe}}'
                 if 'params' not in step:
                     step['params'] = {}
                 step['params']['frame'] = iframe_ref
 
-                # 在 frame_click_element/frame_fill_value 前插入 wait_for_element 步骤
-                # 等待 iframe 出现，确保后续操作能成功
-                if new_keyword.startswith('frame_'):
-                    iframe_locator_ref = f'${{{group}.{field}_iframe}}'
-                    wait_step = {
-                        'desc': f'等待 iframe 出现（{group}.{field}）',
+                # 关键修复：在 frame_* 步骤前插入 wait_for_element 等待 iframe 加载
+                # 与 case_generator.py line 1620-1626 逻辑对称
+                # 检查前一步是否已经是 wait_for_element（避免重复插入）
+                _need_wait = True
+                if step_index > 0:
+                    _prev_step = steps[step_index - 1]
+                    if (isinstance(_prev_step, dict)
+                            and _prev_step.get('keyword') == 'wait_for_element'
+                            and 'iframe' in _prev_step.get('desc', '')):
+                        _need_wait = False
+
+                if _need_wait:
+                    # 从 step desc 中提取标签用于 wait 步骤描述
+                    _label = ''
+                    _desc = step.get('desc', '')
+                    import re as _re
+                    _m = _re.search(r'[「『](.+?)[」』]', _desc)
+                    if _m:
+                        _label = _m.group(1)
+
+                    _wait_desc = f"等待「{_label}」的 iframe 加载完成" if _label else "等待 iframe 加载完成"
+                    _wait_step = {
+                        'desc': _wait_desc,
                         'keyword': 'wait_for_element',
                         'params': {
-                            'locator': iframe_locator_ref,
-                            'state': 'attached',
-                            'timeout': 10000
-                        }
+                            'locator': iframe_ref,
+                            'timeout': 10000,
+                        },
                     }
-                    steps.insert(adjusted_index, wait_step)
-                    inserted_indices.append(adjusted_index)
-                    print(f"  [OK] 插入 wait_for_element 步骤: {iframe_locator_ref}")
-
-                # 更新 keyword
-                step['keyword'] = new_keyword
+                    steps.insert(step_index, _wait_step)
+                    print(f"  [OK] Step {step_index+1}: 插入 wait_for_element (iframe 等待)")
 
                 updated_count += 1
-                print(f"  [OK] Step {adjusted_index+1}: {old_keyword} → {new_keyword} (frame={iframe_ref})")
+                print(f"  [OK] Step {step_index+1}: {old_keyword} → {new_keyword} (frame={iframe_ref})")
 
             if updated_count > 0:
                 # 写回 YAML（保留格式）

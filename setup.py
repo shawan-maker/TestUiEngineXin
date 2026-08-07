@@ -9,7 +9,7 @@ with codecs.open(os.path.join(here, "README.md"), encoding="utf-8") as fh:
 
 setup(
     name="ui_engine_xin",
-    version="0.0.8",
+    version="0.0.9",
     author="Shawn",
     author_email="xiaoh0525@xiaoh.com",
     description="基于 Playwright 的关键字驱动 UI 自动化测试引擎",
@@ -31,6 +31,7 @@ setup(
             "pytest-playwright>=0.4",
         ],
     },
+    license="MIT",
     keywords=["python", "playwright", "ui-automation", "keyword-driven", "testing", "uiEngine"],
     classifiers=[
         "Development Status :: 3 - Alpha",
@@ -41,7 +42,6 @@ setup(
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",
-        "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
 )

@@ -663,14 +663,16 @@ class CaseGenerator:
         return None
 
     def _lookup_discovery_element(self, label, context=None):
-        """从 discovery_element_map 查找元素（三层 context 回退）。
+        """从 discovery_element_map 查找元素（两层 context 回退）。
 
         多URL场景：优先按 page_slug 精确索引查找，避免跨URL同名覆盖。
+        L3 全局回退已删除（2026-08-07）：防止跨页面误匹配，未命中时返回 None，
+        交由调用方生成 [待确认] 占位符，Phase 6 运行时补探。
         """
         ctx = context or self._current_context or 'list_page'
         page_slug = self._get_current_page_slug()
 
-        # 多URL精确索引：优先按 page_slug 查找
+        # L1: 多URL精确索引：优先按 page_slug 查找
         if page_slug:
             elem = self._discovery_page_element_map.get((page_slug, ctx, label))
             if elem and elem.get('locator'):
@@ -681,7 +683,7 @@ class CaseGenerator:
                 if elem and elem.get('locator'):
                     return elem
 
-        # 向后兼容：原有逻辑
+        # L2: 向后兼容：原有逻辑（无 page_slug 维度）
         elem = self._discovery_element_map.get((ctx, label))
         if elem and elem.get('locator'):
             return elem
@@ -694,11 +696,7 @@ class CaseGenerator:
             elem = self._discovery_element_map.get(('list_page', label))
             if elem and elem.get('locator'):
                 return elem
-        for (c, l), e in self._discovery_element_map.items():
-            if l == label and e.get('locator'):
-                if ctx in self._discovery_trigger_map:
-                    continue
-                return e
+        # L3 已删除：不再做跨 context 全局回退，直接返回 None
         return None
 
     def _discovery_lookup(self, label, context=None, type_hint=None):

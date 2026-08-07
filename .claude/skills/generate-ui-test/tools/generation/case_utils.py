@@ -55,8 +55,8 @@ def _build_date_picker_xpath(value, scope_prefix=''):
     Returns:
         (xpath_str, desc_str): XPath 和步骤描述
     """
-    panel_scope = (f"{scope_prefix}//div[@x-placement='bottom-start'"
-                   f" or @x-placement='top-start']")
+    panel_scope = (f"{scope_prefix}//div[@x-placement"
+                   f" and not(@x-placement='') and not(@role='tooltip')]")
     table_filter = "not(contains(@style,'display: none'))"
 
     if '今天' in value or '当天' in value or 'today' in value.lower():

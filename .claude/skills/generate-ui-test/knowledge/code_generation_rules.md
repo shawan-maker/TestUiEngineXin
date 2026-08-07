@@ -109,8 +109,8 @@ Step 2 的搜索文本（`data_group.field_search`）和 Step 3 选项 XPath 中
 
 ```yaml
 delivery_options:
-  project_name_option: "xpath=(//div[(@x-placement='bottom-start' or @x-placement='top-start')]//li[contains(.,'2025年天津市眼科医院')])[1]"
-  problem_type_defect: "xpath=(//div[(@x-placement='bottom-start' or @x-placement='top-start')]//li[contains(.,'产品缺陷')])[1]"
+  project_name_option: "xpath=(//div[@x-placement and not(@x-placement='') and not(@role='tooltip')]//li[contains(.,'2025年天津市眼科医院')])[1]"
+  problem_type_defect: "xpath=(//div[@x-placement and not(@x-placement='') and not(@role='tooltip')]//li[contains(.,'产品缺陷')])[1]"
 ```
 
 **data/ 中定义搜索文本**：
@@ -139,7 +139,7 @@ delivery_data:
     locator: "${delivery_options.project_name_option}"
 ```
 
-**x-placement 值必须来自 probe 结果**（见规则 14），禁止假设固定为 `bottom-start` 或 `top-start`。
+**x-placement 定位器使用宽匹配** `@x-placement and not(@x-placement='')`，不硬编码具体方向值。同时排除 tooltip：`not(@role='tooltip')`。
 
 ### 规则 4：断言统一使用 except_to_be_visible
 
@@ -389,10 +389,10 @@ option: "xpath=//li[@role='menuitem' and not(ancestor-or-self::*[contains(@class
 el-select 的下拉面板可能出现在输入框上方（`top-start`）或下方（`bottom-start`）。选项 XPath 必须使用 `or` 匹配两种位置：
 
 ```yaml
-# ✅ 正确 — 匹配双向面板
-option: "xpath=(//div[(@x-placement='bottom-start' or @x-placement='top-start') and not(ancestor-or-self::*[contains(@style,'display: none')])]//li[contains(.,'选项文本')])[1]"
+# ✅ 正确 — 宽匹配任意方向面板
+option: "xpath=(//div[@x-placement and not(@x-placement='') and not(@role='tooltip') and not(ancestor-or-self::*[contains(@style,'display: none')])]//li[contains(.,'选项文本')])[1]"
 
-# ❌ 错误 — 只匹配下方面板
+# ❌ 错误 — 硬编码方向值，缺少 tooltip 排除
 option: "xpath=//div[@x-placement='bottom-start']//li[contains(.,'选项文本')]"
 ```
 

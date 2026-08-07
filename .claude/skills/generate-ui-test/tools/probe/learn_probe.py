@@ -11,7 +11,7 @@
     python learn_probe.py TSManager/_probe/knowledge.json single_step button 查询 "//button[contains(.,'查') and contains(.,'询') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]" case_18
 
     # 学习多步 el-select 的 select 步骤
-    python learn_probe.py TSManager/_probe/knowledge.json multi_step el-select:select 项目名称 "(//div[(@x-placement='bottom-start' or @x-placement='top-start')]//li[contains(.,'{option_text}')])[1]" case_01
+    python learn_probe.py TSManager/_probe/knowledge.json multi_step el-select:select 项目名称 "(//div[@x-placement and not(@x-placement='') and not(@role='tooltip')]//li[contains(.,'{option_text}')])[1]" case_01
 """
 import json
 import sys
@@ -175,7 +175,7 @@ def main():
         print("  python learn_probe.py TSManager/_probe/knowledge.json single_step button 查询 \"//button[contains(.,'查') and contains(.,'询')]\" case_18")
         print("")
         print("  # 学习带选项文本的多步模板")
-        print("  python learn_probe.py TSManager/_probe/knowledge.json multi_step el-select 项目名称 \"(//div[(@x-placement='bottom-start')]//li[contains(.,'{option_text}')])[1]\" case_01 \"选项文本\"")
+        print("  python learn_probe.py TSManager/_probe/knowledge.json multi_step el-select 项目名称 \"(//div[@x-placement and not(@x-placement='') and not(@role='tooltip')]//li[contains(.,'{option_text}')])[1]\" case_01 \"选项文本\"")
         sys.exit(1)
 
     knowledge_path = sys.argv[1]

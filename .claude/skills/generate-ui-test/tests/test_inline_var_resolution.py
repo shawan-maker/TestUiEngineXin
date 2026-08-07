@@ -29,7 +29,7 @@ def test_inline_var_resolution():
     print(f"[OK] Case A: {resolved}")
 
     # Case B: 内嵌变量的 XPath（项目选项场景）
-    loc2 = "xpath=(//div[@x-placement='bottom-start']//li[contains(.,'${estack_data.case01_field_31ecc0_option}')])[1]"
+    loc2 = "xpath=(//div[@x-placement and not(@x-placement='') and not(@role='tooltip')]//li[contains(.,'${estack_data.case01_field_31ecc0_option}')])[1]"
     resolved2 = resolve_var(loc2, data)
     assert '${' not in resolved2, f"变量未解析: {resolved2}"
     assert 'Project-060f0629' in resolved2, f"预期值未出现: {resolved2}"

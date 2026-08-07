@@ -40,7 +40,7 @@ COOKIE = "sensorsdata2015jssdkcross=%7B%22distinct_id%22%3A%2219f8deb566317b8-09
 
 LOCATOR_EXPAND = "xpath=(//*[contains(text(),'项目')]/following-sibling::*[self::div or self::span]//div[contains(@class,'el-select') and not(contains(@class,'el-select-dropdown')) and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
 LOCATOR_SELECT_INPUT = "xpath=(//*[contains(text(),'项目')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner' and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
-LOCATOR_OPTION = "xpath=(//div[(@x-placement='bottom-start' or @x-placement='top-start')]//li[contains(.,'Project-060f0629') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
+LOCATOR_OPTION = "xpath=(//div[@x-placement and not(@x-placement='') and not(@role='tooltip')]//li[contains(.,'Project-060f0629') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
 
 SEARCH_VALUE = "Project-060f0629"
 

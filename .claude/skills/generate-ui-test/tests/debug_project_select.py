@@ -33,7 +33,7 @@ LOCATOR_EDITABLE = "xpath=(//*[contains(text(),'项目')]/following-sibling::*[s
 
 LOCATOR_SELECT_INPUT = "xpath=(//*[contains(text(),'项目')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner' and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
 
-LOCATOR_OPTION = "xpath=(//div[(@x-placement='bottom-start' or @x-placement='top-start')]//li[contains(.,'Project-060f0629') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
+LOCATOR_OPTION = "xpath=(//div[@x-placement and not(@x-placement='') and not(@role='tooltip')]//li[contains(.,'Project-060f0629') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
 
 SEARCH_VALUE = "Project-060f0629"
 
@@ -132,7 +132,7 @@ def main():
         print("4. 检查 li 选项是否存在：")
         print(f"   {LOCATOR_OPTION[:100]}...")
         print("\n5. 在 Console 中执行以下代码检查 li count：")
-        print("   document.evaluate(\"(//div[(@x-placement='bottom-start' or @x-placement='top-start')]//li[contains(.,'Project-060f0629')])[1]\", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue")
+        print("   document.evaluate(\"(//div[@x-placement and not(@x-placement='') and not(@role='tooltip')]//li[contains(.,'Project-060f0629')])[1]\", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue")
         print("\n6. 检查是否有 is-hidden 或 display:none 的祖先元素")
         print("\n" + "=" * 80)
 

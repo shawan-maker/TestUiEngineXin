@@ -145,10 +145,10 @@ and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-s
 el-select 的下拉面板可能出现在输入框上方（`top-start`）或下方（`bottom-start`）。选项 XPath 必须使用 `or` 匹配两种位置：
 
 ```yaml
-# ✅ 正确 — 匹配双向面板
-option: "xpath=(//div[(@x-placement='bottom-start' or @x-placement='top-start') and not(ancestor-or-self::*[contains(@style,'display: none')])]//li[contains(.,'选项文本')])[1]"
+# ✅ 正确 — 宽匹配任意方向面板
+option: "xpath=(//div[@x-placement and not(@x-placement='') and not(@role='tooltip') and not(ancestor-or-self::*[contains(@style,'display: none')])]//li[contains(.,'选项文本')])[1]"
 
-# ❌ 错误 — 只匹配下方面板
+# ❌ 错误 — 硬编码方向值，缺少 tooltip 排除
 option: "xpath=//div[@x-placement='bottom-start']//li[contains(.,'选项文本')]"
 ```
 

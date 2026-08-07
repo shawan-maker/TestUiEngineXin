@@ -1512,26 +1512,31 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                 local_storage[c['name']] = c['value']
 
         page = context.new_page()
+
+        # Pre-inject localStorage via init_script (runs BEFORE any page script)
+        # This ensures SPA router guards find the token on first navigation,
+        # preventing redirect to /login before localStorage is populated.
+        if local_storage:
+            ls_items = ', '.join(
+                f'localStorage.setItem({json.dumps(k)}, {json.dumps(v)})'
+                for k, v in local_storage.items()
+            )
+            page.add_init_script(f'() => {{ {ls_items} }}')
+
         # Navigate with networkidle fallback to domcontentloaded
         # Some systems (eStack) have continuous API polling, networkidle never triggers
         _navigate_with_fallback(page, url, timeout_ms=10000)
-        _wait_for_dom_stable(page, timeout_ms=4000)  # 初始页面加载等待 DOM 渲染
-        for k, v in local_storage.items():
-            page.evaluate("([k, v]) => localStorage.setItem(k, v)", [k, v])
-        _navigate_with_fallback(page, url, timeout_ms=10000)
-        _wait_for_dom_stable(page, timeout_ms=4000)  # 重载后等待 DOM 稳定
+        _wait_for_dom_stable(page, timeout_ms=4000)
         # Check auth
         if '/login' in page.url or page.url.rstrip('/').endswith('login'):
             print(f"[ERROR] Redirected to login page — cookie invalid/expired")
             return {'module': module_name, 'url': url, 'containers': [], 'auth_error': True}
 
-        # Inject localStorage
+        # Belt-and-suspenders: ensure localStorage is set (init_script already handles this)
         for k, v in local_storage.items():
             page.evaluate("([k, v]) => localStorage.setItem(k, v)", [k, v])
 
-        # Re-navigate to apply localStorage
-        _navigate_with_fallback(page, url, timeout_ms=10000)
-        _wait_for_dom_stable(page, timeout_ms=3000, debug=True)  # 导航后等待 DOM 渲染（含表格行）
+        _wait_for_dom_stable(page, timeout_ms=3000, debug=True)  # 等待 DOM 渲染（含表格行）
 
         # §12.2 改动 2b: baseline URL = 页面加载后的真实 URL
         baseline_url = page.url
@@ -1675,11 +1680,14 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
             page = context.new_page()
             # Re-inject cookies (context-level, should persist, but verify)
             context.add_cookies(cookies)
-            # Re-inject localStorage
-            _navigate_with_fallback(page, baseline_url, timeout_ms=10000)
-            _wait_for_dom_stable(page, timeout_ms=3000, debug=False)
-            for k, v in local_storage.items():
-                page.evaluate("([k, v]) => localStorage.setItem(k, v)", [k, v])
+            # Pre-inject localStorage via init_script (runs BEFORE any page script)
+            if local_storage:
+                ls_items = ', '.join(
+                    f'localStorage.setItem({json.dumps(k)}, {json.dumps(v)})'
+                    for k, v in local_storage.items()
+                )
+                page.add_init_script(f'() => {{ {ls_items} }}')
+            # Navigate — init_script already injected localStorage
             _navigate_with_fallback(page, baseline_url, timeout_ms=10000)
             _wait_for_dom_stable(page, timeout_ms=3000, debug=False)
             print(f"  [RECYCLE] Fresh page ready")

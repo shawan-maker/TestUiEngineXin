@@ -487,6 +487,15 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
 
         page = context.new_page()
 
+        # Pre-inject localStorage via init_script (runs BEFORE any page script)
+        # Prevents SPA router guards from redirecting to /login on first navigation.
+        if local_storage:
+            ls_items = ', '.join(
+                f'localStorage.setItem({json.dumps(k)}, {json.dumps(v)})'
+                for k, v in local_storage.items()
+            )
+            page.add_init_script(f'() => {{ {ls_items} }}')
+
         # Perf: 预注入 localStorage 一次（避免每个 case 重复导航）
         _ls_injected = False
 
@@ -535,14 +544,13 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
             # Navigate to base URL for each case
             try:
                 if not _ls_injected:
-                    # 首次: goto → inject localStorage → reload (完整认证流程)
-                    page.goto(base_url, wait_until="domcontentloaded", timeout=30000)
-                    _wait_for_dom_stable(page, timeout_ms=4000)
-                    for k, v in local_storage.items():
-                        page.evaluate("([k, v]) => localStorage.setItem(k, v)", [k, v])
+                    # 首次: init_script 已注入 localStorage，直接导航（SPA 守卫能读到 token）
                     page.goto(base_url, wait_until="domcontentloaded", timeout=30000)
                     _wait_for_dom_stable(page, timeout_ms=4000)
                     _ls_injected = True
+                    # Belt-and-suspenders: 确保 localStorage 已设置
+                    for k, v in local_storage.items():
+                        page.evaluate("([k, v]) => localStorage.setItem(k, v)", [k, v])
                     # Check if redirected to login page (invalid cookie)
                     final_url = page.url
                     if '/login' in final_url or final_url.rstrip('/').endswith('login'):

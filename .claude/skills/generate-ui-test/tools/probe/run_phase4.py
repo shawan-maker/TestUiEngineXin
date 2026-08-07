@@ -43,6 +43,7 @@ def run_cmd(cmd, label):
         env = os.environ.copy()
         env['PYTHONUTF8'] = '1'
         env['PYTHONIOENCODING'] = 'utf-8'
+        env['PYTHONUNBUFFERED'] = '1'  # 禁用子进程输出缓冲，确保 print() 立即刷新
         result = subprocess.run(
             cmd, capture_output=False, text=True,
             encoding='utf-8', errors='replace',

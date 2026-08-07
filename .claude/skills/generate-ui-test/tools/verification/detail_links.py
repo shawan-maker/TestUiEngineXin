@@ -158,12 +158,23 @@ def _try_kb_resolve_detail_links(project_dir, pending, cookie, url,
                 local_storage[c['name']] = c['value']
 
         page = context.new_page()
-        # Navigate + inject localStorage
-        page.goto(url, wait_until="domcontentloaded", timeout=30000)
-        for k, v in local_storage.items():
-            page.evaluate("([k, v]) => localStorage.setItem(k, v)", [k, v])
+
+        # Pre-inject localStorage via init_script (runs BEFORE any page script)
+        # Prevents SPA router guards from redirecting to /login on first navigation.
+        if local_storage:
+            ls_items = ', '.join(
+                f'localStorage.setItem({json.dumps(k)}, {json.dumps(v)})'
+                for k, v in local_storage.items()
+            )
+            page.add_init_script(f'() => {{ {ls_items} }}')
+
+        # Navigate — init_script already injected localStorage, SPA guard can read token
         page.goto(url, wait_until="domcontentloaded", timeout=30000)
         _wait_for_dom_stable(page, timeout_ms=5000)
+
+        # Belt-and-suspenders: ensure localStorage is set
+        for k, v in local_storage.items():
+            page.evaluate("([k, v]) => localStorage.setItem(k, v)", [k, v])
 
         # Check auth validity
         if '/login' in page.url:

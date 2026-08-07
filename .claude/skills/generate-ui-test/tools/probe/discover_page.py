@@ -110,28 +110,6 @@ def _wait_for_load_state_fallback(page, timeout_ms=10000):
 # XPath filter injection helpers (§9.2 P1-C / P1-A)
 # ============================================================================
 
-def _inject_button_disabled_filter(xpath):
-    """Append disabled filter to button XPath (D5: self + ancestor check).
-
-    Injects BEFORE the last ']' (the outermost predicate), so the disabled
-    filter is combined with the original button predicate in a single
-    predicate block.
-
-    Checks both:
-      - not(contains(@class,'is-disabled')) — element itself
-      - not(ancestor-or-self::*[contains(@class,'is-disabled')]) — ancestor chain
-    """
-    disabled_check = (
-        "not(contains(@class,'is-disabled'))"
-        " and not(ancestor-or-self::*[contains(@class,'is-disabled')])"
-    )
-    last_bracket = xpath.rfind(']')
-    if last_bracket < 0:
-        # no predicate — add one
-        return xpath + f"[{disabled_check}]"
-    return xpath[:last_bracket] + f" and {disabled_check}" + xpath[last_bracket:]
-
-
 def _inject_scope_filter(xpath, scope_filter):
     """Append a scope filter (e.g. 'ancestor::tbody' / 'not(ancestor::tbody)')
     to the outermost predicate of a button XPath.
@@ -188,9 +166,9 @@ def _generate_xpath_from_kb(page, elem_type, label, container_type=None, scope_f
         if elem_type in _INPUT_KB_TYPES and not has_hidden_filter(xpath):
             xpath = inject_hidden_filter(xpath)
 
-        # §9.2 P1-C: button 类型全局追加 is-disabled 过滤
+        # §9.2 P1-C: button 类型追加 disabled 过滤（使用统一的 inject_hidden_filter）
         if elem_type in ('button', 'table-action-button'):
-            xpath = _inject_button_disabled_filter(xpath)
+            xpath = inject_hidden_filter(xpath, elem_type=elem_type)
 
         # §9.2 P1-A: scope 过滤（toolbar vs row）
         if elem_type in ('button', 'table-action-button') and scope_filter:

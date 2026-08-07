@@ -536,7 +536,7 @@ def _verify_count_or_first(page, locator):
     return None
 
 
-def verify_locator_candidates(page, candidates, container_type=None, discovery_ct=None, return_index=False):
+def verify_locator_candidates(page, candidates, container_type=None, discovery_ct=None, return_index=False, elem_type=None):
     """Try multiple locator candidates with multiple container prefixes.
 
     Priority: discovery container_type > default priority > no prefix
@@ -547,6 +547,8 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
     Args:
         return_index: If True, return 4-tuple with matched candidate index.
                      If False (default), return 3-tuple for backward compatibility.
+        elem_type: Element type (e.g., 'button', 'input-generic'). Used to inject
+                  disabled filter for button types.
 
     Returns:
         If return_index=False: (matched_locator, matched_prefix, count) or (None, None, 0)
@@ -612,7 +614,7 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
                     else:
                         test_xpath = bare_xpath
 
-                    full_xpath = inject_hidden_filter(f"xpath={test_xpath}")
+                    full_xpath = inject_hidden_filter(f"xpath={test_xpath}", elem_type=elem_type)
 
                     try:
                         count = page.locator(full_xpath).count()
@@ -639,7 +641,7 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
                                     # BUG-13 修复：前缀注入到括号内部
                                     inner, wrap = _unwrap_positional(bare_xpath)
                                     scoped_raw = _rewrap_positional(try_prefix + inner, wrap)
-                                    scoped_full = inject_hidden_filter(f"xpath={scoped_raw}")
+                                    scoped_full = inject_hidden_filter(f"xpath={scoped_raw}", elem_type=elem_type)
                                     try:
                                         scoped_count = page.locator(scoped_full).count()
                                         if scoped_count == 1:
@@ -651,7 +653,7 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
                             # P2-4: [last()] strategy for dialog/drawer (topmost = last opened)
                             if test_prefix in ('dialog', 'drawer'):
                                 wrapped_last = f"({test_xpath})[last()]"
-                                full_last = inject_hidden_filter(f"xpath={wrapped_last}")
+                                full_last = inject_hidden_filter(f"xpath={wrapped_last}", elem_type=elem_type)
                                 try:
                                     cnt_last = page.locator(full_last).count()
                                     if cnt_last == 1:
@@ -660,7 +662,7 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
                                     print(f"    [WARN] H4: [last()] 探测异常: {_e}")
                             # Fallback: [1]
                             wrapped = f"({test_xpath})[1]"
-                            full_wrapped = inject_hidden_filter(f"xpath={wrapped}")
+                            full_wrapped = inject_hidden_filter(f"xpath={wrapped}", elem_type=elem_type)
                             count2 = page.locator(full_wrapped).count()
                             if count2 == 1:
                                 return _ret(full_wrapped, test_prefix, 1, candidate_index)
@@ -1665,7 +1667,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
 
     verified_locator, matched_prefix, count, matched_index = verify_locator_candidates(
         page, xpaths, container_type=current_ct, discovery_ct=discovery_ct,
-        return_index=True
+        return_index=True, elem_type=elem_type
     )
 
     # Determine hit source
@@ -1765,7 +1767,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             _alt_vl, _alt_mp, _alt_cnt, _alt_idx = verify_locator_candidates(
                 page, _alt_xpaths, container_type=current_ct,
                 discovery_ct=discovery_ct,
-                return_index=True
+                return_index=True, elem_type=_alt_type
             )
             if _alt_vl:
                 verified_locator = _alt_vl
@@ -1785,7 +1787,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             if fb and fb.get('locator'):
                 print(f"    [TRACE-P6]   strategy={fb.get('strategy', 'unknown')}")
                 print(f"    [TRACE-P6]   fb_locator={fb['locator'][:100]}{'...' if len(fb['locator']) > 100 else ''}")
-                fb_locator = inject_hidden_filter(fb['locator'])
+                fb_locator = inject_hidden_filter(fb['locator'], elem_type=elem_type)
                 _fb_result = _verify_count_or_first(page, fb_locator)
                 print(f"    [TRACE-P6]   _verify_count_or_first: result={'passed' if _fb_result else 'failed'}")
                 if _fb_result:
@@ -1799,7 +1801,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             for _cross_type in _CROSS_TYPE_ALIASES:
                 fb_cross = kb_fallback(_cross_type, label, label)
                 if fb_cross and fb_cross.get('locator'):
-                    fb_locator = inject_hidden_filter(fb_cross['locator'])
+                    fb_locator = inject_hidden_filter(fb_cross['locator'], elem_type=_cross_type)
                     _fb_result = _verify_count_or_first(page, fb_locator)
                     if _fb_result:
                         verified_locator = _fb_result
@@ -1814,7 +1816,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             if label in DIALOG_CONFIRM_LABELS:
                 # 确认/取消按钮 → default el-dialog prefix
                 fallback_xpath = f"//div[contains(@class,'el-dialog')]//button[contains(.,'{label}')]"
-                fallback_xpath = inject_hidden_filter(f"xpath={fallback_xpath}")
+                fallback_xpath = inject_hidden_filter(f"xpath={fallback_xpath}", elem_type='button')
                 print(f"    [TRACE-P6]   D1 dialog-confirm: {fallback_xpath[:100]}")
                 _fb_result = _verify_count_or_first(page, fallback_xpath)
                 print(f"    [TRACE-P6]   D1 result: {'passed' if _fb_result else 'failed'}")
@@ -1832,7 +1834,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                     print(f"    [TRACE-P6]   M11 KB fallback: {len(kb_locators)} locators, prefix={_fallback_prefix_str[:50]}")
                     for i, kb_loc in enumerate(kb_locators):
                         fallback_xpath = inject_hidden_filter(
-                            f"xpath={_fallback_prefix_str}{kb_loc}")
+                            f"xpath={_fallback_prefix_str}{kb_loc}", elem_type=elem_type)
                         print(f"    [TRACE-P6]     M11[{i}]: {fallback_xpath[:100]}")
                         _fb_result = _verify_count_or_first(page, fallback_xpath)
                         print(f"    [TRACE-P6]     M11[{i}] result: {'passed' if _fb_result else 'failed'}")
@@ -1848,7 +1850,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                             cross_kb_locators = _get_kb_locators(_cross_type, label)
                             for kb_loc in cross_kb_locators:
                                 fallback_xpath = inject_hidden_filter(
-                                    f"xpath={_fallback_prefix_str}{kb_loc}")
+                                    f"xpath={_fallback_prefix_str}{kb_loc}", elem_type=_cross_type)
                                 _fb_result = _verify_count_or_first(page, fallback_xpath)
                                 if _fb_result:
                                     verified_locator = _fb_result
@@ -1867,7 +1869,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                         first_kb_candidate = candidates[0][0] if candidates else None
                     if first_kb_candidate:
                         fallback_xpath = inject_hidden_filter(
-                            f"xpath={_fallback_prefix_str}{first_kb_candidate}")
+                            f"xpath={_fallback_prefix_str}{first_kb_candidate}", elem_type=elem_type)
                         print(f"    [TRACE-P6]   M11 first-kb-candidate: {fallback_xpath[:100]}")
                         _fb_result = _verify_count_or_first(page, fallback_xpath)
                         print(f"    [TRACE-P6]   M11 first-kb-candidate result: {'passed' if _fb_result else 'failed'}")
@@ -1963,7 +1965,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 kb_locs = _get_kb_locators(elem_type, label)
                 if kb_locs:
                     _bg_locator = inject_hidden_filter(
-                        f"xpath={_fallback_prefix_str}{kb_locs[0]}")
+                        f"xpath={_fallback_prefix_str}{kb_locs[0]}", elem_type=elem_type)
                     _bg_source = f'KB-{elem_type}'
 
             # 优先级 2: KB fallback 函数
@@ -1972,7 +1974,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 if fb and fb.get('locator'):
                     _bg_raw = fb['locator'].replace('xpath=', '') if fb['locator'].startswith('xpath=') else fb['locator']
                     _bg_locator = inject_hidden_filter(
-                        f"xpath={_fallback_prefix_str}{_bg_raw}")
+                        f"xpath={_fallback_prefix_str}{_bg_raw}", elem_type=elem_type)
                     _bg_source = f'KB-fallback-{elem_type}'
 
             # 优先级 3: 第一个 KB candidate 的 xpath（优先），否则第一个 candidate
@@ -1980,7 +1982,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 _first_kb_c = next((c[0] for c in candidates if c[1] == 'kb'), None)
                 _fallback_xpath = _first_kb_c if _first_kb_c else candidates[0][0]
                 _bg_locator = inject_hidden_filter(
-                    f"xpath={_fallback_prefix_str}{_fallback_xpath}")
+                    f"xpath={_fallback_prefix_str}{_fallback_xpath}", elem_type=elem_type)
                 _bg_source = 'first-kb-candidate' if _first_kb_c else 'first-candidate'
 
             # [TRACE-P6] R5 _bg_locator 计算结果

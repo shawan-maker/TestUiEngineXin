@@ -37,7 +37,7 @@ from core.xpath_utils import (
     inject_hidden_filter as _inject_hidden_filter,
     has_hidden_filter as _has_hidden_filter,
 )
-from core.element_types import normalize_type as _normalize_type
+from core.element_types import normalize_type as _normalize_type, infer_type_from_field as _infer_type_from_field
 
 try:
     from ..probe.probe_utils import _xpath_escape_label, _safe_format, get_kb_patterns
@@ -281,7 +281,9 @@ class PagesWriter:
                     # 检查是否为 iframe 内元素
                     entry = resolver_fields.get(field_key)
                     in_iframe = bool(entry and entry.iframe_context)
-                    locator = _inject_hidden_filter(locator, in_iframe=in_iframe)
+                    # 推断元素类型，为按钮类型注入 disabled 过滤
+                    elem_type = _infer_type_from_field(field_key, locator)
+                    locator = _inject_hidden_filter(locator, in_iframe=in_iframe, elem_type=elem_type)
                     fields[field_key] = (locator, comment)
 
         # 3. el-select companion 字段自动补全

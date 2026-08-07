@@ -22,6 +22,15 @@ HIDDEN_FILTER = (
     " and not(ancestor-or-self::*[contains(@style,'display: none')])"
 )
 
+# 按钮禁用状态过滤（排除 disabled 按钮）
+DISABLED_FILTER = (
+    " and not(@disabled)"
+    " and not(ancestor-or-self::*[contains(@class,'is-disabled')])"
+)
+
+# 按钮类型集合（这些类型需要注入 disabled 过滤）
+BUTTON_TYPES = {'button', 'search-button', 'table-action-button', 'close-button', 'download-button'}
+
 # 新建 predicate 时，去掉开头的 " and "
 HIDDEN_FILTER_NEW_PRED = re.sub(r'^\s*and\s+', '', HIDDEN_FILTER.strip())
 
@@ -245,7 +254,7 @@ def detect_container_type(locator):
     return None
 
 
-def inject_hidden_filter(locator: str, in_iframe: bool = False) -> str:
+def inject_hidden_filter(locator: str, in_iframe: bool = False, elem_type: str = None) -> str:
     """在 XPath 最终元素标签上注入隐藏过滤属性（R4.11）
 
     幂等：已有则跳过。非 XPath → 跳过。豁免模式 → 跳过。
@@ -256,6 +265,8 @@ def inject_hidden_filter(locator: str, in_iframe: bool = False) -> str:
                    iframe document，主页面的 hidden filter 语义不适用）。
                    _iframe companion 字段（指向主页面 iframe 元素）应设为 False。
                    （iframe 支持 2026-08-03 CI-3）
+        elem_type: 元素类型（如 'button', 'input-generic' 等）。
+                   当为按钮类型时，额外注入 disabled 状态过滤。
 
     注入位置：最后一个 // 之后的标签的 predicate 内。
 
@@ -277,6 +288,13 @@ def inject_hidden_filter(locator: str, in_iframe: bool = False) -> str:
         return locator
     if _is_exempt(v):
         return locator
+
+    # 根据 elem_type 决定注入的过滤条件
+    _filter = HIDDEN_FILTER
+    _filter_new = HIDDEN_FILTER_NEW_PRED
+    if elem_type and elem_type in BUTTON_TYPES:
+        _filter = HIDDEN_FILTER + DISABLED_FILTER
+        _filter_new = re.sub(r'^\s*and\s+', '', (HIDDEN_FILTER + DISABLED_FILTER).strip())
 
     has_prefix = v.startswith('xpath=')
     xpath = v[6:] if has_prefix else v
@@ -316,14 +334,14 @@ def inject_hidden_filter(locator: str, in_iframe: bool = False) -> str:
                         break
             if close_pos >= 0:
                 abs_close = final_start + axis_end + close_pos
-                new_xpath = xpath[:abs_close] + HIDDEN_FILTER + xpath[abs_close:]
+                new_xpath = xpath[:abs_close] + _filter + xpath[abs_close:]
             else:
                 return locator  # 无法解析，原样返回
         else:
             # 情况 G: 没有谓词，在 ::node_test 后添加 [filter]
             abs_insert = final_start + axis_end
             new_xpath = (xpath[:abs_insert]
-                        + '[' + HIDDEN_FILTER_NEW_PRED + ']'
+                        + '[' + _filter_new + ']'
                         + xpath[abs_insert:])
     else:
         # 原有逻辑：处理普通标签名
@@ -333,14 +351,14 @@ def inject_hidden_filter(locator: str, in_iframe: bool = False) -> str:
         if close_pos >= 0:
             # 情况 A/C：在最终元素的 ] 前插入（追加 and filter）
             abs_close = final_start + close_pos
-            new_xpath = xpath[:abs_close] + HIDDEN_FILTER + xpath[abs_close:]
+            new_xpath = xpath[:abs_close] + _filter + xpath[abs_close:]
         else:
             # 情况 B/D：最终元素没有 predicate，在标签名后追加 [filter]
             tag_match = re.match(r'([a-zA-Z*][a-zA-Z0-9_*-]*)', final_segment)
             if tag_match:
                 tag_end = final_start + tag_match.end()
                 new_xpath = (xpath[:tag_end]
-                            + '[' + HIDDEN_FILTER_NEW_PRED + ']'
+                            + '[' + _filter_new + ']'
                             + xpath[tag_end:])
             else:
                 return locator  # 无法解析，原样返回

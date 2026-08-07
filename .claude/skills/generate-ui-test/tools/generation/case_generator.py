@@ -333,20 +333,21 @@ class CaseGenerator:
             }
 
     def _emit_el_select_steps(self, steps, label, value, nth=1):
-        """生成 el-select 完整 3 步条件分支（始终使用 KB 标准 XPath）。
+        """生成 el-select 完整 4 步条件分支（始终使用 KB 标准 XPath）。
 
         KB XPath 通过 _track_field() 注册，由 PagesWriter 写入 pages YAML。
         PagesWriter Stage 2 自动注入 hidden filter（幂等）。
         PagesWriter Stage 3 自动生成 _editable + _first_option companion。
 
         生成步骤:
-          1. click_element(${group.field_select})       ← 点击第 nth 个 input 展开
-          2. if_element_visible(${group.field_editable}) ← 判断可编辑？
-             then: fill_value + wait + click_option     ← 可搜索（带 hidden filter）
-             else: 判断目标选项可见？                   ← readonly 路径
-               then: click_option                        ← 直接点目标选项
-               else: click_first_option                  ← 回退选第一项
-          3. wait_for_time(1000)                         ← 等待选择完成
+          1. click_element(${group.field_expand})        ← 点击第 nth 个 input 展开
+          1.5 wait_for_time(1000)                         ← 等待下拉面板打开（Phase 9 稳定性）
+          2. if_element_visible(${group.field_editable})  ← 判断可编辑？
+             then: fill_value + wait + click_option       ← 可搜索（带 hidden filter）
+             else: 判断目标选项可见？                      ← readonly 路径
+               then: click_option                          ← 直接点目标选项
+               else: click_first_option                    ← 回退选第一项
+          3. wait_for_time(1000)                          ← 等待选择完成
         """
         # 1. 生成 field prefix（hash-based，与现有机制一致）
         #    skip_container_prefix=True: 容器区分由 group name 承担
@@ -460,6 +461,17 @@ class CaseGenerator:
             'desc': f"选择「{label}」 - 点击{nth_desc}下拉框",
             'keyword': 'click_element',
             'params': {'locator': expand_ref},
+        })
+
+        # === Step 1.5: 等待下拉面板打开 ===
+        # el-select 动画需要时间完成（300ms），但网络慢时数据加载可能需要更久
+        # Phase 6 的 VLC 验证流程有隐式延迟（1-3秒），所以稳定可见
+        # Phase 9 直接调用 is_visible() 无延迟，可能在下拉动画完成前检查导致误判
+        # 显式等待 1000ms 确保下拉面板完全打开
+        steps.append({
+            'desc': f"等待「{label}」下拉面板打开",
+            'keyword': 'wait_for_time',
+            'params': {'timeout': 1000},
         })
 
         # === Step 2: 条件分支 ===

@@ -1329,6 +1329,39 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
 
                 print(f"    [TRACE-P6] iframe element count={count}")
                 if count > 0:
+                    # 修改 9: 验证 frame_selector 在 DOM 中真实存在
+                    # 如果 DOM 中找不到，说明当前 selector 有误，需要触发回写
+                    try:
+                        dom_count = page.locator(frame_selector).count()
+                        if dom_count == 0:
+                            print(f"    [TRACE-P6] ⚠️ frame_selector '{frame_selector}' 在 DOM 中不存在，触发回写")
+                            # 调用 _try_find_in_iframes() 获取正确的 selector
+                            iframe_result = _try_find_in_iframes(page, locator)
+                            if iframe_result and iframe_result.get('count', 0) > 0:
+                                # 设置 _iframe_discovery 触发回写
+                                global _last_iframe_discovery
+                                _last_iframe_discovery = {
+                                    'frame_selector': iframe_result['frame_selector'],
+                                    'frame_name': iframe_result['frame_name'],
+                                    'clean_xpath': iframe_result['clean_xpath'],
+                                    'count': iframe_result['count'],
+                                    'locator_ref': locator,
+                                    'keyword': keyword,
+                                }
+                                # 用新的 selector 重试
+                                new_frame_selector = iframe_result['frame_selector']
+                                if new_frame_selector.startswith('xpath='):
+                                    new_frame_selector = new_frame_selector[6:]
+                                elif new_frame_selector.startswith('css='):
+                                    new_frame_selector = new_frame_selector[4:]
+                                frame_selector = new_frame_selector
+                                frame_loc = page.frame_locator(frame_selector)
+                                element_loc = frame_loc.locator(locator)
+                                count = element_loc.count()
+                                print(f"    [TRACE-P6] 使用新 selector: {frame_selector}, count={count}")
+                    except Exception as dom_err:
+                        print(f"    [TRACE-P6] DOM 验证异常: {dom_err}")
+
                     verified_locator = locator
                     return _iframe_execute_action(keyword, element_loc, verified_locator,
                                                   page, params, data_dict, desc)

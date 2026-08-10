@@ -17,6 +17,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from urllib.parse import urlparse
 
 # Ensure tools/ is on sys.path for cross-module imports
@@ -55,7 +56,8 @@ from core.element_types import normalize_type as _normalize_type
 CONTAINER_TYPE_PRIORITY = ['dialog', 'drawer', 'message-box']
 
 # Page recycling interval — every N buttons, close and recreate page to release memory
-PAGE_RECYCLE_INTERVAL = 8
+PAGE_RECYCLE_INTERVAL = 15
+MAX_RETRY_PER_BUTTON = 3    # 每个按钮最多重试次数（容错机制）
 
 
 # ============================================================================
@@ -1304,11 +1306,10 @@ def _generate_locators_for_elements(page, elements, container_type=None):
                         base = f"{prefix}//button[contains(.,'{label}')]"
                     else:
                         base = f"//button[contains(.,'{label}')]"
-                    base = _inject_button_disabled_filter(base)
                 base = _inject_scope_filter(base, scope_filter)
-                # D4: Hidden filter for fallback path (bypasses _generate_xpath_from_kb)
+                # D4: Hidden filter + disabled filter for fallback path (bypasses _generate_xpath_from_kb)
                 if not has_hidden_filter(base):
-                    base = inject_hidden_filter(base)
+                    base = inject_hidden_filter(base, elem_type=elem_type)
                 xpath = base
                 try:
                     count = page.locator(f"xpath={xpath}").count()
@@ -1506,17 +1507,32 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
 
         page = context.new_page()
 
-        # Pre-inject localStorage via init_script (runs BEFORE any page script)
-        # This ensures SPA router guards find the token on first navigation,
-        # preventing redirect to /login before localStorage is populated.
+        # 认证注入：先导航到根 URL，手动设置 localStorage，再跳转到目标页面
+        # 某些 SPA 会清空 init_script 注入的 localStorage，必须分两步导航
         if local_storage:
-            ls_items = ', '.join(
-                f'localStorage.setItem({json.dumps(k)}, {json.dumps(v)})'
-                for k, v in local_storage.items()
-            )
-            page.add_init_script(f'() => {{ {ls_items} }}')
+            from urllib.parse import urlparse as _urlparse_ls
+            parsed_url = _urlparse_ls(url)
+            root_url = f"{parsed_url.scheme}://{parsed_url.netloc}/"
 
-        # Navigate with networkidle fallback to domcontentloaded
+            print(f"[Discover] Navigating to root URL first: {root_url}")
+            try:
+                _navigate_with_fallback(page, root_url, timeout_ms=10000)
+            except Exception as e:
+                print(f"[WARN] Root URL navigation failed: {e}, continuing to target URL")
+
+            # 手动设置 localStorage
+            print(f"[Discover] Setting {len(local_storage)} localStorage keys manually")
+            page.evaluate("""(items) => {
+                for (let i = 0; i < items.length; i += 2) {
+                    localStorage.setItem(items[i], items[i+1]);
+                }
+            }""", [k for kv in local_storage.items() for k in kv])
+
+            # 验证 localStorage 设置成功
+            ls_keys = page.evaluate("() => Object.keys(localStorage)")
+            print(f"[Discover] localStorage keys after set: {ls_keys}")
+
+        # Navigate to target URL with networkidle fallback to domcontentloaded
         # Some systems (eStack) have continuous API polling, networkidle never triggers
         _navigate_with_fallback(page, url, timeout_ms=10000)
         _wait_for_dom_stable(page, timeout_ms=4000)
@@ -1525,9 +1541,10 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
             print(f"[ERROR] Redirected to login page — cookie invalid/expired")
             return {'module': module_name, 'url': url, 'containers': [], 'auth_error': True}
 
-        # Belt-and-suspenders: ensure localStorage is set (init_script already handles this)
-        for k, v in local_storage.items():
-            page.evaluate("([k, v]) => localStorage.setItem(k, v)", [k, v])
+        # Belt-and-suspenders: ensure localStorage is set after navigation
+        if local_storage:
+            for k, v in local_storage.items():
+                page.evaluate("([k, v]) => localStorage.setItem(k, v)", [k, v])
 
         _wait_for_dom_stable(page, timeout_ms=3000, debug=True)  # 等待 DOM 渲染（含表格行）
 
@@ -1673,17 +1690,38 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
             page = context.new_page()
             # Re-inject cookies (context-level, should persist, but verify)
             context.add_cookies(cookies)
-            # Pre-inject localStorage via init_script (runs BEFORE any page script)
+            # 认证注入：先导航到根 URL，手动设置 localStorage，再跳转到 baseline_url
             if local_storage:
-                ls_items = ', '.join(
-                    f'localStorage.setItem({json.dumps(k)}, {json.dumps(v)})'
-                    for k, v in local_storage.items()
-                )
-                page.add_init_script(f'() => {{ {ls_items} }}')
-            # Navigate — init_script already injected localStorage
+                from urllib.parse import urlparse as _urlparse_ls
+                parsed_url = _urlparse_ls(baseline_url)
+                root_url = f"{parsed_url.scheme}://{parsed_url.netloc}/"
+                try:
+                    _navigate_with_fallback(page, root_url, timeout_ms=10000)
+                except Exception as e:
+                    print(f"[WARN] Root URL navigation failed: {e}")
+                page.evaluate("""(items) => {
+                    for (let i = 0; i < items.length; i += 2) {
+                        localStorage.setItem(items[i], items[i+1]);
+                    }
+                }""", [k for kv in local_storage.items() for k in kv])
+            # Navigate to baseline URL
             _navigate_with_fallback(page, baseline_url, timeout_ms=10000)
             _wait_for_dom_stable(page, timeout_ms=3000, debug=False)
             print(f"  [RECYCLE] Fresh page ready")
+
+        def _check_browser_health():
+            """检查浏览器连接是否正常
+
+            Returns:
+                bool: True if connection is healthy, False otherwise
+            """
+            try:
+                # 简单测试：执行 JavaScript 表达式
+                page.evaluate("1")
+                return True
+            except Exception as e:
+                print(f"  [WARN] Browser health check failed: {type(e).__name__}")
+                return False
 
         # BUG-12: EXPAND_LABELS 必须在 discover() 作用域内定义
         # （_discover_row_buttons_with_hover 内的同名变量不在 _process_button 的闭包中）
@@ -2250,43 +2288,82 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                 else:
                     print(f"    -> Inline: no new elements")
 
-        # 4a. Toolbar buttons first
+        # 4a. Toolbar buttons first (with retry mechanism)
         print(f"\n[Discover] === Toolbar buttons ({len(toolbar_unique)}) ===")
         for i_btn, btn in enumerate(toolbar_unique):
             if i_btn > 0 and i_btn % PAGE_RECYCLE_INTERVAL == 0:
                 _recycle_page()
-            try:
-                _process_button(btn, is_row=False)
-            except Exception as e:
-                err_str = str(e).lower()
-                if "crashed" in err_str or "connection" in err_str:
-                    print(f"  [WARN] Page error on button '{btn.get('text', '?')}': {type(e).__name__}, recycle and continue")
-                    try:
-                        _recycle_page()
-                    except Exception:
-                        print(f"  [WARN] Page recycle failed, skip remaining buttons")
-                        break
-                else:
-                    raise
 
-        # 4b. Row buttons second
+            btn_text = btn.get('text', '?')
+            success = False
+
+            for attempt in range(MAX_RETRY_PER_BUTTON):
+                try:
+                    _process_button(btn, is_row=False)
+                    success = True
+                    break
+                except Exception as e:
+                    err_str = str(e).lower()
+                    if "crashed" in err_str or "connection" in err_str:
+                        print(f"  [WARN] Button '{btn_text}' click failed (attempt {attempt+1}/{MAX_RETRY_PER_BUTTON}): {type(e).__name__}")
+                        if attempt < MAX_RETRY_PER_BUTTON - 1:
+                            try:
+                                _recycle_page()
+                                if not _check_browser_health():
+                                    print(f"  [WARN] Browser connection still unhealthy after recycle, waiting {2 ** (attempt+1)}s...")
+                                    time.sleep(2 ** (attempt + 1))
+                            except Exception as recycle_err:
+                                print(f"  [WARN] Recycle failed (attempt {attempt+1}): {type(recycle_err).__name__}")
+                                time.sleep(2 ** attempt)
+                        else:
+                            print(f"  [ERROR] Button '{btn_text}' failed after {MAX_RETRY_PER_BUTTON} attempts, skip this button")
+                    else:
+                        raise
+
+            if not success:
+                continue
+
+        # 4b. Row buttons second (with retry mechanism)
         print(f"\n[Discover] === Row buttons ({len(row_unique)}) ===")
         for i_btn, btn in enumerate(row_unique):
             if i_btn > 0 and i_btn % PAGE_RECYCLE_INTERVAL == 0:
                 _recycle_page()
-            try:
-                _process_button(btn, is_row=True)
-            except Exception as e:
-                err_str = str(e).lower()
-                if "crashed" in err_str or "connection" in err_str:
-                    print(f"  [WARN] Page error on row button '{btn.get('text', '?')}': {type(e).__name__}, recycle and continue")
-                    try:
-                        _recycle_page()
-                    except Exception:
-                        print(f"  [WARN] Page recycle failed, skip remaining row buttons")
-                        break
-                else:
-                    raise
+
+            btn_text = btn.get('text', '?')
+            success = False
+
+            for attempt in range(MAX_RETRY_PER_BUTTON):
+                try:
+                    _process_button(btn, is_row=True)
+                    success = True
+                    break
+                except Exception as e:
+                    err_str = str(e).lower()
+                    if "crashed" in err_str or "connection" in err_str:
+                        print(f"  [WARN] Row button '{btn_text}' click failed (attempt {attempt+1}/{MAX_RETRY_PER_BUTTON}): {type(e).__name__}")
+                        if attempt < MAX_RETRY_PER_BUTTON - 1:
+                            try:
+                                _recycle_page()
+                                if not _check_browser_health():
+                                    print(f"  [WARN] Browser connection still unhealthy after recycle, waiting {2 ** (attempt+1)}s...")
+                                    time.sleep(2 ** (attempt + 1))
+                            except Exception as recycle_err:
+                                print(f"  [WARN] Recycle failed (attempt {attempt+1}): {type(recycle_err).__name__}")
+                                time.sleep(2 ** attempt)
+                        else:
+                            print(f"  [ERROR] Row button '{btn_text}' failed after {MAX_RETRY_PER_BUTTON} attempts, skip this button")
+                    else:
+                        raise
+
+            if not success:
+                continue
+
+        # Button discovery summary
+        toolbar_success = sum(1 for c in containers if c.get('trigger_scope') == 'toolbar' and not c.get('skipped'))
+        row_success = sum(1 for c in containers if c.get('trigger_scope') == 'row' and not c.get('skipped'))
+        print(f"\n[Discover] Button discovery summary:")
+        print(f"  Toolbar: {toolbar_success}/{len(toolbar_unique)} successful")
+        print(f"  Row: {row_success}/{len(row_unique)} successful")
 
         # 4c. Detail links (only first one)
         detail_links = list_page.get('detail_links', [])

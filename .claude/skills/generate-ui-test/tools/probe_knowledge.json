@@ -126,7 +126,7 @@
           "select": {
             "desc": "选择匹配选项",
             "patterns": [
-              "(//div[@x-placement and not(@x-placement='') and not(@role='tooltip')]//li[contains(.,'{option_text}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
+              "(//div[@x-placement and not(@x-placement='')]//li[contains(.,'{option_text}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
             ]
           },
           "editable-check": {
@@ -138,7 +138,7 @@
           "first-option": {
             "desc": "readonly 时选择第一个可见项（else_steps，带 hidden filter）",
             "patterns": [
-              "(//div[@x-placement and not(@x-placement='') and not(@role='tooltip')]//li[contains(@class,'el-select-dropdown__item') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
+              "(//div[@x-placement and not(@x-placement='')]//li[contains(@class,'el-select-dropdown__item') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
             ]
           }
         }
@@ -195,13 +195,13 @@
           "select-today": {
             "desc": "选择今天",
             "patterns": [
-              "//div[@x-placement and not(@x-placement='') and not(@role='tooltip')]//table[not(contains(@style,'display: none'))]//td[contains(@class,'today')]"
+              "//div[@x-placement and not(@x-placement='')]//table[not(contains(@style,'display: none'))]//td[contains(@class,'today')]"
             ]
           },
           "select-now": {
             "desc": "选择此刻",
             "patterns": [
-              "//div[@x-placement and not(@x-placement='') and not(@role='tooltip')]//table[not(contains(@style,'display: none'))]//button[contains(.,'此刻')]"
+              "//div[@x-placement and not(@x-placement='')]//table[not(contains(@style,'display: none'))]//button[contains(.,'此刻')]"
             ]
           },
           "select-month": {
@@ -253,7 +253,7 @@
           "click-action": {
             "desc": "点击菜单项",
             "patterns": [
-              "//*[@x-placement and not(@x-placement='') and not(@role='tooltip')]//*[contains(text(),'{label}')]"
+              "//*[@x-placement and not(@x-placement='')]//*[contains(text(),'{label}')]"
             ]
           }
         }

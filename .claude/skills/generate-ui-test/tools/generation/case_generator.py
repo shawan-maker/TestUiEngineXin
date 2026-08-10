@@ -422,7 +422,7 @@ class CaseGenerator:
         #     _first_option: 通用第一项 XPath（带 hidden filter，下拉面板选项可能被虚拟滚动隐藏）
         #     注意：下拉面板渲染在 body 级别（非容器 DOM 内），不加容器前缀
         first_option_xpath = (
-            "(//div[@x-placement and not(@x-placement='') and not(@role='tooltip')]//li"
+            "(//div[@x-placement and not(@x-placement='')]//li"
             "[contains(@class,'el-select-dropdown__item')"
             " and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
             " and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
@@ -448,7 +448,7 @@ class CaseGenerator:
 
         # 8. 选项 XPath（inline，不走 PagesWriter Stage 2，需手动拼接 hidden filter）
         option_xpath = (
-            f"(//div[@x-placement and not(@x-placement='') and not(@role='tooltip')]//li"
+            f"(//div[@x-placement and not(@x-placement='')]//li"
             f"[contains(.,'{option_ref}')"
             f" and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
             f" and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
@@ -2063,7 +2063,7 @@ class CaseGenerator:
                     'keyword': 'wait_for_time',
                     'params': {'timeout': 1000},
                 })
-                option_ref = f"xpath=//*[@x-placement and not(@x-placement='') and not(@role='tooltip')]//*[contains(text(),'{action}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]"
+                option_ref = f"xpath=//*[@x-placement and not(@x-placement='')]//*[contains(text(),'{action}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]"
                 steps.append({
                     'desc': f'选择「{action}」',
                     'keyword': 'click_element',
@@ -2082,7 +2082,7 @@ class CaseGenerator:
                     'keyword': 'wait_for_time',
                     'params': {'timeout': 1000},
                 })
-                option_ref = (f"xpath=//*[@x-placement and not(@x-placement='') and not(@role='tooltip')]"
+                option_ref = (f"xpath=//*[@x-placement and not(@x-placement='')]"
                               f"//*[contains(text(),'{action}')"
                               f" and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
                               f" and not(ancestor-or-self::*[contains(@style,'display: none')])]")
@@ -2122,7 +2122,7 @@ class CaseGenerator:
                     'keyword': 'wait_for_time',
                     'params': {'timeout': 1000},
                 })
-                option_ref = f"xpath=//*[@x-placement and not(@x-placement='') and not(@role='tooltip')]//*[contains(text(),'{action}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]"
+                option_ref = f"xpath=//*[@x-placement and not(@x-placement='')]//*[contains(text(),'{action}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]"
                 steps.append({
                     'desc': f'点击「{action}」',
                     'keyword': 'click_element',
@@ -2152,7 +2152,7 @@ class CaseGenerator:
                     'keyword': 'wait_for_time',
                     'params': {'timeout': 1000},
                 })
-                option_ref = (f"xpath=//*[@x-placement and not(@x-placement='') and not(@role='tooltip')]"
+                option_ref = (f"xpath=//*[@x-placement and not(@x-placement='')]"
                               f"//*[contains(text(),'{action}')"
                               f" and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
                               f" and not(ancestor-or-self::*[contains(@style,'display: none')])]")

@@ -58,7 +58,7 @@ except ImportError:
 
 # el-select 选项 XPath 模板（R4.12 双向面板 + R4.11 隐藏过滤在 li 上）
 _OPTION_XPATH_TEMPLATE = (
-    "(//div[@x-placement and not(@x-placement='') and not(@role='tooltip')]//"
+    "(//div[@x-placement and not(@x-placement='')]//"
     "li[{match_expr}"
     " and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
     " and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
@@ -66,7 +66,7 @@ _OPTION_XPATH_TEMPLATE = (
 
 # el-select _first_option 通用 XPath（带 hidden filter，排除虚拟滚动隐藏项）
 _FIRST_OPTION_XPATH = (
-    "(//div[@x-placement and not(@x-placement='') and not(@role='tooltip')]//"
+    "(//div[@x-placement and not(@x-placement='')]//"
     "li[contains(@class,'el-select-dropdown__item')"
     " and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
     " and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"

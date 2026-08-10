@@ -85,7 +85,7 @@ _条件分支：可编辑走 fill+选项，readonly 走第一项_
 - **关键字**：`click_element`
 
 ```xpath
-(//div[@x-placement and not(@x-placement='') and not(@role='tooltip') and not(ancestor-or-self::*[contains(@style,'display: none')])]//li[not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])][contains(.,'{option_text}')])[1]
+(//div[@x-placement and not(@x-placement='') and not(ancestor-or-self::*[contains(@style,'display: none')])]//li[not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])][contains(.,'{option_text}')])[1]
 ```
 
 #### else_steps（readonly 分支）
@@ -95,7 +95,7 @@ _条件分支：可编辑走 fill+选项，readonly 走第一项_
 - **关键字**：`click_element`
 
 ```xpath
-(//div[@x-placement and not(@x-placement='') and not(@role='tooltip') and not(ancestor-or-self::*[contains(@style,'display: none')])]//li[contains(@class,'el-select-dropdown__item') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]
+(//div[@x-placement and not(@x-placement='') and not(ancestor-or-self::*[contains(@style,'display: none')])]//li[contains(@class,'el-select-dropdown__item') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]
 ```
 
 > ⚠️ then_steps 搜索文本与选项文本必须一致（均来自用户用例），禁止从 probe 的 select_options 中随意选取。
@@ -150,7 +150,7 @@ _选择今天_
 - **关键字**：`click_element`
 
 ```xpath
-//div[@x-placement and not(@x-placement='') and not(@role='tooltip')]//table[not(contains(@style,'display: none')) and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]//td[contains(@class,'today')]
+//div[@x-placement and not(@x-placement='')]//table[not(contains(@style,'display: none')) and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]//td[contains(@class,'today')]
 ```
 
 ### 选择此刻
@@ -160,7 +160,7 @@ _选择此刻_
 - **关键字**：`click_element`
 
 ```xpath
-//div[@x-placement and not(@x-placement='') and not(@role='tooltip')]//table[not(contains(@style,'display: none')) and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]//button[contains(.,'此刻')]
+//div[@x-placement and not(@x-placement='')]//table[not(contains(@style,'display: none')) and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]//button[contains(.,'此刻')]
 ```
 
 ### 选择当月
@@ -334,7 +334,7 @@ _点击菜单项_
 - **关键字**：`click_element`
 
 ```xpath
-//*[@x-placement and not(@x-placement='') and not(@role='tooltip') and not(ancestor-or-self::*[contains(@style,'display: none')])]//*[not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])][contains(text(),'{label}')]
+//*[@x-placement and not(@x-placement='') and not(ancestor-or-self::*[contains(@style,'display: none')])]//*[not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])][contains(text(),'{label}')]
 ```
 
 ---

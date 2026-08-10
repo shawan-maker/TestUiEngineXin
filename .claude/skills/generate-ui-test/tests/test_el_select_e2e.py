@@ -68,7 +68,7 @@ print("\n测试 3: option_xpath hidden filter 手动拼接")
 
 option_ref = "${group.province_option}"
 option_xpath = (
-    f"(//div[@x-placement and not(@x-placement='') and not(@role='tooltip')]//li"
+    f"(//div[@x-placement and not(@x-placement='')]//li"
     f"[contains(.,'{option_ref}')"
     f" and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
     f" and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
@@ -86,7 +86,7 @@ print("  ✓ 通过")
 print("\n测试 4: first_option_xpath hidden filter")
 
 first_option_xpath = (
-    "(//div[@x-placement and not(@x-placement='') and not(@role='tooltip')]//li"
+    "(//div[@x-placement and not(@x-placement='')]//li"
     "[contains(@class,'el-select-dropdown__item')"
     " and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
     " and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"

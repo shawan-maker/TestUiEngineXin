@@ -488,12 +488,14 @@ def _write_iframe_companion_fields(project_dir, iframe_discoveries, module=None)
 
                 # 插入 _iframe 伴侣字段（全 XPath 格式，2026-08-07）
                 indent = ' ' * (field_indent if field_indent else 2)
+                # 使用统一的 YAML 转义函数处理 frame_selector
+                scalar = _escape_yaml_scalar(frame_selector)
                 # 检查 frame_selector 是否已经是 xpath= 开头
                 if frame_selector.startswith('xpath='):
-                    new_line = f'{indent}{iframe_field}: \'{frame_selector}\'  # iframe 定位器（自动发现）\n'
+                    new_line = f'{indent}{iframe_field}: {scalar}  # iframe 定位器（自动发现）\n'
                 else:
                     # 兼容旧的 CSS 格式，转换为 XPath
-                    new_line = f'{indent}{iframe_field}: \'{frame_selector}\'  # iframe 定位器（待转换）\n'
+                    new_line = f'{indent}{iframe_field}: {scalar}  # iframe 定位器（待转换）\n'
                 lines.insert(insert_pos, new_line)
                 print(f"  [OK] {group}.{iframe_field} = {frame_selector}")
 

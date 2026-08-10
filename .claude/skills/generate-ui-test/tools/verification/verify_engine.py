@@ -114,10 +114,11 @@ def _try_find_in_iframes(page, locator: str, max_iframes=10):
     """在 iframe 中查找元素（当主页面 count=0 时）
 
     策略：
-    1. 等待 iframe 出现（最多 3s）
-    2. 遍历页面中所有 iframe
-    3. 在每个 iframe 内尝试定位元素
-    4. 返回第一个找到的 iframe context
+    1. 等待 iframe 出现（初始5s，每次重试2s，最多3次）
+    2. 轮询 page.frames() 检测动态创建的 iframe
+    3. 遍历页面中所有 iframe
+    4. 在每个 iframe 内尝试定位元素
+    5. 返回第一个找到的 iframe context
 
     Args:
         page: Playwright page 对象
@@ -158,16 +159,26 @@ def _try_find_in_iframes(page, locator: str, max_iframes=10):
     # 保存清理后的 xpath，用于后续点击
     clean_xpath = xpath
 
-    # 获取所有 iframe
-    try:
-        # 等待 iframe 出现（最多 3s），解决时序问题
-        print(f"    [DEBUG-IFRAME] 等待 iframe 出现（最多 3s）...")
+    # 方案1+2：增强等待逻辑
+    # 初始等待5秒，最多重试3次，每次间隔2秒
+    max_attempts = 3
+    initial_wait = 5000  # 初始等待时间（ms）
+    retry_interval = 2000  # 重试间隔（ms）
+
+    iframes = None
+
+    for attempt in range(max_attempts):
+        wait_time = initial_wait if attempt == 0 else retry_interval
+        print(f"    [DEBUG-IFRAME] 尝试 {attempt + 1}/{max_attempts}，等待 {wait_time}ms...")
+
+        # 方式1：等待 DOM 中的 <iframe> 标签
         try:
-            page.wait_for_selector('iframe', state='attached', timeout=3000)
+            page.wait_for_selector('iframe', state='attached', timeout=wait_time)
             print(f"    [DEBUG-IFRAME] iframe 元素已出现")
         except Exception as wait_err:
             print(f"    [DEBUG-IFRAME] 等待 iframe 超时: {str(wait_err)[:60]}")
 
+        # 方式2：轮询 page.frames() 检测动态创建的 iframe
         iframes = page.frames
         print(f"    [DEBUG-IFRAME] page.frames 数量: {len(iframes)}")
 
@@ -181,122 +192,131 @@ def _try_find_in_iframes(page, locator: str, max_iframes=10):
             if 'confirmIframe' in (frame.name or '') or 'confirm' in frame.url:
                 print(f"    [DEBUG-IFRAME] *** 找到 confirmIframe! name='{frame.name}'")
 
-        if len(iframes) <= 1:  # 只有主 frame
-            print(f"    [DEBUG-IFRAME] 只有主 frame，无 iframe")
+        if len(iframes) > 1:  # 找到 iframe，开始扫描
+            print(f"    [TRACE-P6-IFRAME] 检测到 {len(iframes)-1} 个 iframe，开始扫描")
+            break
+
+        # 只有主 frame，如果还有重试机会则继续等待
+        if attempt < max_attempts - 1:
+            print(f"    [DEBUG-IFRAME] 只有主 frame，{retry_interval}ms 后重试...")
+            page.wait_for_timeout(retry_interval)
+        else:
+            print(f"    [DEBUG-IFRAME] 只有主 frame，无 iframe，已重试 {max_attempts} 次")
             return None
 
-        print(f"    [TRACE-P6-IFRAME] 检测到 {len(iframes)-1} 个 iframe，开始扫描")
+    # 确认有 iframe 后才继续
+    if not iframes or len(iframes) <= 1:
+        print(f"    [DEBUG-IFRAME] 最终未找到 iframe")
+        return None
 
-        scanned = 0
-        for frame in iframes:
-            if frame == page.main_frame:
-                print(f"    [DEBUG-IFRAME] 跳过 main_frame")
-                continue
-            if scanned >= max_iframes:
-                print(f"    [TRACE-P6-IFRAME] 达到上限 {max_iframes}，停止扫描")
-                break
+    scanned = 0
+    for frame in iframes:
+        if frame == page.main_frame:
+            print(f"    [DEBUG-IFRAME] 跳过 main_frame")
+            continue
+        if scanned >= max_iframes:
+            print(f"    [TRACE-P6-IFRAME] 达到上限 {max_iframes}，停止扫描")
+            break
 
-            scanned += 1
-            frame_name = frame.name or frame.url.split('/')[-1] or f'frame_{scanned}'
+        scanned += 1
+        frame_name = frame.name or frame.url.split('/')[-1] or f'frame_{scanned}'
 
-            # [DEBUG-IFRAME] 每个 iframe 扫描前日志
-            print(f"    [DEBUG-IFRAME] 扫描 iframe[{scanned}]: name='{frame_name}'")
+        # [DEBUG-IFRAME] 每个 iframe 扫描前日志
+        print(f"    [DEBUG-IFRAME] 扫描 iframe[{scanned}]: name='{frame_name}'")
 
-            try:
-                # 尝试在 iframe 内定位
-                frame_locator = frame.locator(f'xpath={xpath}')
-                count = frame_locator.count()
+        try:
+            # 尝试在 iframe 内定位
+            frame_locator = frame.locator(f'xpath={xpath}')
+            count = frame_locator.count()
 
-                # [DEBUG-IFRAME] 每个 iframe 的 count 结果
-                print(f"    [DEBUG-IFRAME] iframe '{frame_name}' count={count}")
+            # [DEBUG-IFRAME] 每个 iframe 的 count 结果
+            print(f"    [DEBUG-IFRAME] iframe '{frame_name}' count={count}")
 
-                if count > 0:
-                    print(f"    [TRACE-P6-IFRAME] [OK] iframe '{frame_name}' found {count} matches")
-                    print(f"    [DEBUG-IFRAME] 匹配的 XPath: {xpath[:120]}")
+            if count > 0:
+                print(f"    [TRACE-P6-IFRAME] [OK] iframe '{frame_name}' found {count} matches")
+                print(f"    [DEBUG-IFRAME] 匹配的 XPath: {xpath[:120]}")
 
-                    # 生成 frame selector（全 XPath 格式，2026-08-07）
-                    # 优先读取 DOM 属性，而非 Playwright frame.name
-                    frame_selector = None
-                    try:
-                        iframe_el = frame.frame_element()
-                        # 优先级 1: id
-                        iframe_id = iframe_el.get_attribute('id')
-                        if iframe_id:
-                            candidate = f'xpath=//iframe[@id="{iframe_id}"]'
-                            if page.locator(candidate).count() == 1:
-                                frame_selector = candidate
-                                print(f"    [DEBUG-IFRAME] 使用 id 生成 selector: {frame_selector}")
+                # 生成 frame selector（全 XPath 格式，2026-08-07）
+                # 优先读取 DOM 属性，而非 Playwright frame.name
+                frame_selector = None
+                try:
+                    iframe_el = frame.frame_element()
+                    # 优先级 1: id
+                    iframe_id = iframe_el.get_attribute('id')
+                    if iframe_id:
+                        candidate = f'xpath=//iframe[@id="{iframe_id}"]'
+                        if page.locator(candidate).count() == 1:
+                            frame_selector = candidate
+                            print(f"    [DEBUG-IFRAME] 使用 id 生成 selector: {frame_selector}")
 
-                        # 优先级 2: class
-                        if not frame_selector:
-                            iframe_class = iframe_el.get_attribute('class')
-                            if iframe_class:
-                                candidate = f'xpath=//iframe[@class="{iframe_class}"]'
-                                cnt = page.locator(candidate).count()
-                                if cnt == 1:
-                                    frame_selector = candidate
-                                    print(f"    [DEBUG-IFRAME] 使用 class 生成 selector: {frame_selector}")
-                                elif cnt > 1:
-                                    frame_selector = f'({candidate})[1]'
-                                    print(f"    [DEBUG-IFRAME] class 不唯一(count={cnt})，加索引: {frame_selector}")
-
-                        # 优先级 3: DOM name 属性
-                        if not frame_selector:
-                            iframe_name = iframe_el.get_attribute('name')
-                            if iframe_name:
-                                candidate = f'xpath=//iframe[@name="{iframe_name}"]'
-                                if page.locator(candidate).count() >= 1:
-                                    frame_selector = candidate
-                                    print(f"    [DEBUG-IFRAME] 使用 DOM name 生成 selector: {frame_selector}")
-
-                        # 优先级 4: src 特征路径
-                        if not frame_selector and frame.url and frame.url != 'about:blank':
-                            src_fragment = frame.url.split('/')[-2] if '/' in frame.url else frame.url[:30]
-                            if src_fragment and len(src_fragment) > 3:
-                                candidate = f'xpath=//iframe[contains(@src,"{src_fragment}")]'
-                                if page.locator(candidate).count() >= 1:
-                                    frame_selector = candidate
-                                    print(f"    [DEBUG-IFRAME] 使用 src 生成 selector: {frame_selector}")
-
-                        # 优先级 5: DOM 位置索引
-                        if not frame_selector:
-                            try:
-                                all_iframes = page.locator('iframe')
-                                total = all_iframes.count()
-                                for idx in range(total):
-                                    if all_iframes.nth(idx) == iframe_el:
-                                        frame_selector = f'xpath=(//iframe)[{idx + 1}]'
-                                        print(f"    [DEBUG-IFRAME] 使用位置索引生成 selector: {frame_selector}")
-                                        break
-                            except Exception:
-                                pass
-                    except Exception as dom_err:
-                        print(f"    [DEBUG-IFRAME] DOM 属性读取失败: {dom_err}")
-
-                    # 最终回退：Playwright frame.name（不推荐，可能不在 DOM 中）
+                    # 优先级 2: class
                     if not frame_selector:
-                        if frame.name:
-                            frame_selector = f'xpath=//iframe[@name="{frame.name}"]'
-                            print(f"    [DEBUG-IFRAME] [WARN] 回退到 frame.name: {frame_selector}")
-                        else:
-                            frame_selector = f'xpath=(//iframe)[{scanned}]'
-                            print(f"    [DEBUG-IFRAME] [WARN] 回退到位置索引: {frame_selector}")
+                        iframe_class = iframe_el.get_attribute('class')
+                        if iframe_class:
+                            candidate = f'xpath=//iframe[@class="{iframe_class}"]'
+                            cnt = page.locator(candidate).count()
+                            if cnt == 1:
+                                frame_selector = candidate
+                                print(f"    [DEBUG-IFRAME] 使用 class 生成 selector: {frame_selector}")
+                            elif cnt > 1:
+                                frame_selector = f'({candidate})[1]'
+                                print(f"    [DEBUG-IFRAME] class 不唯一(count={cnt})，加索引: {frame_selector}")
 
-                    return {
-                        'frame_selector': frame_selector,
-                        'frame_locator': frame_locator,
-                        'clean_xpath': clean_xpath,
-                        'count': count,
-                        'frame_name': frame_name,
-                    }
-            except Exception as e:
+                    # 优先级 3: DOM name 属性
+                    if not frame_selector:
+                        iframe_name = iframe_el.get_attribute('name')
+                        if iframe_name:
+                            candidate = f'xpath=//iframe[@name="{iframe_name}"]'
+                            if page.locator(candidate).count() >= 1:
+                                frame_selector = candidate
+                                print(f"    [DEBUG-IFRAME] 使用 DOM name 生成 selector: {frame_selector}")
+
+                    # 优先级 4: src 特征路径
+                    if not frame_selector and frame.url and frame.url != 'about:blank':
+                        src_fragment = frame.url.split('/')[-2] if '/' in frame.url else frame.url[:30]
+                        if src_fragment and len(src_fragment) > 3:
+                            candidate = f'xpath=//iframe[contains(@src,"{src_fragment}")]'
+                            if page.locator(candidate).count() >= 1:
+                                frame_selector = candidate
+                                print(f"    [DEBUG-IFRAME] 使用 src 生成 selector: {frame_selector}")
+
+                    # 优先级 5: DOM 位置索引
+                    if not frame_selector:
+                        try:
+                            all_iframes = page.locator('iframe')
+                            total = all_iframes.count()
+                            for idx in range(total):
+                                if all_iframes.nth(idx) == iframe_el:
+                                    frame_selector = f'xpath=(//iframe)[{idx + 1}]'
+                                    print(f"    [DEBUG-IFRAME] 使用位置索引生成 selector: {frame_selector}")
+                                    break
+                        except Exception:
+                            pass
+                except Exception as dom_err:
+                    print(f"    [DEBUG-IFRAME] DOM 属性读取失败: {dom_err}")
+
+            # 检查是否成功生成 frame_selector
+            if not frame_selector:
+                print(f"    [DEBUG-IFRAME] [ERROR] 无法生成 frame selector")
+                print(f"    [DEBUG-IFRAME]   iframe 无 id/class/name 属性")
+                print(f"    [DEBUG-IFRAME]   src: {frame.url or 'None'}")
+                print(f"    [DEBUG-IFRAME]   DOM 位置索引也失败")
+                print(f"    [DEBUG-IFRAME]   跳过此 iframe，继续扫描下一个")
+                continue  # 跳过此 iframe，尝试下一个
+
+            return {
+                'frame_selector': frame_selector,
+                'frame_locator': frame_locator,
+                'clean_xpath': clean_xpath,
+                'count': count,
+                'frame_name': frame_name,
+            }
+        except Exception as e:
                 # 跨域 iframe 或其他错误，静默跳过
                 print(f"    [DEBUG-IFRAME] iframe '{frame_name}' 定位异常: {str(e)[:80]}")
                 continue
 
         print(f"    [TRACE-P6-IFRAME] 扫描 {scanned} 个 iframe，未找到匹配元素")
-    except Exception as e:
-        print(f"    [TRACE-P6-IFRAME] iframe 扫描异常: {e}")
 
     return None
 

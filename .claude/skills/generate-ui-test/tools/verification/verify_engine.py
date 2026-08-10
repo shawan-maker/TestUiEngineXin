@@ -1288,14 +1288,18 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
     locator = resolve_locator(params, pages_dict)
     locator = resolve_var(locator, data_dict)  # Resolve inline ${data.field}
 
-    # Extract label from desc for KB lookup
-    # BUG-4 D1 fix: 增加「」匹配（中文角括号在测试用例中极为常见）
-    # 匹配: ASCII “, 左弯引号 U+201C, 右弯引号 U+201D, 左角括号 U+300C
-    # F3: 提取所有引号对，取最后一个（实际操作对象）
-    # 单引号对: re.findall[-1] 与 re.search 结果相同，零影响
-    # 多引号对: “点击「第」一条记录的「更多」按钮” → ['第', '更多'] → '更多'
-    _all_labels = re.findall(r'["\'“”「]([^"\'“”「」]+)["\'“”」]', desc)
-    label = _all_labels[-1] if _all_labels else ''
+    # Extract label: 优先使用 Phase 5 写入的结构化 label 字段（P0 修复）
+    # Phase 5 的 label 是生成 XPath 时使用的原始标签，比 desc regex 提取更准确
+    # 回退到 regex 提取保持向后兼容（旧 case YAML 无 label 字段时）
+    label = step.get('label', '')
+    if not label:
+        # BUG-4 D1 fix: 增加「」匹配（中文角括号在测试用例中极为常见）
+        # 匹配: ASCII “, 左弯引号 U+201C, 右弯引号 U+201D, 左角括号 U+300C
+        # F3: 提取所有引号对，取最后一个（实际操作对象）
+        # 单引号对: re.findall[-1] 与 re.search 结果相同，零影响
+        # 多引号对: “点击「第」一条记录的「更多」按钮” → ['第', '更多'] → '更多'
+        _all_labels = re.findall(r'[“\'””「]([^”\'””「」]+)[“\'””」]', desc)
+        label = _all_labels[-1] if _all_labels else ''
 
     # D4: Enhanced element type inference (unified in _element_types)
     # BUG-3 fix: can now produce 'table-action-button'

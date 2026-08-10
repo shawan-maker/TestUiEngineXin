@@ -8,6 +8,7 @@ data_layer.py - 数据加载与查询层
 - 变量解析
 """
 
+import logging
 import os
 import re
 import sys
@@ -34,8 +35,49 @@ from core.element_types import (
     infer_discovery_section as _infer_discovery_section,
 )
 
+logger = logging.getLogger(__name__)
+
 # click_element 步骤可能匹配多种元素类型，按精确度降序遍历
 CLICK_EXPAND_TYPES = ['button', 'table-action-button', 'detail-link']
+
+# 类型族定义（P1 修复：防止跨族误匹配）
+# 同一族内的类型可以互相匹配，不同族之间不允许
+TYPE_FAMILIES = {
+    'input': {'input-generic', 'textarea-generic', 'el-select', 'rich_text',
+              'date-picker', 'time-picker', 'datetime-picker', 'el-cascader'},
+    'button': {'button', 'table-action-button', 'toolbar-button'},
+    'nav': {'menu-item', 'tab', 'link'},
+    'toggle': {'checkbox', 'radio', 'switch'},
+    'display': {'label', 'badge', 'tag', 'detail-link'},
+    'container': {'dialog', 'drawer', 'table', 'form'},
+}
+
+
+def _same_family(type_a, type_b):
+    """检查两个元素类型是否属于同一类型族。
+
+    Args:
+        type_a: 推断的元素类型（如 'el-select'）
+        type_b: discovery 中记录的元素类型（如 'menu-item'）
+
+    Returns:
+        True 如果两者属于同一族，或任一类型未知（保守策略）
+    """
+    if not type_a or not type_b or type_a == '?' or type_b == '?':
+        return True  # 未知类型时保守处理，允许匹配
+    if type_a == type_b:
+        return True  # 相同类型直接通过
+    # 查找类型族
+    all_known_types = set()
+    for family_types in TYPE_FAMILIES.values():
+        all_known_types.update(family_types)
+    # 如果任一类型不在任何族中（未知类型），保守允许匹配
+    if type_a not in all_known_types or type_b not in all_known_types:
+        return True
+    for family_types in TYPE_FAMILIES.values():
+        if type_a in family_types and type_b in family_types:
+            return True
+    return False
 
 
 # ============================================================================
@@ -148,6 +190,7 @@ def _find_in_discovery(discovery_data, label, preferred_container=None,
     # BUG-6 fix: 两轮搜索（严格→宽松）
     # Round 1: 类型守卫严格匹配
     # Round 2: 全 section 宽松匹配（Round 1 未找到时的安全网）
+    # P1 增强: Round 2 增加类型族守卫，防止跨族误匹配（如 el-select 匹配到 menu-item）
     for _round in (1, 2):
         _sections = _strict_sections if _round == 1 else _ALL_LIST_SECTIONS
         _is_loose = (_round == 2)
@@ -167,8 +210,13 @@ def _find_in_discovery(discovery_data, label, preferred_container=None,
                             elem_section = _infer_discovery_section(elem)
                             if elem_section and elem_section not in _sections:
                                 continue
-                        if _is_loose:
+                        # P1: Round 2 类型族守卫（防止跨族误匹配）
+                        if _is_loose and elem_type:
                             _actual_type = elem.get('type', '?')
+                            if not _same_family(elem_type, _actual_type):
+                                logger.debug(f"Round 2 跳过跨族匹配(container): "
+                                           f"query={elem_type} found={_actual_type}")
+                                continue
                             print(f"    [INFO] discovery 类型宽松匹配: "
                                   f"label='{label}' inferred={elem_type} "
                                   f"actual={_actual_type}")
@@ -183,8 +231,13 @@ def _find_in_discovery(discovery_data, label, preferred_container=None,
                           or elem.get('label', '')
                           or elem.get('name', ''))
                 if elabel == label and elem.get('locator') and elem.get('verified'):
-                    if _is_loose:
+                    # P1: Round 2 类型族守卫（防止跨族误匹配）
+                    if _is_loose and elem_type:
                         _actual_type = elem.get('type', '?')
+                        if not _same_family(elem_type, _actual_type):
+                            logger.debug(f"Round 2 跳过跨族匹配(list_page): "
+                                       f"query={elem_type} found={_actual_type}")
+                            continue
                         print(f"    [INFO] discovery 类型宽松匹配(list_page): "
                               f"label='{label}' inferred={elem_type} "
                               f"actual={_actual_type}")
@@ -202,8 +255,13 @@ def _find_in_discovery(discovery_data, label, preferred_container=None,
                         elem_section = _infer_discovery_section(elem)
                         if elem_section and elem_section not in _sections:
                             continue
-                    if _is_loose:
+                    # P1: Round 2 类型族守卫（防止跨族误匹配）
+                    if _is_loose and elem_type:
                         _actual_type = elem.get('type', '?')
+                        if not _same_family(elem_type, _actual_type):
+                            logger.debug(f"Round 2 跳过跨族匹配(container): "
+                                       f"query={elem_type} found={_actual_type}")
+                            continue
                         print(f"    [INFO] discovery 类型宽松匹配(container): "
                               f"label='{label}' inferred={elem_type} "
                               f"actual={_actual_type}")

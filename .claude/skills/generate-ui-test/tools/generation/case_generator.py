@@ -459,6 +459,7 @@ class CaseGenerator:
         steps.append({
             'desc': f"选择「{label}」 - 点击{nth_desc}下拉框",
             'keyword': 'click_element',
+            'label': label,
             'params': {'locator': expand_ref},
         })
 
@@ -466,6 +467,7 @@ class CaseGenerator:
         steps.append({
             'desc': f"等待「{label}」下拉面板打开",
             'keyword': 'wait_for_time',
+            'label': label,
             'params': {'timeout': 1000},
         })
 
@@ -474,16 +476,19 @@ class CaseGenerator:
             {
                 'desc': f"选择「{label}」 - 输入搜索",
                 'keyword': 'fill_value',
+                'label': label,
                 'params': {'locator': select_ref, 'value': search_ref},
             },
             {
                 'desc': f"等待「{label}」搜索结果加载",
                 'keyword': 'wait_for_time',
+                'label': label,
                 'params': {'timeout': 1500},
             },
             {
                 'desc': f"选择「{label}」 - 选择选项",
                 'keyword': 'click_element',
+                'label': label,
                 'params': {'locator': f'xpath={option_xpath}'},
             },
         ]
@@ -494,6 +499,7 @@ class CaseGenerator:
             {
                 'desc': f"选择「{label}」 - 点击目标选项",
                 'keyword': 'click_element',
+                'label': label,
                 'params': {'locator': f'xpath={option_xpath}'},
             },
         ]
@@ -501,6 +507,7 @@ class CaseGenerator:
             {
                 'desc': f"选择「{label}」 - 目标选项不可见，回退选择第一项",
                 'keyword': 'click_element',
+                'label': label,
                 'params': {'locator': first_option_ref},
             },
         ]
@@ -508,6 +515,7 @@ class CaseGenerator:
             {
                 'desc': f"判断「{label}」目标选项是否可见",
                 'keyword': 'if_element_visible',
+                'label': label,
                 'params': {
                     'locator': f'xpath={option_xpath}',
                     'timeout': 500,
@@ -520,6 +528,7 @@ class CaseGenerator:
         steps.append({
             'desc': f"判断「{label}」是否可编辑",
             'keyword': 'if_element_visible',
+            'label': label,
             'params': {
                 'locator': editable_ref,
                 'timeout': 500,
@@ -1343,6 +1352,7 @@ class CaseGenerator:
                 steps.append({
                     'desc': f'展开「{label}」级联选择器',
                     'keyword': 'click_element',
+                    'label': label,
                     'params': {'locator': el['cascader']},
                 })
                 for i, text in enumerate(levels[:-1]):
@@ -1352,6 +1362,7 @@ class CaseGenerator:
                     steps.append({
                         'desc': f'「{label}」第{i+1}级: {text}',
                         'keyword': 'click_element',
+                        'label': label,
                         'params': {
                             'locator': f"xpath={level_xpath}"
                         },
@@ -1369,17 +1380,20 @@ class CaseGenerator:
                 steps.append({
                     'desc': f'「{label}」最后一级: {last}',
                     'keyword': 'if_element_visible',
+                    'label': label,
                     'params': {
                         'locator': checkbox_xpath,
                         'timeout': 500,
                         'then_steps': [{
                             'desc': f'「{label}」 - 点击勾选框',
                             'keyword': 'click_element',
+                            'label': label,
                             'params': {'locator': checkbox_xpath},
                         }],
                         'else_steps': [{
                             'desc': f'「{label}」 - 点击文本',
                             'keyword': 'click_element',
+                            'label': label,
                             'params': {'locator': text_xpath},
                         }],
                     },
@@ -1447,6 +1461,7 @@ class CaseGenerator:
             steps.append({
                 'desc': f"在「{label}」选项卡中选择「{value}」",
                 'keyword': 'click_element',
+                'label': label,
                 'params': {'locator': f'xpath={inline_xpath}'},
             })
 
@@ -1504,6 +1519,7 @@ class CaseGenerator:
                     steps.append({
                         'desc': f"在「{label}」中输入（富文本）",
                         'keyword': 'frame_fill_value',
+                        'label': label,
                         'params': {'frame': frame_ref, 'locator': body_ref, 'value': data_ref},
                     })
                 elif meta and meta.get('type') == 'iframe':
@@ -1514,11 +1530,13 @@ class CaseGenerator:
                         steps.append({
                             'desc': f"等待「{label}」的 iframe 加载完成",
                             'keyword': 'wait_for_element',
+                            'label': label,
                             'params': {'locator': params['frame'], 'timeout': 10000},
                         })
                     steps.append({
                         'desc': f"在「{label}」中输入",
                         'keyword': kw,
+                        'label': label,
                         'params': params,
                     })
                 else:
@@ -1531,17 +1549,20 @@ class CaseGenerator:
                             steps.append({
                                 'desc': f"等待「{label}」的 iframe 加载完成",
                                 'keyword': 'wait_for_element',
+                                'label': label,
                                 'params': {'locator': params['frame'], 'timeout': 10000},
                             })
                         steps.append({
                             'desc': f"在「{label}」中输入",
                             'keyword': kw,
+                            'label': label,
                             'params': params,
                         })
                     else:
                         steps.append({
                             'desc': f"在「{label}」中输入",
                             'keyword': 'fill_value',
+                            'label': label,
                             'params': {'locator': locator_ref, 'value': data_ref},
                         })
             else:
@@ -1563,6 +1584,7 @@ class CaseGenerator:
                     steps.append({
                         'desc': f"在「{label}」中输入",
                         'keyword': 'fill_value',
+                        'label': label,
                         'params': {'locator': locator_ref, 'value': data_ref},
                     })
                 else:
@@ -1577,6 +1599,7 @@ class CaseGenerator:
                         steps.append({
                             'desc': f"[待确认] 在「{label}」中输入",
                             'keyword': 'fill_value',
+                            'label': label,
                             'params': {'locator': pending_ref, 'value': data_ref},
                         })
                     else:
@@ -1596,6 +1619,7 @@ class CaseGenerator:
                     steps.append({
                         'desc': f'点击「{label}」按钮',
                         'keyword': 'click_element',
+                        'label': label,
                         'params': {'locator': _common_ref},
                     })
                     return steps
@@ -1622,23 +1646,27 @@ class CaseGenerator:
                             steps.append({
                                 'desc': f"等待「{label}」按钮的 iframe 加载完成",
                                 'keyword': 'wait_for_element',
+                                'label': label,
                                 'params': {'locator': params['frame'], 'timeout': 10000},
                             })
                         steps.append({
                             'desc': f'点击「{label}」按钮',
                             'keyword': kw,
+                            'label': label,
                             'params': params,
                         })
                     else:
                         steps.append({
                             'desc': f'点击「{label}」按钮',
                             'keyword': 'click_element',
+                            'label': label,
                             'params': {'locator': ref},
                         })
                 else:
                     steps.append({
                         'desc': f'点击「{label}」按钮',
                         'keyword': 'click_element',
+                        'label': label,
                         'params': {'locator': ref},
                     })
             else:
@@ -1648,6 +1676,7 @@ class CaseGenerator:
                     steps.append({
                         'desc': f'点击「{label}」按钮',
                         'keyword': 'click_element',
+                        'label': label,
                         'params': {'locator': disc_ref},
                     })
                 else:
@@ -1659,12 +1688,14 @@ class CaseGenerator:
                         steps.append({
                             'desc': f'[待确认] 点击「{label}」按钮',
                             'keyword': 'click_element',
+                            'label': label,
                             'params': {'locator': pending_ref},
                         })
                     else:
                         steps.append({
                             'desc': f'[待确认] 点击「{label}」按钮',
                             'keyword': 'log',
+                            'label': label,
                             'params': {'message': f"[PENDING-NO-GROUP] 未找到'{label}'按钮定位器"},
                         })
 
@@ -1676,6 +1707,7 @@ class CaseGenerator:
                 steps.append({
                     'desc': f'点击第一条记录的「{label}」按钮',
                     'keyword': 'click_element',
+                    'label': label,
                     'params': {'locator': ref},
                 })
             else:
@@ -1687,12 +1719,14 @@ class CaseGenerator:
                     steps.append({
                         'desc': f'[待确认] 点击第一条记录的「{label}」按钮',
                         'keyword': 'click_element',
+                        'label': label,
                         'params': {'locator': pending_ref},
                     })
                 else:
                     steps.append({
                         'desc': f'[待确认] 点击表格行操作「{label}」',
                         'keyword': 'log',
+                        'label': label,
                         'params': {'message': f"[PENDING-NO-GROUP] 未找到表格行操作按钮'{label}'"},
                     })
 
@@ -1707,6 +1741,7 @@ class CaseGenerator:
                     steps.append({
                         'desc': f"断言{kw}可见",
                         'keyword': 'except_to_be_visible',
+                        'label': kw,
                         'params': {
                             'locator': f"xpath={kw_xpath}"
                         },
@@ -1722,6 +1757,7 @@ class CaseGenerator:
                     steps.append({
                         'desc': f"断言：{desc_text}",
                         'keyword': 'except_to_be_visible',
+                        'label': assert_text,
                         'params': {'locator': f'xpath={kb_xpath}'},
                     })
                 # 优先级 2: 无引号 + 含"成功" → 通用成功断言
@@ -1730,6 +1766,7 @@ class CaseGenerator:
                     steps.append({
                         'desc': f"断言：{desc_text}",
                         'keyword': 'except_to_be_visible',
+                        'label': '成功',
                         'params': {'locator': success_ref},
                     })
                 else:
@@ -1741,12 +1778,14 @@ class CaseGenerator:
                         steps.append({
                             'desc': f"断言：{desc_text}",
                             'keyword': 'except_to_be_visible',
+                            'label': assert_text,
                             'params': {'locator': f'xpath={kb_xpath}'},
                         })
                     else:
                         steps.append({
                             'desc': f"[待确认] 断言：{desc_text}",
                             'keyword': 'log',
+                            'label': desc_text,
                             'params': {'message': "未找到断言定位器"},
                         })
 
@@ -1768,6 +1807,7 @@ class CaseGenerator:
             steps.append({
                 'desc': f"断言记录数≥{min_count}",
                 'keyword': 'except_element_count',
+                'label': section or '记录数',
                 'params': {
                     'locator': f'${{{group_name}.{field_key}}}',
                     'min_count': min_count,
@@ -1783,6 +1823,7 @@ class CaseGenerator:
             steps.append({
                 'desc': f"断言第一条记录包含'{value}'",
                 'keyword': 'except_to_be_visible',
+                'label': value,
                 'params': {
                     'locator': f"xpath={kb_xpath}"
                 },
@@ -1796,18 +1837,21 @@ class CaseGenerator:
                     steps.append({
                         'desc': f"等待{desc}加载完成",
                         'keyword': wf_def['name'],
+                        'label': desc or '加载',
                         'params': {},
                     })
                 else:
                     steps.append({
                         'desc': f"等待{desc}加载完成",
                         'keyword': 'wait_for_time',
+                        'label': desc or '加载',
                         'params': {'timeout': 5000},
                     })
             else:
                 steps.append({
                     'desc': f"等待{desc}",
                     'keyword': 'wait_for_time',
+                    'label': desc or '等待',
                     'params': {'timeout': 2000},
                 })
 
@@ -1816,6 +1860,7 @@ class CaseGenerator:
             steps.append({
                 'desc': f"等待{args[0]}秒",
                 'keyword': 'wait_for_time',
+                'label': '等待',
                 'params': {'timeout': ms},
             })
 
@@ -1826,6 +1871,7 @@ class CaseGenerator:
                 steps.append({
                     'desc': f'点击「{label}」',
                     'keyword': 'click_element',
+                    'label': label,
                     'params': {'locator': btn_ref},
                 })
             else:
@@ -1837,12 +1883,14 @@ class CaseGenerator:
                     steps.append({
                         'desc': f'[待确认] 点击「{label}」',
                         'keyword': 'click_element',
+                        'label': label,
                         'params': {'locator': pending_ref},
                     })
                 else:
                     steps.append({
                         'desc': f'[待确认] 点击「{label}」',
                         'keyword': 'log',
+                        'label': label,
                         'params': {'message': f"[PENDING-NO-GROUP] 未找到'{label}'的定位器"},
                     })
 
@@ -1880,6 +1928,7 @@ class CaseGenerator:
                 steps.append({
                     'desc': f'点击「{label}」日期选择框',
                     'keyword': 'click_element',
+                    'label': label,
                     'params': {'locator': locator_ref},
                 })
 
@@ -1899,6 +1948,7 @@ class CaseGenerator:
                     steps.append({
                         'desc': picker_desc,
                         'keyword': 'click_element',
+                        'label': label,
                         'params': {'locator': picker_ref},
                     })
                 else:
@@ -1907,12 +1957,14 @@ class CaseGenerator:
                     steps.append({
                         'desc': picker_desc,
                         'keyword': 'click_element',
+                        'label': label,
                         'params': {'locator': f"xpath={picker_xpath}"},
                     })
             else:
                 steps.append({
                     'desc': f'[待确认] 日期选择「{label}」',
                     'keyword': 'log',
+                    'label': label,
                     'params': {'message': f"[PENDING-NO-GROUP] 未找到日期选择器'{label}'"},
                 })
 
@@ -1923,6 +1975,7 @@ class CaseGenerator:
             steps.append({
                 'desc': f'点击「{label}」tab',
                 'keyword': 'click_element',
+                'label': label,
                 'params': {'locator': tab_ref},
             })
 
@@ -1930,6 +1983,7 @@ class CaseGenerator:
             steps.append({
                 'desc': f'获取「{label}」tab面板ID',
                 'keyword': 'get_attribute',
+                'label': label,
                 'params': {
                     'locator': tab_ref,
                     'name': 'aria-controls',
@@ -1944,10 +1998,12 @@ class CaseGenerator:
             steps.append({
                 'desc': "返回上一页",
                 'keyword': 'go_back',
+                'label': '返回',
             })
             steps.append({
                 'desc': "等待页面加载",
                 'keyword': 'wait_for_time',
+                'label': '加载',
                 'params': {'timeout': 2000},
             })
 
@@ -1955,6 +2011,7 @@ class CaseGenerator:
             steps.append({
                 'desc': "刷新页面",
                 'keyword': 'refresh',
+                'label': '刷新',
             })
 
         elif ptype == 'confirm_dialog':
@@ -1975,6 +2032,7 @@ class CaseGenerator:
             steps.append({
                 'desc': "确认弹窗",
                 'keyword': 'click_element',
+                'label': '确认',
                 'params': {'locator': confirm_ref},
             })
 
@@ -1993,6 +2051,7 @@ class CaseGenerator:
             steps.append({
                 'desc': f"确认删除 - 点击「{btn_label}」",
                 'keyword': 'click_element',
+                'label': btn_label,
                 'params': {'locator': confirm_ref},
             })
 
@@ -2020,6 +2079,7 @@ class CaseGenerator:
                 steps.append({
                     'desc': full_desc,
                     'keyword': 'click_element',
+                    'label': item_desc or '勾选',
                     'params': {'locator': f'xpath={_chk_xpath}'},
                 })
             else:
@@ -2030,6 +2090,7 @@ class CaseGenerator:
                 steps.append({
                     'desc': f"{full_desc} [待确认]",
                     'keyword': 'click_element',
+                    'label': item_desc or '勾选',
                     'params': {'locator': pending_ref or 'xpath=[待确认]'},
                 })
 
@@ -2056,23 +2117,27 @@ class CaseGenerator:
                 steps.append({
                     'desc': "点击更多按钮",
                     'keyword': 'click_element',
+                    'label': '更多',
                     'params': {'locator': more_ref},
                 })
                 steps.append({
                     'desc': "等待下拉菜单",
                     'keyword': 'wait_for_time',
+                    'label': '更多',
                     'params': {'timeout': 1000},
                 })
                 option_ref = f"xpath=//*[@x-placement and not(@x-placement='')]//*[contains(text(),'{action}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]"
                 steps.append({
                     'desc': f'选择「{action}」',
                     'keyword': 'click_element',
+                    'label': action,
                     'params': {'locator': option_ref},
                 })
             else:
                 steps.append({
                     'desc': "[待确认] 点击更多按钮",
                     'keyword': 'click_element',
+                    'label': '更多',
                     'params': {'locator': "xpath=(//*[contains(text(),'更多')]"
                                "[not(ancestor-or-self::*[contains(@class,'el-select-dropdown')])]"
                                "[ancestor::tbody])[1]"},
@@ -2080,6 +2145,7 @@ class CaseGenerator:
                 steps.append({
                     'desc': "等待下拉菜单",
                     'keyword': 'wait_for_time',
+                    'label': '更多',
                     'params': {'timeout': 1000},
                 })
                 option_ref = (f"xpath=//*[@x-placement and not(@x-placement='')]"
@@ -2089,6 +2155,7 @@ class CaseGenerator:
                 steps.append({
                     'desc': f'[待确认] 选择「{action}」',
                     'keyword': 'click_element',
+                    'label': action,
                     'params': {'locator': option_ref},
                 })
 
@@ -2115,17 +2182,20 @@ class CaseGenerator:
                 steps.append({
                     'desc': "点击第一条记录的更多按钮",
                     'keyword': 'click_element',
+                    'label': '更多',
                     'params': {'locator': more_ref},
                 })
                 steps.append({
                     'desc': "等待下拉菜单展开",
                     'keyword': 'wait_for_time',
+                    'label': '更多',
                     'params': {'timeout': 1000},
                 })
                 option_ref = f"xpath=//*[@x-placement and not(@x-placement='')]//*[contains(text(),'{action}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]"
                 steps.append({
                     'desc': f'点击「{action}」',
                     'keyword': 'click_element',
+                    'label': action,
                     'params': {'locator': option_ref},
                 })
             else:
@@ -2137,12 +2207,14 @@ class CaseGenerator:
                     steps.append({
                         'desc': "[待确认] 点击第一条记录的更多按钮",
                         'keyword': 'click_element',
+                        'label': '更多',
                         'params': {'locator': pending_ref},
                     })
                 else:
                     steps.append({
                         'desc': "[待确认] 点击更多按钮",
                         'keyword': 'click_element',
+                        'label': '更多',
                         'params': {'locator': "xpath=(//*[contains(text(),'更多')]"
                                    "[not(ancestor-or-self::*[contains(@class,'el-select-dropdown')])]"
                                    "[ancestor::tbody])[1]"},
@@ -2150,6 +2222,7 @@ class CaseGenerator:
                 steps.append({
                     'desc': "等待下拉菜单展开",
                     'keyword': 'wait_for_time',
+                    'label': '更多',
                     'params': {'timeout': 1000},
                 })
                 option_ref = (f"xpath=//*[@x-placement and not(@x-placement='')]"
@@ -2159,6 +2232,7 @@ class CaseGenerator:
                 steps.append({
                     'desc': f'点击「{action}」',
                     'keyword': 'click_element',
+                    'label': action,
                     'params': {'locator': option_ref},
                 })
 
@@ -2212,6 +2286,7 @@ class CaseGenerator:
             steps.append({
                 'desc': f"点击第一条记录的「{text}」",
                 'keyword': 'click_element',
+                'label': text,
                 'params': {'locator': link_ref},
             })
 
@@ -2237,6 +2312,7 @@ class CaseGenerator:
             steps.append({
                 'desc': f"等待{desc}",
                 'keyword': 'wait_for_time',
+                'label': desc or '等待',
                 'params': {'timeout': 3000},
             })
 
@@ -2259,10 +2335,11 @@ class CaseGenerator:
             steps.append({
                 'desc': f"如果「{section}」有数据则点击「{label}」按钮",
                 'keyword': 'if_element_visible',
+                'label': section,
                 'params': {
                     'locator': f'xpath={check_xpath}',
                     'then_steps': [
-                        {'keyword': 'click_element',
+                        {'keyword': 'click_element', 'label': label,
                          'params': {'locator': btn_ref}},
                     ],
                 },
@@ -2279,10 +2356,11 @@ class CaseGenerator:
             steps.append({
                 'desc': f"如果「{section}」有数据则点击「{tab_label}」tab",
                 'keyword': 'if_element_visible',
+                'label': section,
                 'params': {
                     'locator': f'xpath={check_xpath}',
                     'then_steps': [
-                        {'keyword': 'click_element',
+                        {'keyword': 'click_element', 'label': tab_label,
                          'params': {'locator': tab_ref}},
                     ],
                 },
@@ -2308,10 +2386,11 @@ class CaseGenerator:
             steps.append({
                 'desc': f"如果「{section}」有数据则点击第一条记录",
                 'keyword': 'if_element_visible',
+                'label': section,
                 'params': {
                     'locator': f'xpath={check_xpath}',
                     'then_steps': [
-                        {'keyword': 'click_element',
+                        {'keyword': 'click_element', 'label': section,
                          'params': {'locator': click_ref}},
                     ],
                 },
@@ -2329,10 +2408,11 @@ class CaseGenerator:
             steps.append({
                 'desc': f"如果「{section}」有数据则点击",
                 'keyword': 'if_element_visible',
+                'label': section,
                 'params': {
                     'locator': f'xpath={check_xpath}',
                     'then_steps': [
-                        {'keyword': 'click_element',
+                        {'keyword': 'click_element', 'label': section,
                          'params': {'locator': f"xpath={then_xpath}"}},
                     ],
                 },

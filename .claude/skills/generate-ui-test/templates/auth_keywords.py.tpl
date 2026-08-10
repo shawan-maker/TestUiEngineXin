@@ -132,11 +132,35 @@ def inject_local_storage(self, key=None, value=None, navigate_url=None):
         self.log.debug_log("[认证] localStorage 注入缺少配置，跳过")
         return
 
+    # root-first: 先导航到根 URL 确保 localStorage 域正确且 SPA 初始化完成
+    # 天枢类 SPA 会在页面加载时重置 localStorage，必须先导航再写入
+    from urllib.parse import urlparse
+    target_url = self.config.get('target_url', '')
+    if target_url:
+        parsed = urlparse(target_url)
+        root_url = f"{parsed.scheme}://{parsed.netloc}/"
+        current = self.page.url or ''
+        # 只在尚未在目标域上时导航到根 URL（about:blank 或不同域）
+        if not current.startswith(f"{parsed.scheme}://{parsed.netloc}"):
+            try:
+                self.page.goto(root_url, wait_until='domcontentloaded', timeout=15000)
+                self.log.debug_log(f"[认证] root-first: 已导航到根 URL")
+            except Exception as e:
+                self.log.debug_log(f"[认证] root-first: 根 URL 导航失败（非致命）: {e}")
+
     # 批量写入
     js_items = ', '.join([f"'{k}', '{v}'" for k, v in storage_items.items()])
     js_script = f"var items=[{js_items}]; for(var i=0;i<items.length;i+=2){{ localStorage.setItem(items[i], items[i+1]); }}"
     self.page.evaluate(js_script)
     self.log.debug_log(f"[认证] 已写入 localStorage: {list(storage_items.keys())}")
+
+    # 写入后 reload 让 SPA 重新读取 localStorage（天枢类框架需要）
+    if target_url:
+        try:
+            self.page.reload(wait_until='domcontentloaded', timeout=15000)
+            self.log.debug_log("[认证] root-first: reload 完成，SPA 已重新读取 localStorage")
+        except Exception:
+            pass
 
 
 def register_auth_keywords():

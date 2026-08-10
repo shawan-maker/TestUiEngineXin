@@ -487,14 +487,24 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
 
         page = context.new_page()
 
-        # Pre-inject localStorage via init_script (runs BEFORE any page script)
-        # Prevents SPA router guards from redirecting to /login on first navigation.
+        # 认证注入：root-first 模式（兼容天枢类 SPA + cookie-only 系统）
+        # 天枢的 SPA 框架会在页面初始化时重置 init_script 注入的 localStorage，
+        # 必须先导航到根 URL，手动设置 localStorage，再跳转到目标页面。
         if local_storage:
-            ls_items = ', '.join(
-                f'localStorage.setItem({json.dumps(k)}, {json.dumps(v)})'
-                for k, v in local_storage.items()
-            )
-            page.add_init_script(f'() => {{ {ls_items} }}')
+            _parsed_base = urlparse(base_url)
+            _root_url = f"{_parsed_base.scheme}://{_parsed_base.netloc}/"
+            print(f"  [AUTH] Navigating to root URL first: {_root_url}")
+            try:
+                page.goto(_root_url, wait_until="domcontentloaded", timeout=15000)
+            except Exception:
+                pass  # 根 URL 导航失败不阻断（某些系统根 URL 无内容）
+            page.wait_for_timeout(2000)  # 等待 SPA 初始化完成
+            page.evaluate("""(items) => {
+                for (let i = 0; i < items.length; i += 2) {
+                    localStorage.setItem(items[i], items[i+1]);
+                }
+            }""", [k for kv in local_storage.items() for k in kv])
+            print(f"  [AUTH] Set {len(local_storage)} localStorage keys")
 
         # Perf: 预注入 localStorage 一次（避免每个 case 重复导航）
         _ls_injected = False
@@ -544,13 +554,10 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
             # Navigate to base URL for each case
             try:
                 if not _ls_injected:
-                    # 首次: init_script 已注入 localStorage，直接导航（SPA 守卫能读到 token）
+                    # root-first: localStorage 已在根 URL 设置，直接导航到目标页面
                     page.goto(base_url, wait_until="domcontentloaded", timeout=30000)
                     _wait_for_dom_stable(page, timeout_ms=4000)
                     _ls_injected = True
-                    # Belt-and-suspenders: 确保 localStorage 已设置
-                    for k, v in local_storage.items():
-                        page.evaluate("([k, v]) => localStorage.setItem(k, v)", [k, v])
                     # Check if redirected to login page (invalid cookie)
                     final_url = page.url
                     if '/login' in final_url or final_url.rstrip('/').endswith('login'):

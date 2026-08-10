@@ -185,20 +185,21 @@ def test_injection_point_1(pw, project_key, cfg, headed):
 
 
 # ============================================================
-# 注入点 2: Phase 6 verify_orchestrator.py — init_script 模式（待修复）
+# 注入点 2: Phase 6 verify_orchestrator.py — root-first 模式（已修复）
 # ============================================================
 
 def test_injection_point_2(pw, project_key, cfg, headed):
     """
-    Phase 6 verify_orchestrator.py — init_script 模式
+    Phase 6 verify_orchestrator.py — root-first 模式
 
-    模拟 verify_project() 函数中的认证注入逻辑：
+    模拟修复后的 verify_project() 函数中的认证注入逻辑：
     1. context.add_cookies(cookies)
-    2. page.add_init_script(localStorage.setItem for each)
-    3. page.goto(target_url)
+    2. page.goto(root_url) + wait_for_timeout(2000)
+    3. page.evaluate(localStorage.setItem for each)
+    4. page.goto(target_url)
     """
     proj = PROJECTS[project_key]
-    label = f"注入点2-Phase6主验证-init_script [{proj['name']}]"
+    label = f"注入点2-Phase6主验证-root-first [{proj['name']}]"
     print(f"\n{'='*60}")
     print(f"[TEST] {label}")
     print(f"{'='*60}")
@@ -215,50 +216,50 @@ def test_injection_point_2(pw, project_key, cfg, headed):
         context.add_cookies(cookies)
         page = context.new_page()
 
-        # init_script 模式（当前 verify_orchestrator.py 的方式）
+        # root-first 模式（修复后 verify_orchestrator.py 的方式）
         if local_storage:
-            ls_items = ', '.join(
-                f'localStorage.setItem({json.dumps(k)}, {json.dumps(v)})'
-                for k, v in local_storage.items()
-            )
-            print(f"  [1] add_init_script: {len(local_storage)} 个 keys")
-            page.add_init_script(f'() => {{ {ls_items} }}')
+            parsed = urlparse(test_url)
+            root_url = f"{parsed.scheme}://{parsed.netloc}/"
+            print(f"  [1] 导航到根 URL: {root_url}")
+            try:
+                page.goto(root_url, wait_until="domcontentloaded", timeout=15000)
+            except Exception as e:
+                print(f"  [WARN] 根 URL 导航异常: {e}")
+            page.wait_for_timeout(2000)
+            print(f"  [2] 设置 {len(local_storage)} 个 localStorage keys")
+            page.evaluate("""(items) => {
+                for (let i = 0; i < items.length; i += 2) {
+                    localStorage.setItem(items[i], items[i+1]);
+                }
+            }""", [k for kv in local_storage.items() for k in kv])
 
-        print(f"  [2] 直接导航到目标 URL: {test_url}")
+        print(f"  [3] 导航到目标 URL: {test_url}")
         page.goto(test_url, wait_until="domcontentloaded", timeout=15000)
         page.wait_for_timeout(3000)
 
-        # Belt-and-suspenders（verify_orchestrator.py 的补救逻辑）
-        if local_storage:
-            for k, v in local_storage.items():
-                page.evaluate("([k, v]) => localStorage.setItem(k, v)", [k, v])
-
         success, msg = check_auth(page, label)
         print(f"  {msg}")
-
-        # 额外诊断：检查 localStorage 是否被清空
-        if not success and local_storage:
-            ls_after = page.evaluate("() => Object.keys(localStorage)")
-            print(f"  [DIAG] localStorage keys: before={list(local_storage.keys())}, after={ls_after}")
-
         return success, msg
     finally:
         browser.close()
 
 
 # ============================================================
-# 注入点 3: Phase 6 detail_links.py — init_script 模式（待修复）
+# 注入点 3: Phase 6 detail_links.py — root-first 模式（已修复）
 # ============================================================
 
 def test_injection_point_3(pw, project_key, cfg, headed):
     """
-    Phase 6 detail_links.py — init_script 模式
+    Phase 6 detail_links.py — root-first 模式
 
-    模拟 _try_kb_resolve_detail_links() 函数中的认证注入逻辑：
-    与注入点 2 相同，但用于 KB 回退探测场景
+    模拟修复后的 _try_kb_resolve_detail_links() 函数中的认证注入逻辑：
+    1. context.add_cookies(cookies)
+    2. page.goto(root_url)
+    3. page.evaluate(localStorage.setItem for each)
+    4. page.goto(url)
     """
     proj = PROJECTS[project_key]
-    label = f"注入点3-Phase6-KB探测-init_script [{proj['name']}]"
+    label = f"注入点3-Phase6-KB探测-root-first [{proj['name']}]"
     print(f"\n{'='*60}")
     print(f"[TEST] {label}")
     print(f"{'='*60}")
@@ -275,22 +276,25 @@ def test_injection_point_3(pw, project_key, cfg, headed):
         context.add_cookies(cookies)
         page = context.new_page()
 
-        # init_script 模式（当前 detail_links.py 的方式）
+        # root-first 模式（修复后 detail_links.py 的方式）
         if local_storage:
-            ls_items = ', '.join(
-                f'localStorage.setItem({json.dumps(k)}, {json.dumps(v)})'
-                for k, v in local_storage.items()
-            )
-            print(f"  [1] add_init_script: {len(local_storage)} 个 keys")
-            page.add_init_script(f'() => {{ {ls_items} }}')
+            parsed = urlparse(test_url)
+            root_url = f"{parsed.scheme}://{parsed.netloc}/"
+            print(f"  [1] 导航到根 URL: {root_url}")
+            try:
+                page.goto(root_url, wait_until="domcontentloaded", timeout=15000)
+            except Exception:
+                pass
+            print(f"  [2] 设置 {len(local_storage)} 个 localStorage keys")
+            page.evaluate("""(items) => {
+                for (let i = 0; i < items.length; i += 2) {
+                    localStorage.setItem(items[i], items[i+1]);
+                }
+            }""", [k for kv in local_storage.items() for k in kv])
 
-        print(f"  [2] 直接导航到目标 URL: {test_url}")
+        print(f"  [3] 导航到目标 URL: {test_url}")
         page.goto(test_url, wait_until="domcontentloaded", timeout=30000)
         page.wait_for_timeout(3000)
-
-        # Belt-and-supertures（detail_links.py 的补救逻辑）
-        for k, v in local_storage.items():
-            page.evaluate("([k, v]) => localStorage.setItem(k, v)", [k, v])
 
         success, msg = check_auth(page, label)
         print(f"  {msg}")
@@ -300,22 +304,23 @@ def test_injection_point_3(pw, project_key, cfg, headed):
 
 
 # ============================================================
-# 注入点 4: Runtime auth_keywords.py.tpl — evaluate-only 模式（待修复）
+# 注入点 4: Runtime auth_keywords.py.tpl — root-first + reload 模式（已修复）
 # ============================================================
 
 def test_injection_point_4(pw, project_key, cfg, headed):
     """
-    Runtime auth_keywords.py.tpl — evaluate-only 模式
+    Runtime auth_keywords.py.tpl — root-first + reload 模式
 
-    模拟 inject_local_storage() 关键字中的认证注入逻辑：
+    模拟修复后的 inject_local_storage() 关键字中的认证注入逻辑：
     1. context.add_cookies(cookies)  [HTTP Cookie 安全网]
-    2. page.evaluate(localStorage.setItem for each)  [批量写入]
-
-    注意：运行时场景下页面已经通过 open_url 导航过了，
-    所以这里模拟 suite setup_step 的流程
+    2. page.goto(target_url)  [模拟 open_url]
+    3. page.goto(root_url)  [root-first: 确保在目标域]
+    4. page.evaluate(localStorage.setItem for each)  [批量写入]
+    5. page.reload()  [SPA 重新读取 localStorage]
+    6. page.goto(test_url)  [回到目标页面]
     """
     proj = PROJECTS[project_key]
-    label = f"注入点4-运行时-auth_keywords [{proj['name']}]"
+    label = f"注入点4-运行时-root-first+reload [{proj['name']}]"
     print(f"\n{'='*60}")
     print(f"[TEST] {label}")
     print(f"{'='*60}")
@@ -345,7 +350,7 @@ def test_injection_point_4(pw, project_key, cfg, headed):
             print(f"  [WARN] open_url 导航异常: {e}")
         page.wait_for_timeout(2000)
 
-        # 模拟 inject_local_storage 关键字（当前 auth_keywords.py.tpl 的方式）
+        # 模拟修复后的 inject_local_storage 关键字
         storage_items = dict(cfg.get('local_storage', {}))
 
         # 自动从 cookie 提取第一个 token 并合并
@@ -359,28 +364,48 @@ def test_injection_point_4(pw, project_key, cfg, headed):
                         storage_items.setdefault(ck, cv)
                         break
 
-        if storage_items:
-            print(f"  [2] page.evaluate 批量写入 {len(storage_items)} 个 localStorage keys")
-            js_items = ', '.join([f"'{k}', '{v}'" for k, v in storage_items.items()])
-            js_script = (
-                f"var items=[{js_items}]; "
-                f"for(var i=0;i<items.length;i+=2)"
-                f"{{ localStorage.setItem(items[i], items[i+1]); }}"
-            )
-            page.evaluate(js_script)
+        if not storage_items:
+            print(f"  [SKIP] 无 local_storage 配置")
+            success, msg = check_auth(page, label)
+            print(f"  {msg}")
+            return success, msg
+
+        # root-first: 先导航到根 URL
+        target_url = cfg.get('target_url', '')
+        if target_url:
+            parsed = urlparse(target_url)
+            root_url = f"{parsed.scheme}://{parsed.netloc}/"
+            current = page.url or ''
+            if not current.startswith(f"{parsed.scheme}://{parsed.netloc}"):
+                print(f"  [2] root-first: 导航到根 URL: {root_url}")
+                try:
+                    page.goto(root_url, wait_until='domcontentloaded', timeout=15000)
+                except Exception as e:
+                    print(f"  [WARN] 根 URL 导航异常: {e}")
+
+        # 批量写入
+        print(f"  [3] page.evaluate 批量写入 {len(storage_items)} 个 localStorage keys")
+        js_items = ', '.join([f"'{k}', '{v}'" for k, v in storage_items.items()])
+        js_script = (
+            f"var items=[{js_items}]; "
+            f"for(var i=0;i<items.length;i+=2)"
+            f"{{ localStorage.setItem(items[i], items[i+1]); }}"
+        )
+        page.evaluate(js_script)
+
+        # reload 让 SPA 重新读取 localStorage
+        if target_url:
+            print(f"  [4] reload 页面")
+            try:
+                page.reload(wait_until='domcontentloaded', timeout=15000)
+            except Exception:
+                pass
+
+        page.wait_for_timeout(3000)
 
         # 检查认证
         success, msg = check_auth(page, label)
         print(f"  {msg}")
-
-        # 额外：检查 reload 后 localStorage 是否存活
-        if local_storage and not success:
-            print(f"  [DIAG] 尝试 reload 后重新检查...")
-            page.reload(wait_until="domcontentloaded", timeout=15000)
-            page.wait_for_timeout(3000)
-            success2, msg2 = check_auth(page, f"{label} (reload后)")
-            print(f"  {msg2}")
-
         return success, msg
     finally:
         browser.close()
@@ -566,9 +591,9 @@ def main():
     # 定义测试矩阵
     injection_points = {
         1: ("Phase 4 discover_page.py (root-first)", test_injection_point_1),
-        2: ("Phase 6 verify_orchestrator.py (init_script)", test_injection_point_2),
-        3: ("Phase 6 detail_links.py (init_script)", test_injection_point_3),
-        4: ("Runtime auth_keywords.py.tpl (evaluate-only)", test_injection_point_4),
+        2: ("Phase 6 verify_orchestrator.py (root-first)", test_injection_point_2),
+        3: ("Phase 6 detail_links.py (root-first)", test_injection_point_3),
+        4: ("Runtime auth_keywords.py.tpl (root-first+reload)", test_injection_point_4),
         5: ("统一方案: root-first 替代 init_script", test_unified_root_first),
         6: ("运行时统一方案: root-first + reload", test_unified_runtime),
     }

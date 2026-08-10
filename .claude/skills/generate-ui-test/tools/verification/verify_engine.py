@@ -1970,28 +1970,42 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         # ── iframe 探测：当主页面所有候选都 count=0 时，尝试在 iframe 中查找 ──
         if not verified_locator and locator and 'xpath=' in locator:
             print(f"    [TRACE-P6]   iframe 探测: 主页面所有候选 count=0，尝试 iframe")
-            print(f"    [DEBUG-IFRAME] 触发条件: desc='{desc}', locator='{locator[:80]}...'")
-            iframe_result = _try_find_in_iframes(page, locator)
-            if iframe_result:
-                # 提取 locator_ref（用于 writeback）
-                _raw_locator_ref = _extract_locator_ref(step)
-                _iframe_discovery = {
-                    'frame_selector': iframe_result['frame_selector'],
-                    'frame_name': iframe_result['frame_name'],
-                    'clean_xpath': iframe_result['clean_xpath'],
-                    'count': iframe_result['count'],
-                    'locator': locator,
-                    'locator_ref': _raw_locator_ref,  # ${group.field} 格式
-                    'keyword': keyword,
-                    'desc': desc,
-                }
-                print(f"    [IFRAME-DISCOVERY] [OK] Found element in iframe '{iframe_result['frame_name']}'")
-                print(f"    [IFRAME-DISCOVERY]   locator_ref={_raw_locator_ref}")
-                # 使用 iframe 内的 locator（不添加容器前缀）
-                verified_locator = locator
-                hit_source = 'iframe'
-                is_best_guess = True
-                print(f"    [TRACE-P6]   iframe discovery success, return raw locator (no container prefix needed in iframe)")
+
+            # 修复：如果 locator 是 [待确认] 占位符，用 KB 候选替代
+            iframe_search_locator = locator
+            if '[待确认]' in locator:
+                if candidates:
+                    # 使用第一个 KB 候选的 XPath（优先 kb 来源，否则第一个候选）
+                    kb_xpath = next((c[0] for c in candidates if c[1] == 'kb'), candidates[0][0])
+                    iframe_search_locator = f"xpath={kb_xpath}"
+                    print(f"    [DEBUG-IFRAME] locator 是占位符，替换为 KB 候选: {kb_xpath[:80]}")
+                else:
+                    print(f"    [DEBUG-IFRAME] locator 是占位符且无 KB 候选，跳过 iframe 探测")
+                    iframe_search_locator = None
+
+            if iframe_search_locator:
+                print(f"    [DEBUG-IFRAME] 触发条件: desc='{desc}', locator='{iframe_search_locator[:80]}...'")
+                iframe_result = _try_find_in_iframes(page, iframe_search_locator)
+                if iframe_result:
+                    # 提取 locator_ref（用于 writeback）
+                    _raw_locator_ref = _extract_locator_ref(step)
+                    _iframe_discovery = {
+                        'frame_selector': iframe_result['frame_selector'],
+                        'frame_name': iframe_result['frame_name'],
+                        'clean_xpath': iframe_result['clean_xpath'],
+                        'count': iframe_result['count'],
+                        'locator': iframe_search_locator,
+                        'locator_ref': _raw_locator_ref,  # ${group.field} 格式
+                        'keyword': keyword,
+                        'desc': desc,
+                    }
+                    print(f"    [IFRAME-DISCOVERY] [OK] Found element in iframe '{iframe_result['frame_name']}'")
+                    print(f"    [IFRAME-DISCOVERY]   locator_ref={_raw_locator_ref}")
+                    # 使用 iframe 内的 locator（不添加容器前缀）
+                    verified_locator = iframe_search_locator
+                    hit_source = 'iframe'
+                    is_best_guess = True
+                    print(f"    [TRACE-P6]   iframe discovery success, return raw locator (no container prefix needed in iframe)")
 
         # 存储 iframe discovery 到模块级变量（供 verify_orchestrator 读取）
         # global 声明已在函数开头（行1082）

@@ -12,6 +12,7 @@
 """
 import os
 import re
+from core.yaml_utils import escape_yaml_scalar
 
 # ============================================================================
 # 隐藏过滤属性（R4.11：排除 is-hidden / display:none 的不可见元素）
@@ -417,7 +418,14 @@ def apply_hidden_filters_to_pages(pages_data: dict, source_files: dict, pages_di
                     key_part, sep, val_part = line.partition(':')
                     # 检查字段名精确匹配（防止后缀重叠的误替换）
                     if old_val in val_part and key_part.strip() == field_name:
-                        lines[i] = key_part + sep + val_part.replace(old_val, new_val, 1)
+                        # 提取注释部分（# 之后）
+                        comment_suffix = ""
+                        hash_pos = val_part.find('  #')
+                        if hash_pos > 0:
+                            comment_suffix = val_part[hash_pos:]
+                        # 用 escape_yaml_scalar 重新转义新值，确保引号正确
+                        re_escaped = escape_yaml_scalar(new_val)
+                        lines[i] = f"{key_part}{sep} {re_escaped}{comment_suffix}\n"
         with open(filepath, 'w', encoding='utf-8') as f:
             f.writelines(lines)
 
@@ -485,7 +493,14 @@ def strip_not_ancestor_from_pages(pages_data: dict, source_files: dict, pages_di
                     key_part, sep, val_part = line.partition(':')
                     # 检查字段名精确匹配（防止后缀重叠的误替换）
                     if old_val in val_part and key_part.strip() == field_name:
-                        lines[i] = key_part + sep + val_part.replace(old_val, new_val, 1)
+                        # 提取注释部分（# 之后）
+                        comment_suffix = ""
+                        hash_pos = val_part.find('  #')
+                        if hash_pos > 0:
+                            comment_suffix = val_part[hash_pos:]
+                        # 用 escape_yaml_scalar 重新转义新值，确保引号正确
+                        re_escaped = escape_yaml_scalar(new_val)
+                        lines[i] = f"{key_part}{sep} {re_escaped}{comment_suffix}\n"
         with open(filepath, 'w', encoding='utf-8') as f:
             f.writelines(lines)
 

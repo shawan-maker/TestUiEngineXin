@@ -730,7 +730,7 @@ class CaseGenerator:
             return elem
 
         best_elem = None
-        best_score = 0.4
+        best_score = 0.6
         is_container_ctx = ctx in self._discovery_trigger_map
         _debug_f7(f"  [DEBUG-F7] 精确匹配失败，开始子串搜索 (is_container_ctx={is_container_ctx})")
 
@@ -942,6 +942,11 @@ class CaseGenerator:
                 self._pending_nav_wait = True
             elif result_type == 'inline':
                 pass
+            elif entry.get('skipped'):
+                # Phase 4 跳过了探测（如按钮 disabled），但按钮确实存在
+                # 推断会打开容器（toolbar 按钮最常见的情况）
+                # Phase 6 运行时会根据实际探测结果纠正定位器值
+                self.current_container = 'dialog'
             self._current_context = label
             _debug_f7(f"  [DEBUG-F7] → 更新 _current_context='{label}', "
                       f"current_container='{self.current_container}' (from trigger_map)")
@@ -1121,6 +1126,7 @@ class CaseGenerator:
         self.current_tab_scope = None
         self.current_tab_scope_label = None
         self._random_name_counter = 0
+        self._current_context = 'list_page'  # 防止上一个 case 的容器上下文泄漏
 
     def add_data(self, field, value):
         """添加数据字段，同 case 内同 field 自动添加 _2, _3 后缀避免覆盖"""

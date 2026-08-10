@@ -619,7 +619,7 @@ class ElementResolver:
                 for container in page_entry.get('containers', []):
                     trigger = container.get('trigger', '')
                     if trigger and container.get('result_type') in (
-                            'container', 'navigation', 'inline'):
+                            'container', 'navigation', 'inline', 'skipped'):
                         self._trigger_map[trigger] = container
 
                 # Build element map for list_page

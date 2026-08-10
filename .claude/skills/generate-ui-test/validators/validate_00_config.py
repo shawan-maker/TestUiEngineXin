@@ -297,31 +297,34 @@ def runtime_check(config):
 
         page = context.new_page()
 
-        # 首次导航
+        # root-first: 先导航到根 URL，设置 localStorage，再跳转目标页
+        # 天枢类 SPA 会在页面初始化时重置 localStorage，必须先导航再写入
+        if local_storage:
+            parsed = urlparse(url)
+            root_url = f"{parsed.scheme}://{parsed.netloc}/"
+            try:
+                page.goto(root_url, wait_until="domcontentloaded", timeout=15000)
+            except Exception:
+                pass
+            page.wait_for_timeout(2000)
+            for key, value in local_storage.items():
+                try:
+                    page.evaluate(
+                        "([k, v]) => localStorage.setItem(k, v)",
+                        [str(key), str(value)]
+                    )
+                except Exception:
+                    pass
+
+        # 导航到目标 URL
         try:
             page.goto(url, wait_until="networkidle", timeout=30000)
         except Exception as e:
-            # 重试一次
             page.wait_for_timeout(3000)
             try:
                 page.goto(url, wait_until="networkidle", timeout=30000)
             except Exception:
                 return False, f"页面加载失败: {e}", None
-
-        # 注入 localStorage + 二次导航
-        if local_storage:
-            for key, value in local_storage.items():
-                try:
-                    page.evaluate(
-                        """([k, v]) => {
-                            localStorage.setItem(k, v);
-                        }""",
-                        [str(key), str(value)]
-                    )
-                except Exception:
-                    pass
-            # 重新导航（非 reload），因为首次 goto 可能被重定向到登录页
-            page.goto(url, wait_until="networkidle", timeout=30000)
 
         # 额外等待
         page.wait_for_timeout(3000)

@@ -1295,7 +1295,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
     if not is_new_page_context and locator and locator.startswith('xpath='):
         _raw_xpath = locator[6:]  # 去掉 xpath= 前缀
         _container_match = re.match(
-            r"^//div\[contains\(@class,\s*'el-(dialog|drawer)'\)\]",
+            r"^\(?//div\[contains\(@class,\s*'el-(dialog|drawer)'\)\]",
             _raw_xpath
         )
         if _container_match:

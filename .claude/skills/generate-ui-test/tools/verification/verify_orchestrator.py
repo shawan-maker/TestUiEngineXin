@@ -796,7 +796,14 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                 # D3: Track URL changes for new page context
                 try:
                     current_url = page.url
-                    if current_url != case_baseline_url:
+                    # Bug A 修复：open_url 后更新 baseline 为步骤执行后的最终 URL
+                    # 这样后续步骤的 is_new_page_context 才能正确反映 case 内部的页面导航，
+                    # 而不是误将"case 初始 URL ≠ config base_url"判定为 new page。
+                    if keyword == 'open_url':
+                        case_baseline_url = current_url
+                        is_new_page_context = False
+                        print(f"  [TRACE-P6] baseline updated: {case_baseline_url[:80]}")
+                    elif current_url != case_baseline_url:
                         is_new_page_context = True
                     else:
                         is_new_page_context = False

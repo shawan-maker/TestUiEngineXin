@@ -1288,6 +1288,31 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
     locator = resolve_locator(params, pages_dict)
     locator = resolve_var(locator, data_dict)  # Resolve inline ${data.field}
 
+    # 方案 2：基于 locator 前缀的容器等待
+    # 如果原始 locator 包含容器前缀（el-dialog/el-drawer），等待该容器出现
+    # 这样可以确保后续 detect_visible_containers 能正确检测到容器
+    _container_wait_result = None
+    if not is_new_page_context and locator and locator.startswith('xpath='):
+        _raw_xpath = locator[6:]  # 去掉 xpath= 前缀
+        _container_match = re.match(
+            r"^//div\[contains\(@class,\s*'el-(dialog|drawer)'\)\]",
+            _raw_xpath
+        )
+        if _container_match:
+            _container_type = _container_match.group(1)
+            _container_xpath = f"//div[contains(@class, 'el-{_container_type}')]"
+            print(f"    [TRACE-P6] Container-wait: waiting for el-{_container_type}")
+            try:
+                page.wait_for_selector(
+                    f"xpath={_container_xpath}",
+                    state='attached',
+                    timeout=5000
+                )
+                _container_wait_result = _container_type
+                print(f"    [TRACE-P6] Container-wait: el-{_container_type} detected")
+            except Exception as e:
+                print(f"    [TRACE-P6] Container-wait: timeout waiting for el-{_container_type}")
+
     # Extract label: 优先使用 Phase 5 写入的结构化 label 字段（P0 修复）
     # Phase 5 的 label 是生成 XPath 时使用的原始标签，比 desc regex 提取更准确
     # 回退到 regex 提取保持向后兼容（旧 case YAML 无 label 字段时）

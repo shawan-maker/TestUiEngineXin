@@ -914,8 +914,7 @@ def _wait_for_container_after_click(page, timeout_ms=2000):
     container_selector = (
         "xpath=//div[contains(@class,'el-drawer')"
         " and not(contains(@style,'display: none'))] | "
-        "//div[contains(@class,'el-dialog__wrapper')"
-        " and not(contains(@style,'display: none'))] | "
+        "//div[contains(@class,'el-dialog')] | "
         "//div[contains(@class,'el-message-box')]"
     )
     try:
@@ -2196,7 +2195,53 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                     except Exception:
                         pass  # tag check 失败不影响主流程
 
-                page.locator(verified_locator).click(timeout=5000)  # 方案 B: 严格模式
+                # ── Layered click: count_check → scroll → normal → retry → dispatch_event ──
+                # 解决 drawer/dialog 内按钮因动画/遮挡/视口外导致的 click 超时
+                # 正常路径（click 一次成功）零额外开销
+
+                # 层 0: count check（快速判断元素是否存在，避免 count=0 时的无效重试）
+                _el_count = page.locator(verified_locator).count()
+                if _el_count == 0:
+                    print(f"    [ERROR] '{desc}': element not found (count=0), skip click")
+                    # 容器探测
+                    _fail_ct = detect_visible_containers(page)
+                    if _fail_ct:
+                        for _fct in CONTAINER_TYPES:
+                            if _fct in _fail_ct:
+                                print(f"    [TRACE-P6]   container detected despite count=0: {_fct}")
+                                return verified_locator, _fct, False, is_best_guess, hit_source
+                    return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
+
+                # 层 1: scroll into view（元素存在时）
+                try:
+                    page.locator(verified_locator).first.scroll_into_view_if_needed(timeout=2000)
+                except Exception:
+                    pass  # scroll failure is non-fatal
+
+                try:
+                    page.locator(verified_locator).click(timeout=5000)
+                except Exception as _click_err:
+                    # 层 2: 等 2s + 重试正常 click（给动画/loading 更多时间）
+                    try:
+                        page.wait_for_timeout(2000)
+                        page.locator(verified_locator).click(timeout=5000)
+                        print(f"    [WARN] click retry succeeded: '{desc}'")
+                    except Exception:
+                        # 层 3: dispatch_event 绕过可操作性检查
+                        try:
+                            page.locator(verified_locator).first.dispatch_event('click')
+                            print(f"    [WARN] dispatch_event fallback: '{desc}'")
+                        except Exception as _final_err:
+                            print(f"    [ERROR] '{desc}': all click attempts failed. "
+                                  f"Last error: {str(_final_err)[:80]}")
+                            # 即使全部失败，也做最终容器探测
+                            _fail_ct = detect_visible_containers(page)
+                            if _fail_ct:
+                                for _fct in CONTAINER_TYPES:
+                                    if _fct in _fail_ct:
+                                        print(f"    [TRACE-P6]   container detected despite click failure: {_fct}")
+                                        return verified_locator, _fct, False, is_best_guess, hit_source
+                            return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
             # [TRACE-P6] click 成功后：记录页面 URL
             try:
                 _post_click_url = page.url

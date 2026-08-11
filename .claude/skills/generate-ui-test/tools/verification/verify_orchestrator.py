@@ -95,6 +95,35 @@ from verification.detail_links import (
 )
 
 
+# ─── Plan B: 逐步比较的"新页面"检测 ───
+# 只有导航类关键字导致的 URL 变化才算"新页面"，与 Phase 4 check_url_change 对齐
+# 避免 refresh/重定向等非用户意图的 URL 变化误判 is_new_page_context=True
+NAV_KEYWORDS = {
+    'click_element', 'click', 'click_btn',
+    'open_url', 'go_back', 'go_forward',
+}
+
+
+def _is_page_changed(prev_url, curr_url):
+    """比较 path + fragment 判断页面是否变化（与 Phase 4 check_url_change 对齐）
+
+    不使用完整 URL 比较，因为 query 参数变化（如 ?t=xxx）不代表页面跳转。
+    这与 Phase 4 discover_page.py:check_url_change 保持一致。
+
+    Args:
+        prev_url: 上一步执行后的 URL
+        curr_url: 当前步骤执行后的 URL
+
+    Returns:
+        bool: True 表示页面发生了变化（path 或 fragment 不同）
+    """
+    if not prev_url:
+        return False
+    p = urlparse(prev_url)
+    c = urlparse(curr_url)
+    return c.path != p.path or c.fragment != p.fragment
+
+
 def _execute_direct(page, step, pages_dict, data_dict):
     """Phase 9 模式：直接执行步骤，不做类型推断/KB/VLC
 
@@ -579,8 +608,8 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                 continue
 
             steps_so_far = []
-            is_new_page_context = False  # D3: track if we're on a different page than baseline
-            case_baseline_url = base_url
+            is_new_page_context = False  # Plan B: 逐步比较的新页面检测
+            prev_step_url = ''  # Plan B: 上一步执行后的 URL，用于逐步比较
             container_context = None  # 容器上下文：跟踪上一个步骤检测到的容器类型
             _el_select_context = False  # el-select 上下文：检测 expand 步骤，传递给后续 if_element_visible
 
@@ -793,20 +822,26 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
 
                 steps_so_far.append(step)
 
-                # D3: Track URL changes for new page context
+                # Plan B: 逐步比较的新页面检测
+                # 只有 NAV_KEYWORDS（导航类关键字）导致的 URL 变化才算"新页面"
+                # 避免 refresh/重定向等非用户意图的 URL 变化误判
                 try:
                     current_url = page.url
-                    # Bug A 修复：open_url 后更新 baseline 为步骤执行后的最终 URL
-                    # 这样后续步骤的 is_new_page_context 才能正确反映 case 内部的页面导航，
-                    # 而不是误将"case 初始 URL ≠ config base_url"判定为 new page。
                     if keyword == 'open_url':
-                        case_baseline_url = current_url
+                        # open_url 是初始导航，不算"新页面"，更新 prev_step_url
                         is_new_page_context = False
-                        print(f"  [TRACE-P6] baseline updated: {case_baseline_url[:80]}")
-                    elif current_url != case_baseline_url:
-                        is_new_page_context = True
+                        prev_step_url = current_url
+                        print(f"  [TRACE-P6] open_url baseline: {prev_step_url[:80]}")
                     else:
-                        is_new_page_context = False
+                        url_changed = _is_page_changed(prev_step_url, current_url)
+                        if url_changed and keyword in NAV_KEYWORDS:
+                            # 用户主动导航到了新页面
+                            is_new_page_context = True
+                            print(f"  [TRACE-P6] new page detected: {prev_step_url[:60]} → {current_url[:60]}")
+                        else:
+                            is_new_page_context = False
+                        # 始终更新 prev_step_url（捕获重定向，供下一步比较）
+                        prev_step_url = current_url
                 except Exception:
                     pass
 

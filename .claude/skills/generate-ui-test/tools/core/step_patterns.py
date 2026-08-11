@@ -317,6 +317,68 @@ def list_pattern_types():
     ]
 
 
+def list_patterns_for_prompt():
+    """导出所有模式（type + 示例文本），供 AI 步骤重写 prompt 使用
+
+    Returns:
+        list of dict: [{'type': str, 'examples': list[str]}, ...]
+        跳过 l3_call（正则过于宽泛，不适合做 AI 示例）
+    """
+    # type → 标准格式示例（与 validate_excel._generate_suggestion 保持一致）
+    type_examples = {
+        'assert_count': ['断言：至少有3条"待处理"记录', '项目名称数量大于等于1'],
+        'check_first': ['勾选第一个产品', '勾选第2条记录'],
+        'close_btn': ['点击关闭按钮'],
+        'conditional_click_btn': ['如果"任务提醒"中数量大于0则点击"查看"按钮'],
+        'conditional_click_tab': ['如果"消息"中数量大于0则点击"任务提醒"tab'],
+        'conditional_click_row': ['如果"问题列表"中数量大于0则点击第一条'],
+        'conditional_click': ['如果"消息"中数量大于0则点击下方的具体消息'],
+        'fill': ['在"项目名称"输入框中输入"测试项目"', '在"姓名"框中输入"张三"'],
+        'el_select': ['在"文件类型"下拉框中选择"文档"', '在"省份"第2个下拉框中选择"北京"'],
+        'el_cascader': ['在"项目类型"级联选择框中依次选择"小站"、"EIS"'],
+        'option_card': ['在"状态"选项卡中选择"进行中"'],
+        'textarea': ['在"描述"文本框中输入"测试描述"'],
+        'click_more_then_click': ['点击"更多"，然后选择"删除"'],
+        'click_more_then': ['点击"更多"，选择"编辑"'],
+        'click_table_row_btn': ['点击第一条记录的"编辑"按钮'],
+        'click_detail_link': ['点击第一条记录的"项目名称"链接'],
+        'click_first_in_list': ['点击列表中第一个"详情"按钮'],
+        'click_navigate': ['点击"项目管理"可以跳转'],
+        'click_tab': ['点击"任务提醒"tab'],
+        'click_section': ['点击"基本信息"区域'],
+        'click_btn': ['点击"确定"按钮', '点击"提交"'],
+        'click': ['点击"项目名称"'],
+        'confirm_dialog': ['确认"请确认是否删除？"'],
+        'confirm_delete': ['确认删除...点击"确定"'],
+        'date_select': ['在"开始时间"时间选择框中选择"2026-01-01"'],
+        'dialog_date_select': ['在"新增项目"弹窗中，时间选择"2026-01-01"'],
+        'assert_row': ['检查第一条状态为"已完成"'],
+        'assert': ['断言：项目名称可见', '断言：显示"操作成功"'],
+        'check_assert': ['检查消息详情与列表中的标题一致'],
+        'click_table_action': ['选择第一条记录...，点击"删除"'],
+        'open_url': ['访问 https://example.com'],
+        'wait': ['等待项目列表加载完成'],
+        'wait_element': ['等待出现"新增项目"弹窗'],
+        'wait_time': ['等待5s'],
+        'go_back': ['返回'],
+        'refresh': ['刷新'],
+        'skip': ['请完成测试结论的总结并结束任务'],
+    }
+
+    seen = set()
+    result = []
+    for pattern, action_type, group_names in STEP_PATTERNS:
+        if action_type == 'l3_call':
+            continue  # 跳过 l3_call
+        if action_type in seen:
+            continue  # 每个 type 只输出一次
+        seen.add(action_type)
+        examples = type_examples.get(action_type, [f'[{action_type}]'])
+        result.append({'type': action_type, 'examples': examples})
+
+    return result
+
+
 if __name__ == '__main__':
     import sys, io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')

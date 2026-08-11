@@ -180,6 +180,9 @@ class ExcelValidator:
             # R20b: 去重连续相同的等待步骤
             steps_val = self._dedup_consecutive_waits(steps_val, sheet_name, case_name)
 
+            # L2.5: AI 步骤重写（处理 L1/L2 无法修复的 unknown 步骤）
+            steps_val = self._apply_ai_rewrite(steps_val, sheet_name, case_name)
+
             # L3a: 验证清洗后的步骤是否可被 StepParser 解析
             self._apply_l3_parse_validation(steps_val, sheet_name, case_name)
 
@@ -1437,6 +1440,141 @@ class ExcelValidator:
 
         return new
 
+    # ─── L2.5: AI 步骤重写层 ───
+
+    def _apply_ai_rewrite(self, text: str, sheet: str, case_name: str) -> str:
+        """L2.5: 对 L1/L2 无法修复的 unknown 步骤进行 AI 重写
+
+        捕获两类需重写的步骤:
+          1. parse_step() 返回 unknown（完全无法识别）
+          2. l3_call 但 keyword 不在 workflow 白名单中，且回退重解析也失败
+
+        流程:
+          1. 解析步骤，筛出上述两类
+          2. 如果有问题步骤且无 rewrites JSON → 输出到 stdout + 写入 unknown_steps.json
+          3. 如果有问题步骤且有 rewrites JSON → 读取并重写，用 parse_step() 验证
+          4. 重写成功的步骤记录为 L2 auto_fix，失败的保留给 L3 阻断
+
+        Returns: 修改后的步骤文本（如果 AI 重写成功）或原文本
+        """
+        from core.step_patterns import parse_step, STEP_PATTERNS
+
+        steps = self._parse_steps(text)
+        bad_steps = []  # (step_num, content, reason)
+
+        # 加载 workflow 白名单（复用 _get_workflow_cache）
+        wf_cache = self._get_workflow_cache()
+        wf_names = set(wf_cache.keys())
+
+        for step_num, content in steps:
+            parsed = parse_step(content)
+            if parsed['type'] == 'unknown':
+                bad_steps.append((step_num, content, 'unknown'))
+            elif parsed['type'] == 'l3_call':
+                cn_name = parsed['args'][0]
+                if cn_name not in wf_names:
+                    # 检查回退重解析是否可行
+                    raw_text = parsed.get('raw', '').strip()
+                    reparse_ok = False
+                    for pattern, action_type, group_names in STEP_PATTERNS:
+                        if action_type == 'l3_call':
+                            continue
+                        m = pattern.search(raw_text)
+                        if m:
+                            reparse_ok = True
+                            break
+                    if not reparse_ok:
+                        bad_steps.append((step_num, content, f'l3_call 未注册'))
+
+        if not bad_steps:
+            return text  # 无问题步骤，无需处理
+
+        # 查找 rewrites JSON（项目目录/_probe/step_rewrites.json）
+        project_dir = self._infer_project_dir()
+        if not project_dir:
+            return text  # 无法确定项目目录，跳过
+
+        rewrites_path = Path(project_dir) / "_probe" / "step_rewrites.json"
+        unknown_path = Path(project_dir) / "_probe" / "unknown_steps.json"
+
+        # 确保 _probe 目录存在
+        probe_dir = Path(project_dir) / "_probe"
+        if not probe_dir.exists():
+            try:
+                probe_dir.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                return text
+
+        # 读取已有的 rewrites（如果存在）
+        rewrites = {}
+        if rewrites_path.exists():
+            try:
+                with open(rewrites_path, 'r', encoding='utf-8') as f:
+                    rewrites = json.load(f)
+            except Exception:
+                pass
+
+        # 准备问题步骤的 JSON 输出
+        bad_data = []
+        for step_num, content, reason in bad_steps:
+            key = f"{sheet}_{case_name}_{step_num}"
+            bad_data.append({
+                'key': key,
+                'sheet': sheet,
+                'case_name': case_name,
+                'step_num': step_num,
+                'content': content,
+                'reason': reason,
+            })
+
+        if not rewrites:
+            # 无 rewrites → 输出问题步骤，等待 AI 重写
+            print(f"\n{'='*70}")
+            print(f"发现 {len(bad_steps)} 个无法自动匹配的步骤，需要 AI 重写")
+            print(f"{'='*70}")
+            print(f"UNKNOWN_STEPS_BEGIN")
+            print(json.dumps(bad_data, ensure_ascii=False, indent=2))
+            print(f"UNKNOWN_STEPS_END")
+            print(f"\n请将上述步骤重写为标准格式，保存到: {rewrites_path}")
+            print(f"格式: {{\"key\": \"重写后的步骤描述\", ...}}")
+            print(f"然后重新运行 Phase 1: python pipeline.py run --only-phase phase_1\n")
+
+            # 写入 unknown_steps.json 供 Claude 读取
+            try:
+                with open(unknown_path, 'w', encoding='utf-8') as f:
+                    json.dump(bad_data, f, ensure_ascii=False, indent=2)
+            except Exception as e:
+                print(f"  无法写入 unknown_steps.json: {e}")
+
+            return text  # 不修改，交给 L3 正常阻断
+
+        # 有 rewrites → 应用重写
+        modified = False
+        new_steps = []
+        for step_num, content in steps:
+            key = f"{sheet}_{case_name}_{step_num}"
+            if key in rewrites:
+                rewritten = rewrites[key]
+                # 验证重写结果
+                parsed = parse_step(rewritten)
+                if parsed['type'] != 'unknown':
+                    # 重写成功 → 替换 + 记录为 L2 auto_fix
+                    new_steps.append((step_num, rewritten))
+                    self._record_fix('L2', 'AI', sheet, case_name, step_num,
+                                     content, rewritten, auto_fixed=True)
+                    modified = True
+                else:
+                    # 重写后仍为 unknown → 保留原始，交给 L3
+                    new_steps.append((step_num, content))
+                    print(f"  ⚠️ AI 重写失败: {key} → {rewritten} (仍为 unknown)")
+            else:
+                # 无对应 rewrite → 保留原始
+                new_steps.append((step_num, content))
+
+        if modified:
+            return self._rebuild_steps(new_steps)
+        return text
+
     # ─── L3: 解析能力验证 ───
 
     def _apply_l3_parse_validation(self, text: str, sheet: str, case_name: str):
@@ -1699,7 +1837,8 @@ class ExcelValidator:
             return parent
         if os.path.isdir(os.path.join(parent, '_knowledge')):
             return parent
-        return None
+        # fallback: 使用 Excel 所在目录
+        return excel_dir
 
     # ─── 报告生成 ───
 

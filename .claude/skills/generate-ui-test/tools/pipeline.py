@@ -673,6 +673,22 @@ class PipelineExecutor:
                         self.context.excel_path = str(corrected)
                         print(f"  ✅ excel_path 已更新为修正版: {corrected}")
 
+            # Phase 1 FAILED + AI rewrite: 检查 unknown_steps.json，提示 Claude 重写
+            if phase_id == "phase_1" and result.status == PhaseStatus.FAILED:
+                unknown_path = Path(self.project_dir) / "_probe" / "unknown_steps.json"
+                rewrites_path = Path(self.project_dir) / "_probe" / "step_rewrites.json"
+                if unknown_path.exists():
+                    print(f"\n{'='*70}")
+                    print(f"📋 Phase 1 AI 重写流程")
+                    print(f"{'='*70}")
+                    print(f"1. 读取 {unknown_path} 中的无法匹配步骤")
+                    print(f"2. 基于 63 个标准模式重写每个步骤")
+                    print(f"3. 创建 {rewrites_path}，格式:")
+                    print(f'   {{"key": "重写后的标准步骤描述", ...}}')
+                    print(f"4. 重新运行 Phase 1:")
+                    print(f"   python pipeline.py run --project {self.project_dir} --only-phase phase_1")
+                    print(f"{'='*70}\n")
+
             # X-3 修复: phase_4 成功后填充 module_urls_path
             if phase_id == "phase_4_discovery" and result.status == PhaseStatus.PASSED:
                 mu_path = Path(self.project_dir) / "_probe" / "module_urls.json"

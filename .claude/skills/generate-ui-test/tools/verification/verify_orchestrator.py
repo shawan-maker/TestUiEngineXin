@@ -882,6 +882,12 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
         _write_iframe_companion_fields(project_dir, iframe_discoveries, module=module)
         _update_case_iframe_keywords(project_dir, iframe_discoveries, module=module)
 
+    # Locator writeback: 将验证通过的定位器回写到 pages YAML
+    # 之前只在 main() CLI 入口调用，verify_project() 函数调用时遗漏
+    if verified_locators:
+        print(f"\n[Writeback] Updating {len(verified_locators)} locators in pages YAML...")
+        update_pages_yaml(project_dir, verified_locators, module=module)
+
     # R6: Flush AI probe diagnostics
     if _HAS_AI_PROBE:
         _ai_probe_flush(project_dir)

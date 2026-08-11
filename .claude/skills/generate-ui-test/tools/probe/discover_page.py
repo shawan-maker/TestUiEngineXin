@@ -850,6 +850,15 @@ _ROW_HOVER_JS = """
             // — accept opacity<1, transform-hidden (Element UI row-action pattern)
             if (rect.width <= 0 || rect.height <= 0) return;
             if (style.display === 'none' || style.visibility === 'hidden') return;
+            // Ancestor chain visibility: reject if any ancestor is display:none/hidden
+            let ancestorHidden = false;
+            let ap = el.parentElement;
+            while (ap && ap !== document.body) {
+                const as = window.getComputedStyle(ap);
+                if (as.display === 'none' || as.visibility === 'hidden') { ancestorHidden = true; break; }
+                ap = ap.parentElement;
+            }
+            if (ancestorHidden) return;
             const text = (el.textContent || '').trim().slice(0, 100);
             if (!text) return;
             // D5: Enhanced isDisabled with 5-level ancestor check (matches _DISCOVER_JS)
@@ -1022,6 +1031,15 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
                                 const style = window.getComputedStyle(el);
                                 if (rect.width <= 0 || rect.height <= 0) return;
                                 if (style.display === 'none' || style.visibility === 'hidden') return;
+                                // Ancestor chain: reject if any ancestor is display:none/hidden
+                                let ancestorHidden = false;
+                                let ap = el.parentElement;
+                                while (ap && ap !== document.body) {
+                                    const as = window.getComputedStyle(ap);
+                                    if (as.display === 'none' || as.visibility === 'hidden') { ancestorHidden = true; break; }
+                                    ap = ap.parentElement;
+                                }
+                                if (ancestorHidden) return;
                                 const text = (el.textContent || '').trim().slice(0, 100);
                                 if (!text) return;
                                 items.push({

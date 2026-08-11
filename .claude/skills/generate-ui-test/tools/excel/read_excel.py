@@ -59,6 +59,25 @@ STEP_SPLIT_RE = re.compile(r'(?:^|\n)\s*\d+[.、．：:]\s*')
 STEP_NUMBER_RE = re.compile(r'^\s*(\d+)[.、．：:]\s*')
 
 
+# URL 匹配正则：完整 URL 或以 / 开头的相对路径
+_URL_EXTRACT_RE = re.compile(r'访问\s*(https?://\S+|/\S+)')
+
+
+def _resolve_step_url(raw_url: str, base_url: str) -> str:
+    """将步骤中提取到的 URL 规范化为完整 URL。
+
+    - 完整 URL（http/https 开头）→ 原样返回
+    - 相对路径（/ 开头）→ 与 base_url 拼接
+    - base_url 为空时 → 原样返回（不做无效拼接）
+    """
+    raw_url = raw_url.strip()
+    if raw_url.startswith(('http://', 'https://')):
+        return raw_url
+    if raw_url.startswith('/') and base_url:
+        return f"{base_url.rstrip('/')}{raw_url}"
+    return raw_url
+
+
 def detect_columns(headers: list) -> dict:
     """自动检测列标题，返回 {role: column_index} 映射"""
     mapping = {}
@@ -313,9 +332,20 @@ def extract_urls_from_excel(filepath, output_path, pages_dir=None, config_path=N
 
     修复: Issue 1 — 直接用中文名作 key，永不因翻译失败而丢失 URL。
     翻译逻辑由独立工具 build_module_map.py 完成，输出 _probe/module_map.json 供下游使用。
+
+    增强: 支持相对路径（以 / 开头），自动与 config.yaml 的 target_url 拼接为完整 URL。
     """
+    # 加载 config 获取 base_url
+    base_url = ''
+    if config_path and os.path.exists(config_path) and yaml:
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                cfg = yaml.safe_load(f) or {}
+            base_url = cfg.get('target_url', '')
+        except Exception as e:
+            print(f"[WARN] 无法加载 config.yaml: {e}", file=sys.stderr)
+
     wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
-    url_pattern = re.compile(r'访问\s*(https?://\S+)')
 
     # {cn_module: set(urls)}
     module_urls = {}
@@ -345,9 +375,10 @@ def extract_urls_from_excel(filepath, output_path, pages_dir=None, config_path=N
 
             steps_text = str(row[steps_idx]).strip() if steps_idx < len(row) and row[steps_idx] else ''
             for step in split_steps(steps_text):
-                m = url_pattern.search(step)
+                m = _URL_EXTRACT_RE.search(step)
                 if m:
-                    url = m.group(1)
+                    raw_url = m.group(1)
+                    url = _resolve_step_url(raw_url, base_url)
                     module_urls.setdefault(cn_module, set()).add(url)
                     break  # 每个 case 只取第一个 URL
 

@@ -264,10 +264,14 @@ class PipelineContext:
                     cn_name_urls[cn_name] = set()
                 for step in case.get("steps", []):
                     if isinstance(step, str):
-                        # 提取步骤中的 URL
+                        # 提取步骤中的 URL（完整URL或/开头的相对路径）
+                        base_url = self.target_url or ''
                         for part in step.split():
                             if part.startswith("http://") or part.startswith("https://"):
                                 cn_name_urls[cn_name].add(self._normalize_url(part))
+                            elif part.startswith("/"):
+                                resolved = self._resolve_step_url(part, base_url)
+                                cn_name_urls[cn_name].add(self._normalize_url(resolved))
 
         if not cn_name_urls:
             return
@@ -304,6 +308,21 @@ class PipelineContext:
             return result
         except Exception:
             return url.strip()
+
+    @staticmethod
+    def _resolve_step_url(raw_url: str, base_url: str) -> str:
+        """将步骤中提取到的 URL 规范化为完整 URL。
+
+        - 完整 URL（http/https 开头）→ 原样返回
+        - 相对路径（/ 开头）→ 与 base_url 拼接
+        - base_url 为空时 → 原样返回（不做无效拼接）
+        """
+        raw_url = raw_url.strip()
+        if raw_url.startswith(('http://', 'https://')):
+            return raw_url
+        if raw_url.startswith('/') and base_url:
+            return f"{base_url.rstrip('/')}{raw_url}"
+        return raw_url
 
     def get_modules(self) -> list[dict]:
         """获取模块列表"""
@@ -588,12 +607,17 @@ class PipelineExecutor:
                                         continue
                                     if module not in module_urls:
                                         module_urls[module] = set()
-                                    # 从步骤中提取 URLs
+                                    # 从步骤中提取 URLs（完整URL或/开头的相对路径）
+                                    base_url = self.context.target_url or ''
                                     for step in case.get("steps", []):
                                         if isinstance(step, str):
                                             for part in step.split():
                                                 if part.startswith("http://") or part.startswith("https://"):
                                                     normalized = self.context._normalize_url(part)
+                                                    module_urls[module].add(normalized)
+                                                elif part.startswith("/"):
+                                                    resolved = self.context._resolve_step_url(part, base_url)
+                                                    normalized = self.context._normalize_url(resolved)
                                                     module_urls[module].add(normalized)
 
                         if module_urls:

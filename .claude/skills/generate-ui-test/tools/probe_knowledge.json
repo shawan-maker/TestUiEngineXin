@@ -67,7 +67,8 @@
         "name": "通用输入框",
         "patterns": [
           "//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner']",
-          "//label[contains(.,'{label}')]//following-sibling::*[self::div or self::span]//input[@class='el-input__inner']"
+          "//label[contains(.,'{label}')]//following-sibling::*[self::div or self::span]//input[@class='el-input__inner']",
+          "//input[contains(@placeholder,'{label}')]"
         ]
       },
       "textarea-generic": {

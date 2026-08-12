@@ -986,9 +986,47 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
             if expand_btn:
                 try:
                     page.evaluate(f"""
-                        (() => {{
-                            // BUG-14: Search visible .dropdown-more globally instead of
-                            // within fixedRows[i] (off-screen clone produces wrong popover)
+                        ((rowIndex) => {{
+                            // Step 1: 行内搜索展开按钮（原有逻辑，兼容其他项目）
+                            const fixedRows = document.querySelectorAll('.el-table__fixed-right tbody tr');
+                            const mainRows = document.querySelectorAll('.el-table__body-wrapper > table > tbody > tr');
+                            const row = (rowIndex < fixedRows.length) ? fixedRows[rowIndex]
+                                        : ((rowIndex < mainRows.length) ? mainRows[rowIndex] : null);
+                            let rowTarget = null;
+                            let hasDropdownMore = false;
+                            if (row) {{
+                                const labels = {json.dumps(list(EXPAND_LABELS), ensure_ascii=False)};
+                                row.querySelectorAll('.el-button, .ec-button, button, [role="button"], .el-dropdown span.el-dropdown-link, .ec-dropdown span.el-dropdown-link, span.el-dropdown-link, .el-dropdown span[style*="cursor"], .ec-dropdown span[style*="cursor"]').forEach(el => {{
+                                    const t = (el.textContent || '').trim();
+                                    if (!labels.includes(t)) return;
+                                    // Visibility filter — skip hidden copies
+                                    const rect = el.getBoundingClientRect();
+                                    if (rect.width <= 0 || rect.height <= 0) return;
+                                    let hidden = false;
+                                    let p = el;
+                                    while (p) {{
+                                        const cn = typeof p.className === 'string' ? p.className : (p.className && p.className.baseVal || '');
+                                        if (cn && cn.includes('is-hidden')) {{ hidden = true; break; }}
+                                        const st = window.getComputedStyle(p);
+                                        if (st.display === 'none' || st.visibility === 'hidden') {{ hidden = true; break; }}
+                                        p = p.parentElement;
+                                    }}
+                                    if (hidden) return;
+                                    // Check if inside .dropdown-more component
+                                    const dropdownMore = el.closest('.dropdown-more');
+                                    if (dropdownMore) {{
+                                        hasDropdownMore = true;
+                                        // Don't click row-level .dropdown-more triggers — they produce wrong popover
+                                    }} else {{
+                                        // Not a .dropdown-more — use direct click (original logic)
+                                        if (!rowTarget) rowTarget = el;
+                                    }}
+                                }});
+                                // If non-dropdown-more target found, click it directly
+                                if (rowTarget) {{ rowTarget.click(); return; }}
+                            }}
+
+                            // Step 2: 全局搜索可见 .dropdown-more（popover 是全局的）
                             const dms = document.querySelectorAll('.dropdown-more');
                             for (const dm of dms) {{
                                 const rect = dm.getBoundingClientRect();
@@ -1006,7 +1044,7 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
                                 const trigger = dm.querySelector('.el-dropdown-link, .el-popover__reference');
                                 if (trigger) {{ trigger.click(); return; }}
                             }}
-                        }})()
+                        }})({i})
                     """)
                     # DOM 稳定性检测: 轮询等待下拉菜单项出现（而非固定延时）
                     _menu_ready = False

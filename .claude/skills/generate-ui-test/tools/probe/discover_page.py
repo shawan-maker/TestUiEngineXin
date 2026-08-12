@@ -1787,6 +1787,12 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
             """Close current page and create a fresh one, re-injecting auth."""
             nonlocal page
             print(f"  [RECYCLE] Closing page and creating fresh context...")
+            # F4-extra: 先关闭所有可能残留的新 Tab（防御性清理）
+            while len(context.pages) > 1:
+                try:
+                    context.pages[-1].close()
+                except Exception:
+                    break
             try:
                 page.close()
             except Exception:
@@ -1870,6 +1876,9 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
             # §9.2 P4: row button 需要绕过 el-table fixed-column overlay
             # Playwright hover()/click() 会被 overlay 拦截 actionability check，
             # 用 dispatchEvent('click') 绕过。
+            # 记录点击前的页面数量（用于检测新 Tab）
+            pages_count_before = len(page.context.pages)
+
             if is_row and btn.get('row_index') is not None:
                 try:
                     # BUG-11: 定向 tbody + 双 tbody hover（与 _discover_row_buttons_with_hover 对齐）
@@ -2070,7 +2079,39 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
             # Smart wait (§9.2 P2: 8s timeout + 1s animation + second-pass)
             wait_for_stable(page, url)
 
-            # Detect result type
+            # ===== 新 Tab 检测 =====
+            # 检查是否打开了新标签页
+            pages_count_after = len(page.context.pages)
+            if pages_count_after > pages_count_before:
+                # 检测到新 Tab
+                new_page = page.context.pages[-1]
+                new_tab_url = new_page.url
+                new_tab_title = new_page.title()
+
+                # 记录新 Tab 信息
+                print(f"    [NEW TAB] 检测到新标签页打开")
+                print(f"      URL: {new_tab_url}")
+                print(f"      Title: {new_tab_title}")
+
+                # 关闭新 Tab，避免污染后续测试
+                new_page.close()
+
+                # 添加到容器列表，标记为新 Tab 类型
+                containers.append({
+                    'trigger': btn_text,
+                    'trigger_scope': 'row' if is_row else 'toolbar',
+                    'trigger_locator': btn_locator,
+                    'result_type': 'new_tab',
+                    'new_tab_url': new_tab_url,
+                    'new_tab_title': new_tab_title,
+                    'container_type': None,
+                    'elements': [],  # 新 Tab 的元素后续单独探测（如果需要）
+                })
+
+                # 新 Tab 场景处理完毕，跳过后续的容器/新页面/内联检测
+                return
+
+            # Detect result type (原有逻辑)
             is_new_page = check_url_change(page, baseline_url)
             # 3a: detect_visible_containers 重试机制 — 容器动画可能需要额外等待
             visible_containers = None
@@ -2232,6 +2273,9 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
             _reload_with_fallback(page, timeout_ms=10000)
             _wait_for_dom_stable(page, timeout_ms=3000, debug=True)
 
+            # 记录点击前的页面数量（用于检测新 Tab）
+            pages_count_before = len(page.context.pages)
+
             # Click the detail-link (with JS dispatch fallback like buttons)
             try:
                 loc = page.locator(dl_locator)
@@ -2266,6 +2310,37 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                 return
 
             # Detect result type (with retry like button line 1633-1638)
+            # ===== 新 Tab 检测 =====
+            pages_count_after = len(page.context.pages)
+            if pages_count_after > pages_count_before:
+                # 检测到新 Tab
+                new_page = page.context.pages[-1]
+                new_tab_url = new_page.url
+                new_tab_title = new_page.title()
+
+                # 记录新 Tab 信息
+                print(f"    [NEW TAB] 检测到新标签页打开")
+                print(f"      URL: {new_tab_url}")
+                print(f"      Title: {new_tab_title}")
+
+                # 关闭新 Tab，避免污染后续测试
+                new_page.close()
+
+                # 添加到容器列表，标记为新 Tab 类型
+                containers.append({
+                    'trigger': dl_text,
+                    'trigger_scope': 'detail-link',
+                    'trigger_locator': dl_locator,
+                    'result_type': 'new_tab',
+                    'new_tab_url': new_tab_url,
+                    'new_tab_title': new_tab_title,
+                    'container_type': None,
+                    'elements': [],
+                })
+
+                # 新 Tab 场景处理完毕，跳过后续检测
+                return
+
             is_new_page = check_url_change(page, baseline_url)
             visible_containers = None
             for _retry in range(3):

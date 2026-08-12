@@ -612,6 +612,7 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
             prev_step_url = ''  # Plan B: 上一步执行后的 URL，用于逐步比较
             container_context = None  # 容器上下文：跟踪上一个步骤检测到的容器类型
             _el_select_context = False  # el-select 上下文：检测 expand 步骤，传递给后续 if_element_visible
+            pages_count_before = len(page.context.pages)  # 新 Tab 检测：记录当前 tab 数量
 
             for step_idx, step in enumerate(steps):
                 total_steps += 1
@@ -822,6 +823,17 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
 
                 steps_so_far.append(step)
 
+                # 新 Tab 检测与切换
+                pages_count_after = len(page.context.pages)
+                if pages_count_after > pages_count_before:
+                    new_page = page.context.pages[-1]
+                    print(f"  [TAB] New tab detected: {new_page.url[:60]}...")
+                    # 切换到新 Tab（使用 UIEngine 原生方法）
+                    page = new_page
+                    is_new_page_context = True
+                    pages_count_before = pages_count_after
+                    print(f"  [TAB] Switched to new tab")
+
                 # Plan B: 逐步比较的新页面检测
                 # 只有 NAV_KEYWORDS（导航类关键字）导致的 URL 变化才算"新页面"
                 # 避免 refresh/重定向等非用户意图的 URL 变化误判
@@ -844,6 +856,15 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                         prev_step_url = current_url
                 except Exception:
                     pass
+
+            # 用例结束：清理所有新 Tab（无论成功失败）
+            while len(page.context.pages) > 1:
+                try:
+                    page.context.pages[-1].close()
+                    print(f"  [CLEANUP] Closed new tab")
+                except Exception:
+                    break
+            page = page.context.pages[0]  # 切回主页面
 
             # Reset for next case: goto + reload 清除残留 dialog/drawer
             try:

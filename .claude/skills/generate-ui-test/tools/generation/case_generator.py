@@ -852,7 +852,7 @@ class CaseGenerator:
         entry = self._discovery_trigger_map.get(label)
         if entry:
             result_type = entry.get('result_type')
-            is_open = result_type in ('container', 'navigation')
+            is_open = result_type in ('container', 'navigation', 'new_tab')
             _debug_f7(f"  [DEBUG-F7] _is_container_open: label='{label}', "
                       f"trigger_map_hit=True, result_type={result_type} → {is_open}")
             return is_open
@@ -953,6 +953,9 @@ class CaseGenerator:
                 self.current_container = entry.get('container_type')
             elif result_type == 'navigation':
                 self.current_container = 'new_page'
+                self._pending_nav_wait = True
+            elif result_type == 'new_tab':
+                self.current_container = 'new_tab'
                 self._pending_nav_wait = True
             elif result_type == 'inline':
                 pass

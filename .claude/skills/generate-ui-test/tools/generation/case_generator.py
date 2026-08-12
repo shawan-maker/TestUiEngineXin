@@ -15,7 +15,7 @@ import yaml
 from collections import defaultdict
 
 from core.step_patterns import parse_step, STEP_PATTERNS, Q
-from core.field_suffixes import label_to_key as _shared_label_to_key
+from core.field_suffixes import label_to_key as _shared_label_to_key, EXPAND_LABELS
 from core.xpath_utils import (
     inject_hidden_filter as _inject_hidden_filter,
     apply_container_prefix,
@@ -600,6 +600,7 @@ class CaseGenerator:
         """返回同名标签的候选按钮（容器上下文感知）。
 
         严格容器过滤：
+        - 在 dropdown 中（current_container == 'dropdown'）：只返回 from_expand=True 的按钮
         - 在容器内（current_container != None）：只返回该容器内的按钮
         - 在列表页（current_container == None）：只返回列表页级别的按钮
         - 不回退：避免点击错误上下文的同名按钮
@@ -612,9 +613,14 @@ class CaseGenerator:
             ref = self._elem_to_ref(elem)
             if ref and ref not in seen_refs:
                 elem_container = elem.get('container_type')
+                is_from_expand = elem.get('from_expand', False)
                 # 严格容器过滤：只匹配当前上下文
-                if self.current_container:
-                    # 在容器内：只接受当前容器的按钮
+                if self.current_container == 'dropdown':
+                    # 在 dropdown 中：只接受 from_expand=True 的按钮
+                    if not is_from_expand:
+                        continue
+                elif self.current_container:
+                    # 在其他容器内：只接受当前容器的按钮
                     if elem_container != self.current_container:
                         continue
                 else:
@@ -930,6 +936,14 @@ class CaseGenerator:
         if not label:
             # 非按钮操作（输入、选择、勾选等），不触发判断，前缀保持不变
             _debug_f7(f"  [DEBUG-F7] → 非按钮操作，保持当前前缀")
+            return
+
+        # P5-2: 识别 dropdown trigger（如"更多"），设置临时 dropdown 状态
+        if label in EXPAND_LABELS:
+            self.current_container = 'dropdown'
+            self._current_context = label
+            _debug_f7(f"  [DEBUG-F7] → 识别 dropdown trigger '{label}', "
+                      f"current_container='dropdown'")
             return
 
         entry = self._discovery_trigger_map.get(label)

@@ -69,6 +69,14 @@ DIALOG_CONFIRM_LABELS = frozenset({
 })
 
 # ============================================================================
+# Dropdown expand trigger labels — Phase 4 + Phase 5 shared
+# ============================================================================
+# discover_page.py: row button expand detection
+# case_generator.py: dropdown context identification
+
+EXPAND_LABELS = frozenset({'更多', '操作', '批量操作', '...', '⋯', '更多操作'})
+
+# ============================================================================
 # 容器优先级 — 多候选遍历排序
 # ============================================================================
 # 值越小优先级越高：dialog > drawer > message-box > 无前缀

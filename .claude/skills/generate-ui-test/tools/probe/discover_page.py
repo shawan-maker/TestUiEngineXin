@@ -51,6 +51,7 @@ from probe.probe_utils import (
 from core.xpath_utils import inject_hidden_filter, has_hidden_filter, CONTAINER_XPATH
 from core.wait_utils import wait_for_dom_stable as _wait_for_dom_stable
 from core.element_types import normalize_type as _normalize_type
+from core.field_suffixes import EXPAND_LABELS
 
 # Container priority for select_priority_container
 CONTAINER_TYPE_PRIORITY = ['dialog', 'drawer', 'message-box']
@@ -323,13 +324,15 @@ _DISCOVER_JS = """
     function getButtonSubtype(el) {
         if (el.querySelector('.el-icon-search') || /搜.*索|查.*询/.test(el.textContent))
             return 'search-button';
+        if (el.classList && el.classList.contains('search-wrap'))
+            return 'search-button';
         if (el.querySelector('.el-icon-download') || /导出|下载/.test(el.textContent))
             return 'download-button';
         return 'button';
     }
 
     // 1. Buttons (excluding row buttons — toolbar scope)
-    root.querySelectorAll('button.el-button, button.ec-button, button, [role="button"], .ec-button').forEach(el => {
+    root.querySelectorAll('button.el-button, button.ec-button, button, [role="button"], .ec-button, div.search-wrap').forEach(el => {
         if (!isVisible(el)) return;
         if (el.closest('tbody')) return;  // skip row buttons here
         if (!scopeSelector) {
@@ -338,7 +341,11 @@ _DISCOVER_JS = """
             if (isTopNav(el)) return;
             if (isUserDropdown(el)) return;
         }
-        const text = getText(el);
+        let text = getText(el);
+        // 搜索图标容器：无文本时根据 class 推断合成标签
+        if (!text && el.classList && el.classList.contains('search-wrap')) {
+            text = '搜索图标';
+        }
         if (!text) return;
         results.buttons.push({
             text: text,
@@ -940,8 +947,7 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
     if row_count == 0:
         return []
 
-    # "更多"-style expand trigger labels
-    EXPAND_LABELS = {'更多', '操作', '...', '⋯', '更多操作'}
+    # EXPAND_LABELS imported from core/field_suffixes.py (shared with Phase 5)
 
     for i in range(row_count):
         try:
@@ -981,18 +987,25 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
                 try:
                     page.evaluate(f"""
                         (() => {{
-                            // BUG-11: 定向 tbody — fixed-right 优先
-                            const fixedRows = document.querySelectorAll('.el-table__fixed-right tbody tr');
-                            const mainRows = document.querySelectorAll('.el-table__body-wrapper > table > tbody > tr');
-                            const row = ({i} < fixedRows.length) ? fixedRows[{i}]
-                                        : (({i} < mainRows.length) ? mainRows[{i}] : null);
-                            if (!row) return;
-                            let target = null;
-                            row.querySelectorAll('.el-button, .ec-button, button, [role="button"], .el-dropdown span.el-dropdown-link, .ec-dropdown span.el-dropdown-link, span.el-dropdown-link, .el-dropdown span[style*="cursor"], .ec-dropdown span[style*="cursor"]').forEach(el => {{
-                                const t = (el.textContent || '').trim();
-                                if ({json.dumps(list(EXPAND_LABELS), ensure_ascii=False)}.includes(t)) target = el;
-                            }});
-                            if (target) target.click();
+                            // BUG-14: Search visible .dropdown-more globally instead of
+                            // within fixedRows[i] (off-screen clone produces wrong popover)
+                            const dms = document.querySelectorAll('.dropdown-more');
+                            for (const dm of dms) {{
+                                const rect = dm.getBoundingClientRect();
+                                if (rect.width <= 0 || rect.height <= 0) continue;
+                                let hidden = false;
+                                let p = dm;
+                                while (p) {{
+                                    const cn = typeof p.className === 'string' ? p.className : (p.className && p.className.baseVal || '');
+                                    if (cn && cn.includes('is-hidden')) {{ hidden = true; break; }}
+                                    const st = window.getComputedStyle(p);
+                                    if (st.display === 'none' || st.visibility === 'hidden') {{ hidden = true; break; }}
+                                    p = p.parentElement;
+                                }}
+                                if (hidden) continue;
+                                const trigger = dm.querySelector('.el-dropdown-link, .el-popover__reference');
+                                if (trigger) {{ trigger.click(); return; }}
+                            }}
                         }})()
                     """)
                     # DOM 稳定性检测: 轮询等待下拉菜单项出现（而非固定延时）
@@ -1071,14 +1084,16 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
         except Exception:
             continue
 
-    # Dedup: 按 text 去重，优先取 row_index 最小且非 disabled 的
+    # Dedup: 按 (text, from_expand) 去重，保留 dropdown 内外同名按钮
     deduped = {}
-    for btn in sorted(all_row_buttons, key=lambda b: (b['text'], b['row_index'])):
+    for btn in sorted(all_row_buttons, key=lambda b: (b['text'], b.get('from_expand', False), b['row_index'])):
         text = btn['text']
-        if text not in deduped:
-            deduped[text] = btn
-        elif deduped[text].get('disabled') and not btn.get('disabled'):
-            deduped[text] = btn
+        from_expand = btn.get('from_expand', False)
+        key = (text, from_expand)
+        if key not in deduped:
+            deduped[key] = btn
+        elif deduped[key].get('disabled') and not btn.get('disabled'):
+            deduped[key] = btn
 
     return list(deduped.values())
 
@@ -1741,9 +1756,8 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                 print(f"  [WARN] Browser health check failed: {type(e).__name__}")
                 return False
 
-        # BUG-12: EXPAND_LABELS 必须在 discover() 作用域内定义
-        # （_discover_row_buttons_with_hover 内的同名变量不在 _process_button 的闭包中）
-        EXPAND_LABELS = {'更多', '操作', '...', '⋯', '更多操作'}
+        # EXPAND_LABELS imported from core/field_suffixes.py (shared with Phase 5)
+        # BUG-12 已解决：模块级导入，_process_button 闭包可直接访问
 
         def _process_button(btn, is_row=False):
             """Process a single button: click → detect container → discover inside."""

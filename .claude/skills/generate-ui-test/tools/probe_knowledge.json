@@ -20,7 +20,8 @@
           "//button[contains(.,'{label}')]",
           "(//i[@class='el-icon-search'])[last()]",
           "//i[@class='el-icon-search']",
-          "//button[contains(@class,'search') and contains(.,'{label}')]"
+          "//button[contains(@class,'search') and contains(.,'{label}')]",
+          "(//div[contains(@class,'search-wrap')])[1]"
         ]
       },
       "download-button": {

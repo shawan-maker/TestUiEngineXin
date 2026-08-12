@@ -53,6 +53,19 @@ from core.wait_utils import wait_for_dom_stable as _wait_for_dom_stable
 from core.element_types import normalize_type as _normalize_type
 from core.field_suffixes import EXPAND_LABELS
 
+
+def _load_framework():
+    """从 _probe/framework.json 读取 UI 框架信息"""
+    try:
+        fw_path = os.path.join(os.path.dirname(_TOOLS_DIR), '_probe', 'framework.json')
+        if os.path.exists(fw_path):
+            with open(fw_path, 'r', encoding='utf-8') as f:
+                return json.load(f).get('framework')
+    except Exception:
+        pass
+    return None
+
+
 # Container priority for select_priority_container
 CONTAINER_TYPE_PRIORITY = ['dialog', 'drawer', 'message-box']
 
@@ -592,19 +605,25 @@ _DISCOVER_JS = """
         });
     });
 
-    // 10. Checkboxes (el-table) — C5
+    // 10. Checkboxes (el-table and ant-table) — C5
     const checkboxResults = [];
-    root.querySelectorAll('.el-checkbox__inner').forEach(el => {
+    root.querySelectorAll('.el-checkbox__inner, .ant-checkbox-inner').forEach(el => {
         if (!isVisible(el)) return;
+        // Element UI
         const isHeader = !!el.closest('.el-table__header-wrapper');
         const isBody = !!el.closest('.el-table__body-wrapper');
-        if (!isHeader && !isBody) return;  // skip non-table checkboxes
+        // Ant Design
+        const isAntHeader = !!el.closest('.ant-table-thead');
+        const isAntBody = !!el.closest('.ant-table-tbody');
+        if (!isHeader && !isBody && !isAntHeader && !isAntBody) return;  // skip non-table checkboxes
+        const isHeaderFinal = isHeader || isAntHeader;
+        const isBodyFinal = isBody || isAntBody;
         checkboxResults.push({
-            type: isHeader ? 'checkbox-all' : 'checkbox',
-            name: isHeader ? '批量全选' : '第1行选择框',
-            label: isHeader ? '批量全选' : '第1行选择框',
+            type: isHeaderFinal ? 'checkbox-all' : 'checkbox',
+            name: isHeaderFinal ? '批量全选' : '第1行选择框',
+            label: isHeaderFinal ? '批量全选' : '第1行选择框',
             locator: null,
-            row_index: isBody ? 0 : -1
+            row_index: isBodyFinal ? 0 : -1
         });
     });
     // Dedup: one header checkbox, one body checkbox
@@ -775,6 +794,9 @@ CONTAINER_SELECTORS = {
     'drawer': 'div.el-drawer',
     'dialog': 'div.el-dialog__wrapper:not([style*="display: none"]) .el-dialog',
     'message-box': 'div.el-message-box',
+    # Ant Design
+    'ant-drawer': 'div.ant-drawer:not(.ant-drawer-hidden)',
+    'ant-modal': 'div.ant-modal-root:not([style*="display: none"]) .ant-modal',
 }
 
 
@@ -840,9 +862,12 @@ _ROW_HOVER_JS = """
 (rowIndex) => {
     const buttons = [];
     // BUG-11: 搜索双 tbody — fixed-right 优先（操作按钮在这里），主 tbody 补充
+    // Ant Design: 增加 ant-table-fixed-right 和 ant-table-tbody 选择器
     const rowSelectors = [
         '.el-table__fixed-right tbody tr',
-        '.el-table__body-wrapper > table > tbody > tr'
+        '.el-table__body-wrapper > table > tbody > tr',
+        '.ant-table-fixed-right tbody tr.ant-table-row',
+        '.ant-table-tbody > tr.ant-table-row'
     ];
     for (const sel of rowSelectors) {
         const rows = document.querySelectorAll(sel);
@@ -850,7 +875,8 @@ _ROW_HOVER_JS = """
         const row = rows[rowIndex];
         if (!row) continue;
         // Fix-2: 增加 el-dropdown span（hover 展开的"更多"菜单按钮）
-        row.querySelectorAll('.el-button, .ec-button, button, [role="button"], .el-dropdown span.el-dropdown-link, .ec-dropdown span.el-dropdown-link, span.el-dropdown-link, .el-dropdown span[style*="cursor"], .ec-dropdown span[style*="cursor"]').forEach(el => {
+        // Ant Design: 增加 button.ant-btn, a.ant-btn, .ant-dropdown-trigger
+        row.querySelectorAll('.el-button, .ec-button, button, [role="button"], .el-dropdown span.el-dropdown-link, .ec-dropdown span.el-dropdown-link, span.el-dropdown-link, .el-dropdown span[style*="cursor"], .ec-dropdown span[style*="cursor"], button.ant-btn, a.ant-btn, .ant-dropdown-trigger').forEach(el => {
             const rect = el.getBoundingClientRect();
             const style = window.getComputedStyle(el);
             // Relaxed visibility: only reject truly hidden elements (§9.2 P4 fix)
@@ -930,16 +956,19 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
     # 当 el-table 有 fixed="right" 列时，document.querySelectorAll('tbody tr')
     # 返回主 tbody + fixed-right tbody 的总行数 = 2×实际行数，
     # max_rows=30 截断后迭代全在主 tbody（操作列为空占位），行按钮永远探测不到。
+    # Ant Design: 增加 ant-table-fixed-right 检测
     try:
-        has_fixed_right = page.locator(".el-table__fixed-right").count() > 0
+        has_fixed_right = page.locator(".el-table__fixed-right, .ant-table-fixed-right").count() > 0
     except Exception:
         has_fixed_right = False
 
     try:
         if has_fixed_right:
-            row_count = page.locator(".el-table__fixed-right tbody tr").count()
+            # Ant Design: 增加 ant-table-fixed-right 选择器
+            row_count = page.locator(".el-table__fixed-right tbody tr, .ant-table-fixed-right tbody tr.ant-table-row").count()
         else:
-            row_count = page.locator("tbody tr").count()
+            # Ant Design: 增加 ant-table-tbody 选择器
+            row_count = page.locator("tbody tr, .ant-table-tbody > tr.ant-table-row").count()
     except Exception:
         row_count = 0
     row_count = min(row_count, max_rows)
@@ -1057,13 +1086,17 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
                             break
                     # 阶段2: 等待菜单项出现（最多 15s）
                     _menu_ready = False
+                    # Ant Design: 增加 ant-dropdown-menu 和 ant-dropdown 选择器
                     _menu_sel = (
                         '.el-dropdown-menu .el-dropdown-menu__item, '
                         '.el-dropdown-menu li, '
                         '.el-popover .el-button, '
                         '.el-tooltip__popper .el-button, '
                         'div[x-placement] div.el-tooltip.clickClass, '
-                        'div[x-placement] div.clickClass'
+                        'div[x-placement] div.clickClass, '
+                        '.ant-dropdown-menu .ant-dropdown-menu-item, '
+                        '.ant-dropdown-menu li, '
+                        '.ant-dropdown .ant-dropdown-menu-item'
                     )
                     for _poll in range(50):  # 50 × 300ms = 15s
                         page.wait_for_timeout(300)
@@ -1079,13 +1112,17 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
                         () => {
                             const items = [];
                             // Element UI dropdown menu is rendered at body level
+                            // Ant Design: 增加 ant-dropdown-menu 和 ant-dropdown 选择器
                             document.querySelectorAll(
                                 '.el-dropdown-menu .el-dropdown-menu__item, '
                                 + '.el-dropdown-menu li, '
                                 + '.el-popover .el-button, '
                                 + '.el-tooltip__popper .el-button, '
                                 + 'div[x-placement] div.el-tooltip.clickClass, '
-                                + 'div[x-placement] div.clickClass'
+                                + 'div[x-placement] div.clickClass, '
+                                + '.ant-dropdown-menu .ant-dropdown-menu-item, '
+                                + '.ant-dropdown-menu li, '
+                                + '.ant-dropdown .ant-dropdown-menu-item'
                             ).forEach(el => {
                                 const rect = el.getBoundingClientRect();
                                 const style = window.getComputedStyle(el);
@@ -1172,7 +1209,10 @@ def wait_for_stable(page, original_url, timeout_ms=8000):
     container_selector = (
         "div.el-drawer:not([style*='display: none']), "
         "div.el-dialog__wrapper:not([style*='display: none']), "
-        "div.el-message-box"
+        "div.el-message-box, "
+        # Ant Design
+        "div.ant-drawer:not(.ant-drawer-hidden), "
+        "div.ant-modal-wrap:not([style*='display: none'])"
     )
     try:
         page.wait_for_selector(container_selector, state='visible', timeout=timeout_ms)
@@ -1349,18 +1389,47 @@ def _generate_locators_for_elements(page, elements, container_type=None):
 
         # ── from_expand: 更多菜单项在全局 popover 中 ──
         # 使用 @x-placement 作用域，跳过 KB（KB 返回 click-more 而非 click-action）
+        # Ant Design: 增加 .ant-dropdown 作用域作为备选
         if elem.get('from_expand') and 'text' in elem:
             escaped = _xpath_escape_label(label)
-            xpath = (
+
+            # Element UI: @x-placement 作用域
+            xpath_el = (
                 f"//*[@x-placement and not(@x-placement='')]"
                 f"//*[contains(text(),'{escaped}')"
                 f" and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
                 f" and not(ancestor-or-self::*[contains(@style,'display: none')])]"
             )
+
+            # Ant Design: .ant-dropdown 作用域
+            xpath_ant = (
+                f"//div[contains(@class,'ant-dropdown')]"
+                f"//*[contains(text(),'{escaped}')"
+                f" and not(ancestor-or-self::*[contains(@class,'ant-dropdown-hidden')])]"
+            )
+
+            # 双作用域尝试：先 Element UI，再 Ant Design
+            count_el = 0
+            count_ant = 0
             try:
-                count = page.locator(f"xpath={xpath}").count()
+                count_el = page.locator(f"xpath={xpath_el}").count()
             except Exception:
-                count = 0
+                pass
+            if count_el == 0:
+                try:
+                    count_ant = page.locator(f"xpath={xpath_ant}").count()
+                except Exception:
+                    pass
+
+            # 选择匹配数 > 0 的作用域
+            if count_el > 0:
+                xpath, count = xpath_el, count_el
+            elif count_ant > 0:
+                xpath, count = xpath_ant, count_ant
+            else:
+                # 两者都未匹配，使用 Element UI 作为默认
+                xpath, count = xpath_el, 0
+
             verified = (count >= 1)
             if count > 1:
                 xpath = f"({xpath})[1]"
@@ -1898,6 +1967,10 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                                 const fixedRows = document.querySelectorAll('.el-table__fixed-right tbody tr');
                                 const mainRows = document.querySelectorAll(
                                     '.el-table__body-wrapper > table > tbody > tr');
+                                // Ant Design: 增加 ant-table-fixed-right 和 ant-table-tbody 选择器
+                                const antFixedRows = document.querySelectorAll('.ant-table-fixed-right tbody tr.ant-table-row');
+                                const antMainRows = document.querySelectorAll('.ant-table-tbody > tr.ant-table-row');
+
                                 if ({row_idx} < mainRows.length) {{
                                     const mainRow = mainRows[{row_idx}];
                                     mainRow.scrollIntoView({{block: 'center', inline: 'nearest'}});
@@ -1909,19 +1982,42 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                                     fixedRow.dispatchEvent(new MouseEvent('mouseover', {{bubbles: true}}));
                                     fixedRow.dispatchEvent(new MouseEvent('mouseenter', {{bubbles: true}}));
                                 }}
+                                // Ant Design: hover ant-table 行
+                                if ({row_idx} < antMainRows.length) {{
+                                    const antMainRow = antMainRows[{row_idx}];
+                                    antMainRow.scrollIntoView({{block: 'center', inline: 'nearest'}});
+                                    antMainRow.dispatchEvent(new MouseEvent('mouseover', {{bubbles: true}}));
+                                    antMainRow.dispatchEvent(new MouseEvent('mouseenter', {{bubbles: true}}));
+                                }}
+                                if ({row_idx} < antFixedRows.length) {{
+                                    const antFixedRow = antFixedRows[{row_idx}];
+                                    antFixedRow.dispatchEvent(new MouseEvent('mouseover', {{bubbles: true}}));
+                                    antFixedRow.dispatchEvent(new MouseEvent('mouseenter', {{bubbles: true}}));
+                                }}
+
+                                // 优先使用 fixed-right，回退到 main tbody，最后尝试 ant-table
                                 const searchRow = ({row_idx} < fixedRows.length)
                                     ? fixedRows[{row_idx}]
-                                    : (({row_idx} < mainRows.length) ? mainRows[{row_idx}] : null);
+                                    : ({row_idx} < antFixedRows.length)
+                                    ? antFixedRows[{row_idx}]
+                                    : ({row_idx} < mainRows.length)
+                                    ? mainRows[{row_idx}]
+                                    : ({row_idx} < antMainRows.length)
+                                    ? antMainRows[{row_idx}]
+                                    : null;
+
                                 if (searchRow) {{
                                     const expandLabels = {json.dumps(list(EXPAND_LABELS), ensure_ascii=False)};
                                     let expandTrigger = null;
+                                    // Ant Design: 增加 button.ant-btn, a.ant-btn, .ant-dropdown-trigger 选择器
                                     searchRow.querySelectorAll(
                                         '.el-button, button, [role="button"], '
                                         + '.el-dropdown span.el-dropdown-link, '
                                         + '.ec-dropdown span.el-dropdown-link, '
                                         + 'span.el-dropdown-link, '
                                         + '.el-dropdown span[style*="cursor"], '
-                                        + '.ec-dropdown span[style*="cursor"]'
+                                        + '.ec-dropdown span[style*="cursor"], '
+                                        + 'button.ant-btn, a.ant-btn, .ant-dropdown-trigger'
                                     ).forEach(el => {{
                                         const t = (el.textContent || '').trim();
                                         if (expandLabels.includes(t) && !expandTrigger) {{
@@ -1942,13 +2038,16 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                             if _loading == 0:
                                 break
                         # 阶段2: 等待菜单项出现（最多 15s）
+                        # Ant Design: 增加 ant-dropdown-menu 选择器
                         _menu_sel_expand = (
                             '.el-dropdown-menu .el-dropdown-menu__item, '
                             '.el-dropdown-menu li, '
                             '.el-popover .el-button, '
                             '.el-tooltip__popper .el-button, '
                             'div[x-placement] div.el-tooltip.clickClass, '
-                            'div[x-placement] div.clickClass'
+                            'div[x-placement] div.clickClass, '
+                            '.ant-dropdown-menu .ant-dropdown-menu-item, '
+                            '.ant-dropdown-menu li'
                         )
                         for _poll in range(50):
                             page.wait_for_timeout(300)
@@ -1960,6 +2059,7 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                                 break
 
                         # 第二次: 在菜单浮层中搜索目标并点击
+                        # Ant Design: 增加 ant-dropdown-menu 选择器
                         page.evaluate(f"""
                             (() => {{
                                 let target = null;
@@ -1969,7 +2069,9 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                                     '.el-popover .el-button',
                                     '.el-tooltip__popper .el-button',
                                     'div[x-placement] div.el-tooltip.clickClass',
-                                    'div[x-placement] div.clickClass'
+                                    'div[x-placement] div.clickClass',
+                                    '.ant-dropdown-menu .ant-dropdown-menu-item',
+                                    '.ant-dropdown-menu li'
                                 ];
                                 for (const sel of menuSelectors) {{
                                     if (target) break;
@@ -1987,11 +2089,16 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                         """)
                     else:
                         # ── 普通行按钮路径（原有逻辑，单次 evaluate） ──
+                        # Ant Design: 增加 ant-table 选择器
                         page.evaluate(f"""
                             (() => {{
                                 const fixedRows = document.querySelectorAll('.el-table__fixed-right tbody tr');
                                 const mainRows = document.querySelectorAll(
                                     '.el-table__body-wrapper > table > tbody > tr');
+                                // Ant Design: 增加 ant-table-fixed-right 和 ant-table-tbody 选择器
+                                const antFixedRows = document.querySelectorAll('.ant-table-fixed-right tbody tr.ant-table-row');
+                                const antMainRows = document.querySelectorAll('.ant-table-tbody > tr.ant-table-row');
+
                                 if ({row_idx} < mainRows.length) {{
                                     const mainRow = mainRows[{row_idx}];
                                     mainRow.scrollIntoView({{block: 'center', inline: 'nearest'}});
@@ -2003,12 +2110,34 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                                     fixedRow.dispatchEvent(new MouseEvent('mouseover', {{bubbles: true}}));
                                     fixedRow.dispatchEvent(new MouseEvent('mouseenter', {{bubbles: true}}));
                                 }}
+                                // Ant Design: hover ant-table 行
+                                if ({row_idx} < antMainRows.length) {{
+                                    const antMainRow = antMainRows[{row_idx}];
+                                    antMainRow.scrollIntoView({{block: 'center', inline: 'nearest'}});
+                                    antMainRow.dispatchEvent(new MouseEvent('mouseover', {{bubbles: true}}));
+                                    antMainRow.dispatchEvent(new MouseEvent('mouseenter', {{bubbles: true}}));
+                                }}
+                                if ({row_idx} < antFixedRows.length) {{
+                                    const antFixedRow = antFixedRows[{row_idx}];
+                                    antFixedRow.dispatchEvent(new MouseEvent('mouseover', {{bubbles: true}}));
+                                    antFixedRow.dispatchEvent(new MouseEvent('mouseenter', {{bubbles: true}}));
+                                }}
+
+                                // 优先使用 fixed-right，回退到 main tbody，最后尝试 ant-table
                                 const searchRow = ({row_idx} < fixedRows.length)
                                     ? fixedRows[{row_idx}]
-                                    : (({row_idx} < mainRows.length) ? mainRows[{row_idx}] : null);
+                                    : ({row_idx} < antFixedRows.length)
+                                    ? antFixedRows[{row_idx}]
+                                    : ({row_idx} < mainRows.length)
+                                    ? mainRows[{row_idx}]
+                                    : ({row_idx} < antMainRows.length)
+                                    ? antMainRows[{row_idx}]
+                                    : null;
+
                                 let target = null;
                                 if (searchRow) {{
-                                    searchRow.querySelectorAll('.el-button, .ec-button, button, [role=\"button\"], .el-dropdown span.el-dropdown-link, .ec-dropdown span.el-dropdown-link, span.el-dropdown-link, .el-dropdown span[style*=\"cursor\"], .ec-dropdown span[style*=\"cursor\"]').forEach(el => {{
+                                    // Ant Design: 增加 button.ant-btn, a.ant-btn, .ant-dropdown-trigger 选择器
+                                    searchRow.querySelectorAll('.el-button, .ec-button, button, [role="button"], .el-dropdown span.el-dropdown-link, .ec-dropdown span.el-dropdown-link, span.el-dropdown-link, .el-dropdown span[style*="cursor"], .ec-dropdown span[style*="cursor"], button.ant-btn, a.ant-btn, .ant-dropdown-trigger').forEach(el => {{
                                         const t = (el.textContent || '').trim();
                                         if (t === {json.dumps(btn_text, ensure_ascii=False)}) target = el;
                                     }});

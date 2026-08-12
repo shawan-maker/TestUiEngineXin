@@ -119,7 +119,9 @@ KB_KEY_ALIAS = {raw: canon for raw, canon in _D2K.items() if raw != canon}
 # Fix-2: checkbox 硬编码兜底模板（KB 无 "checkbox" 键，只有 "checkbox-all"）
 # 默认勾选表格第一行的 checkbox
 CHECKBOX_HARDCODED = [
-    '//div[contains(@class,"el-table__body-wrapper")]//tbody//tr[1]//*[@class="el-checkbox__inner"]'
+    '//div[contains(@class,"el-table__body-wrapper")]//tbody//tr[1]//*[@class="el-checkbox__inner"]',
+    # Ant Design
+    '//div[contains(@class,"ant-table-tbody")]//tr[contains(@class,"ant-table-row")][1]//span[contains(@class,"ant-checkbox-inner")]'
 ]
 
 

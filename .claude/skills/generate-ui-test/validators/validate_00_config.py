@@ -355,6 +355,20 @@ def runtime_check(config):
             "auth_message": auth_message,
         }
 
+        # 持久化框架检测结果供 Phase 4/5 使用
+        if result['ui_framework']:
+            try:
+                import json
+                probe_dir = Path(config_file).parent / '_probe'
+                probe_dir.mkdir(exist_ok=True)
+                fw_path = probe_dir / 'framework.json'
+                fw_path.write_text(
+                    json.dumps({'framework': result['ui_framework']}, indent=2, ensure_ascii=False),
+                    encoding='utf-8'
+                )
+            except Exception:
+                pass  # 写入失败不阻断，后续会使用 generic 回退
+
         return auth_valid, auth_message, result
 
     finally:

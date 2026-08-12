@@ -43,7 +43,8 @@ _EXCL_DROPDOWN = " and not(contains(@class,'el-select-dropdown'))"
 # 知识库加载
 # ============================================================
 
-DEFAULT_KNOWLEDGE_PATH = os.path.join(os.path.dirname(__file__), "probe_knowledge.json")
+# 知识库路径：tools/probe_knowledge.json（tools 目录，不是 tools/probe）
+DEFAULT_KNOWLEDGE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "probe_knowledge.json")
 _knowledge_db = None
 
 
@@ -128,7 +129,7 @@ def _has_table_context(page):
     """检测当前页面是否存在可见表格（用于 button → table-action-button 路由）"""
     try:
         return page.evaluate("""() => {
-            const tables = document.querySelectorAll('.el-table');
+            const tables = document.querySelectorAll('.el-table, .ant-table');
             for (const t of tables) {
                 const rect = t.getBoundingClientRect();
                 if (rect.width > 0 && rect.height > 0) return true;
@@ -187,7 +188,7 @@ def parse_cookie(cookie_str, domain):
 # ============================================================
 
 def detect_visible_containers(page):
-    """检测页面上当前可见的容器类型（el-drawer, el-dialog, el-message-box）
+    """检测页面上当前可见的容器类型（el-drawer, el-dialog, el-message-box, ant-drawer, ant-modal）
 
     :param page: Playwright page
     :return: list of container types, e.g., ["dialog", "drawer", "message-box"]
@@ -223,6 +224,29 @@ def detect_visible_containers(page):
                     const style = window.getComputedStyle(mb);
                     if (rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden') {
                         visible.push('message-box');
+                        break;
+                    }
+                }
+                // Ant Design: 检查 ant-drawer
+                const antDrawers = document.querySelectorAll('.ant-drawer');
+                for (const drawer of antDrawers) {
+                    const rect = drawer.getBoundingClientRect();
+                    const style = window.getComputedStyle(drawer);
+                    const isHidden = drawer.classList.contains('ant-drawer-hidden');
+                    if (rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && !isHidden) {
+                        visible.push('ant-drawer');
+                        break;
+                    }
+                }
+                // Ant Design: 检查 ant-modal
+                const antModals = document.querySelectorAll('.ant-modal');
+                for (const modal of antModals) {
+                    const rect = modal.getBoundingClientRect();
+                    const style = window.getComputedStyle(modal);
+                    const wrap = modal.closest('.ant-modal-wrap');
+                    const wrapHidden = wrap && wrap.style.display === 'none';
+                    if (rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && !wrapHidden) {
+                        visible.push('ant-modal');
                         break;
                     }
                 }

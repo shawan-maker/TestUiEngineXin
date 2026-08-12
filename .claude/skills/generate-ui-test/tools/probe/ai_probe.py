@@ -33,6 +33,9 @@ _CONTAINER_XPATH = {
     'dialog': "//div[contains(@class,'el-dialog') and not(contains(@style,'display: none'))]//",
     'drawer': "//div[contains(@class,'el-drawer') and not(contains(@style,'display: none'))]//",
     'message-box': "//div[contains(@class,'el-message-box') and not(contains(@style,'display: none'))]//",
+    # Ant Design
+    'ant-modal': "//div[contains(@class,'ant-modal') and not(contains(@style,'display: none'))]//",
+    'ant-drawer': "//div[contains(@class,'ant-drawer') and not(contains(@class,'ant-drawer-hidden'))]//",
 }
 
 # 元素类型 → 期望 HTML tag 映射（用于语义校验）

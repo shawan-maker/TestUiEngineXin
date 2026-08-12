@@ -2177,7 +2177,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 # BUG-9: For row buttons (ancestor::tbody), hover the row first to reveal hidden buttons
                 if 'tbody' in verified_locator:
                     try:
-                        row = page.locator("xpath=(//tr[contains(@class,'el-table__row')])[1]")
+                        row = page.locator("xpath=(//tr[contains(@class,'el-table__row') or contains(@class,'ant-table-row')])[1]")
                         if row.count() > 0:
                             row.first.hover()
                             page.wait_for_timeout(500)

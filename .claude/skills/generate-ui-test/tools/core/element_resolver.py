@@ -205,6 +205,9 @@ class ElementResolver:
                 'drawer': 'el-drawer',
                 'dialog': 'el-dialog',
                 'message-box': 'el-message-box',
+                # Ant Design
+                'ant-drawer': 'ant-drawer',
+                'ant-modal': 'ant-modal',
             }
             marker = ct_markers.get(container_type, container_type)
             # 优先匹配同模块的 group

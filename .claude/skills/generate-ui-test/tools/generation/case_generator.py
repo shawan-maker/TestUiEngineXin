@@ -997,6 +997,23 @@ class CaseGenerator:
             module_slug=self.module)
         return pending_ref or f"xpath=[待确认]"
 
+    def _find_menu_item_element(self, label):
+        """在 resolver groups 中查找菜单项元素引用。"""
+        groups = self._compat_groups()
+        for group_name, fields in groups.items():
+            for field_name, locator in fields.items():
+                if not isinstance(locator, str):
+                    continue
+                if field_name.endswith('_menu') and label in locator:
+                    return f"${{{group_name}.{field_name}}}"
+                if "el-menu-item" in locator and label in locator:
+                    return f"${{{group_name}.{field_name}}}"
+        pending_ref, _ = self.resolver.make_pending_ref(
+            label, 'menu_item',
+            container_type=self.current_container,
+            module_slug=self.module)
+        return pending_ref or f"xpath=[待确认]"
+
     def _is_visibility_assertion(self, text):
         return any(kw in text for kw in self._VISIBILITY_KW)
 
@@ -2016,6 +2033,18 @@ class CaseGenerator:
 
             self.current_tab_scope = var_name
             self.current_tab_scope_label = label
+
+        elif ptype == 'menu_item':
+            label = args[0]
+            # 查找菜单项元素（支持侧边栏/顶部导航菜单）
+            menu_ref = self._find_menu_item_element(label)
+
+            steps.append({
+                'desc': f'点击「{label}」菜单',
+                'keyword': 'click_element',
+                'label': label,
+                'params': {'locator': menu_ref},
+            })
 
         elif ptype == 'go_back':
             steps.append({

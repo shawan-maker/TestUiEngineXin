@@ -23,6 +23,19 @@ from core.xpath_utils import detect_container_type
 from probe.probe_element import load_knowledge, _safe_format, _get_expand_patterns
 
 
+def _load_framework():
+    """从 _probe/framework.json 读取 UI 框架信息"""
+    import json
+    try:
+        fw_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '_probe', 'framework.json')
+        if os.path.exists(fw_path):
+            with open(fw_path, 'r', encoding='utf-8') as f:
+                return json.load(f).get('framework')
+    except Exception:
+        pass
+    return None
+
+
 def _slugify(text):
     """中文/英文 → 小写 slug"""
     if not text:
@@ -91,6 +104,12 @@ def _build_date_picker_xpath(value, scope_prefix=''):
 def _get_assertion_kb_pattern(category, **kwargs):
     """从 KB assertion 段读取模板并填充参数。
 
+    支持两种 pattern 格式:
+    1. 字符串: 通用 pattern, 所有框架都可用
+    2. 对象 {xpath, framework}: 框架专用 pattern, 仅在匹配当前框架时使用
+
+    优先级: 框架专用 pattern > 通用 pattern
+
     Args:
         category: 'success-toast' / 'error-toast' / 'first-row-content' / 'field-value'
         **kwargs: 模板参数 (keyword, field_label 等)
@@ -100,12 +119,41 @@ def _get_assertion_kb_pattern(category, **kwargs):
     try:
         db = load_knowledge()
         cats = db.get('assertion', {}).get('categories', {})
-        if category in cats:
-            patterns = cats[category].get('patterns', [])
-            if patterns:
-                result = _safe_format(patterns[0], kwargs)
+        if category not in cats:
+            return None
+
+        patterns = cats[category].get('patterns', [])
+        if not patterns:
+            return None
+
+        framework = _load_framework()  # 读取当前框架
+
+        candidates = []
+        for p in patterns:
+            if isinstance(p, str):
+                # 通用 pattern, 任何框架可用
+                candidates.append(('generic', p))
+            elif isinstance(p, dict):
+                # 框架专用 pattern
+                pf = p.get('framework', 'generic')
+                xpath = p.get('xpath', '')
+                if pf == 'generic' or pf == framework:
+                    candidates.append((pf, xpath))
+
+        # 优先级: 框架专用 > 通用
+        for fw, xpath in candidates:
+            if fw == framework and framework:
+                result = _safe_format(xpath, kwargs)
                 if '{' not in result:
                     return result
+
+        # 回退: 使用通用 pattern
+        for fw, xpath in candidates:
+            if fw == 'generic':
+                result = _safe_format(xpath, kwargs)
+                if '{' not in result:
+                    return result
+
     except Exception:
         pass
     return None

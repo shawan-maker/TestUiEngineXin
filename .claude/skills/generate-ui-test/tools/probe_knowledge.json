@@ -54,13 +54,15 @@
       "checkbox": {
         "name": "勾选框",
         "patterns": [
-          "//div[contains(@class,\"el-table__body-wrapper\")]//tbody//tr[1]//*[@class=\"el-checkbox__inner\"]"
+          "//div[contains(@class,\"el-table__body-wrapper\")]//tbody//tr[1]//*[@class=\"el-checkbox__inner\"]",
+          "//div[contains(@class,'ant-table-content')]//tbody/tr[contains(@class,'ant-table-row')][1]//span[contains(@class,'ant-checkbox-inner')]"
         ]
       },
       "checkbox-all": {
         "name": "批量全选",
         "patterns": [
-          "//div[@class='el-table__header-wrapper']//span[@class='el-checkbox__inner']"
+          "//div[@class='el-table__header-wrapper']//span[@class='el-checkbox__inner']",
+          "//div[contains(@class,'ant-table-content')]//thead//span[contains(@class,'ant-checkbox-inner')]"
         ]
       },
       "input-generic": {
@@ -92,7 +94,8 @@
         "name": "字段值断言",
         "patterns": [
           "//*[contains(text(),'{field_label}')]/following-sibling::*[self::div or self::span]//*[contains(.,'{keyword}')]",
-          "//tbody/tr[1]//*[contains(.,'{keyword}')]"
+          "//tbody/tr[1]//*[contains(.,'{keyword}')]",
+          "//div[contains(@class,'ant-table-content')]//tbody/tr[contains(@class,'ant-table-row')][1]//*[contains(.,'{keyword}')]"
         ]
       },
       "option-card": {
@@ -237,7 +240,9 @@
           "//div[contains(@class,'el-table__fixed-right')]//tbody/tr[1]//span[contains(.,'{label}')]",
           "//div[contains(@class,'el-table__body-wrapper')]//tbody/tr[1]//span[contains(.,'{label}')]",
           "//div[contains(@class,'el-table__fixed-body-wrapper')]//tbody/tr[1]//span[contains(.,'{label}')]",
-          "//div[@role='tabpanel' and not(contains(@style,'display: none'))]//div[@class='el-table__fixed-right']//tbody/tr[1]//span[contains(.,'{label}')]"
+          "//div[@role='tabpanel' and not(contains(@style,'display: none'))]//div[@class='el-table__fixed-right']//tbody/tr[1]//span[contains(.,'{label}')]",
+          "//div[contains(@class,'ant-table-content')]//tbody/tr[contains(@class,'ant-table-row')][1]//*[contains(text(),'{label}')]",
+          "//div[contains(@class,'ant-table-fixed-right')]//tbody/tr[contains(@class,'ant-table-row')][1]//*[contains(text(),'{label}')]"
         ]
       },
       "dropdown-menu": {
@@ -249,7 +254,9 @@
               "//div[contains(@class,'el-table__fixed-right')]//tbody/tr[1]//span[contains(.,'更多')]",
               "//div[contains(@class,'el-table__body-wrapper')]//tbody/tr[1]//span[contains(.,'更多')]",
               "//div[contains(@class,'el-table__fixed-body-wrapper')]//tbody/tr[1]//span[contains(.,'更多')]",
-              "//div[@role='tabpanel' and not(contains(@style,'display: none'))]//div[@class='el-table__fixed-right']//tbody/tr[1]//span[contains(.,'更多')]"
+              "//div[@role='tabpanel' and not(contains(@style,'display: none'))]//div[@class='el-table__fixed-right']//tbody/tr[1]//span[contains(.,'更多')]",
+              "//div[contains(@class,'ant-table-content')]//tbody/tr[contains(@class,'ant-table-row')][1]//*[contains(text(),'更多')]",
+              "//div[contains(@class,'ant-table-fixed-right')]//tbody/tr[contains(@class,'ant-table-row')][1]//*[contains(text(),'更多')]"
             ]
           },
           "click-action": {
@@ -284,7 +291,9 @@
               "//div[@id='{element_id}']//div[contains(@class,'el-table__fixed-right')]//tbody/tr[1]//span[contains(.,'{label}')]",
               "//div[@id='{element_id}']//div[contains(@class,'el-table__body-wrapper')]//tbody/tr[1]//span[contains(.,'{label}')]",
               "//div[@id='{element_id}']//div[contains(@class,'el-table__fixed-body-wrapper')]//tbody/tr[1]//span[contains(.,'{label}')]",
-              "//div[@id='{element_id}']//div[@role='tabpanel' and not(contains(@style,'display: none'))]//div[@class='el-table__fixed-right']//tbody/tr[1]//span[contains(.,'{label}')]"
+              "//div[@id='{element_id}']//div[@role='tabpanel' and not(contains(@style,'display: none'))]//div[@class='el-table__fixed-right']//tbody/tr[1]//span[contains(.,'{label}')]",
+              "//div[@id='{element_id}']//div[contains(@class,'ant-table-content')]//tbody/tr[contains(@class,'ant-table-row')][1]//*[contains(text(),'{label}')]",
+              "//div[@id='{element_id}']//div[contains(@class,'ant-table-fixed-right')]//tbody/tr[contains(@class,'ant-table-row')][1]//*[contains(text(),'{label}')]"
             ]
           },
           "scoped-input": {
@@ -329,13 +338,21 @@
       "first-row-content": {
         "name": "第一行内容",
         "patterns": [
-          "//tbody/tr[1]//*[contains(.,'{keyword}')]"
+          "//tbody/tr[1]//*[contains(.,'{keyword}')]",
+          {
+            "xpath": "//div[contains(@class,'ant-table-content')]//tbody/tr[contains(@class,'ant-table-row')][1]//*[contains(.,'{keyword}')]",
+            "framework": "ant-design"
+          }
         ]
       },
       "field-value": {
         "name": "字段值",
         "patterns": [
-          "//*[contains(text(),'{field_label}')]/following-sibling::*[self::div or self::span]//*[contains(.,'{keyword}')]"
+          "//*[contains(text(),'{field_label}')]/following-sibling::*[self::div or self::span]//*[contains(.,'{keyword}')]",
+          {
+            "xpath": "//div[contains(@class,'ant-table-content')]//tbody/tr[contains(@class,'ant-table-row')][1]//*[contains(.,'{keyword}')]",
+            "framework": "ant-design"
+          }
         ]
       }
     }

@@ -54,12 +54,18 @@ CONTAINER_XPATH = {
     "drawer": "//div[contains(@class,'el-drawer')]",
     "dialog": "//div[contains(@class,'el-dialog')]",
     "message-box": "//div[contains(@class,'el-message-box')]",  # R4 新增
+    # Ant Design
+    "ant-drawer": "//div[contains(@class,'ant-drawer')]",
+    "ant-modal": "//div[contains(@class,'ant-modal')]",
 }
 
 CONTAINER_CLASS_PATTERNS = [
     "contains(@class,'el-drawer')",
     "contains(@class,'el-dialog')",
     "contains(@class,'el-message-box')",  # R4 新增
+    # Ant Design
+    "contains(@class,'ant-drawer')",
+    "contains(@class,'ant-modal')",
 ]
 
 # 外层包裹正则: (xpath)[1] / (xpath)[last()]

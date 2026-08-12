@@ -173,6 +173,11 @@ _RAW_PATTERNS = [
     # 点击"XX" tab（必须在通用 click 之前）
     (rf'(?:点击|单击|点){Q}(.+?){Q}\s*tab',
      'click_tab', ('label',)),
+    # 点击侧边/左侧/菜单"XX"（menu_item 类型，必须在通用 click_btn 之前）
+    (rf'点击(?:侧边|左侧|菜单)(?:的)?(?:目录)?{Q}(.+?){Q}',
+     'menu_item', ('label',)),
+    (rf'点击{Q}(.+?){Q}\s*菜单',
+     'menu_item', ('label',)),
     # 点击XX部分/区域
     (r'点击(.+?)(?:部分|区域)',
      'click_section', ('section',)),

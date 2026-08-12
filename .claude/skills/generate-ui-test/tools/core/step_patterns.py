@@ -225,8 +225,8 @@ _RAW_PATTERNS = [
      'check_assert', ('actual', 'expected')),
 
     # ── 导航/等待 ──
-    # 访问 URL
-    (r'访问\s*(https?://\S+)',
+    # 访问 URL（完整 URL 或相对路径）
+    (r'访问\s*(https?://\S+|/\S+)',
      'open_url', ('url',)),
     # 等待XX加载完成/出现/展示
     (r'等待(.+?)(?:加载完成|出现|展示)',

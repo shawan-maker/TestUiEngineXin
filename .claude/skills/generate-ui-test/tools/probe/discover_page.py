@@ -1046,7 +1046,16 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
                             }}
                         }})({i})
                     """)
-                    # DOM 稳定性检测: 轮询等待下拉菜单项出现（而非固定延时）
+                    # 两阶段等待策略:
+                    # 阶段1: 等待 el-loading-mask 消失（最多 15s）
+                    for _poll in range(50):  # 50 × 300ms = 15s
+                        page.wait_for_timeout(300)
+                        _loading = page.evaluate(
+                            """() => document.querySelectorAll('.el-loading-mask:not([style*="display: none"])').length"""
+                        )
+                        if _loading == 0:
+                            break
+                    # 阶段2: 等待菜单项出现（最多 15s）
                     _menu_ready = False
                     _menu_sel = (
                         '.el-dropdown-menu .el-dropdown-menu__item, '
@@ -1056,7 +1065,7 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
                         'div[x-placement] div.el-tooltip.clickClass, '
                         'div[x-placement] div.clickClass'
                     )
-                    for _poll in range(10):  # 最多 3s (10 × 300ms)
+                    for _poll in range(50):  # 50 × 300ms = 15s
                         page.wait_for_timeout(300)
                         _cnt = page.evaluate(
                             f"""(sel) => document.querySelectorAll(sel).length""",
@@ -1095,6 +1104,7 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
                                 if (!text) return;
                                 items.push({
                                     text: text,
+                                    type: 'dropdown-menu',
                                     disabled: el.classList.contains('is-disabled')
                                               || el.getAttribute('aria-disabled') === 'true',
                                     row_index: -1,
@@ -1335,6 +1345,29 @@ def _generate_locators_for_elements(page, elements, container_type=None):
                 elem['count'] = page.locator(f"xpath={xpath}").count()
             except Exception:
                 elem['count'] = 0
+            continue
+
+        # ── from_expand: 更多菜单项在全局 popover 中 ──
+        # 使用 @x-placement 作用域，跳过 KB（KB 返回 click-more 而非 click-action）
+        if elem.get('from_expand') and 'text' in elem:
+            escaped = _xpath_escape_label(label)
+            xpath = (
+                f"//*[@x-placement and not(@x-placement='')]"
+                f"//*[contains(text(),'{escaped}')"
+                f" and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
+                f" and not(ancestor-or-self::*[contains(@style,'display: none')])]"
+            )
+            try:
+                count = page.locator(f"xpath={xpath}").count()
+            except Exception:
+                count = 0
+            verified = (count >= 1)
+            if count > 1:
+                xpath = f"({xpath})[1]"
+                verified = True
+            elem['locator'] = xpath
+            elem['verified'] = verified
+            elem['count'] = count
             continue
 
         # Generate button locator differently
@@ -1890,7 +1923,16 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                                 }}
                             }})()
                         """)
-                        # Python 级等待: 轮询等待菜单项出现（Vue nextTick 异步渲染）
+                        # 两阶段等待策略（与发现阶段一致）:
+                        # 阶段1: 等待 el-loading-mask 消失（最多 15s）
+                        for _poll in range(50):
+                            page.wait_for_timeout(300)
+                            _loading = page.evaluate(
+                                """() => document.querySelectorAll('.el-loading-mask:not([style*="display: none"])').length"""
+                            )
+                            if _loading == 0:
+                                break
+                        # 阶段2: 等待菜单项出现（最多 15s）
                         _menu_sel_expand = (
                             '.el-dropdown-menu .el-dropdown-menu__item, '
                             '.el-dropdown-menu li, '
@@ -1899,7 +1941,7 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                             'div[x-placement] div.el-tooltip.clickClass, '
                             'div[x-placement] div.clickClass'
                         )
-                        for _poll in range(10):
+                        for _poll in range(50):
                             page.wait_for_timeout(300)
                             _cnt = page.evaluate(
                                 f"""(sel) => document.querySelectorAll(sel).length""",

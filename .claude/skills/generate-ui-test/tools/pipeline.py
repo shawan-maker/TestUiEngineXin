@@ -477,6 +477,12 @@ class PipelineExecutor:
                                 print(f"  [重跑] {phase_id} {defn['name']} — 产物不完整 ({len(matches)}/{len(modules)} 模块)")
                                 continue  # 不跳过，继续执行
 
+                    # ===== 新增：检查源文件是否比产物更新 =====
+                    if self._is_source_newer(phase_id):
+                        print(f"  [重跑] {phase_id} {defn['name']} — 源文件已更新")
+                        continue  # 不跳过，继续执行
+                    # ===== 新增结束 =====
+
                     # 标记为 SKIPPED，_check_hard_deps 会验证产物
                     self.results[phase_id] = PhaseResult(
                         phase_id, PhaseStatus.SKIPPED,
@@ -811,6 +817,56 @@ class PipelineExecutor:
 
         # 如果所有模式都因变量缺失被跳过，保守返回 False
         return checked > 0
+
+    def _is_source_newer(self, phase_id: str) -> bool:
+        """检查阶段的源文件是否比产物更新。
+
+        用于 Resume 模式：即使产物存在，如果源文件已更新，也应重新执行该阶段。
+
+        Returns:
+            True 表示源文件比产物新，应重新执行该阶段
+        """
+        # 定义每个阶段的 (源文件, 产物文件) 映射
+        SOURCE_ARTIFACT_MAP = {
+            "phase_1b_parse": {
+                "sources": [self.context.excel_path] if self.context.excel_path else [],
+                "artifacts": ["{project_dir}/_probe/excel_parsed.json"],
+            },
+            "phase_5": {
+                "sources": ["{project_dir}/_probe/excel_parsed.json"],
+                "artifacts": ["{project_dir}/data/*/estack_data.yaml"],
+            },
+        }
+
+        if phase_id not in SOURCE_ARTIFACT_MAP:
+            return False
+
+        mapping = SOURCE_ARTIFACT_MAP[phase_id]
+        sources = mapping["sources"]
+        artifacts = mapping["artifacts"]
+
+        # 获取源文件的最新修改时间
+        source_mtime = 0
+        for src in sources:
+            if src and Path(src).exists():
+                source_mtime = max(source_mtime, Path(src).stat().st_mtime)
+
+        if source_mtime == 0:
+            return False  # 源文件不存在，无法判断
+
+        # 获取产物文件的最早修改时间
+        artifact_mtime = float('inf')
+        for artifact_pattern in artifacts:
+            pattern = artifact_pattern.format(project_dir=self.project_dir)
+            matches = glob.glob(pattern)
+            for match in matches:
+                artifact_mtime = min(artifact_mtime, Path(match).stat().st_mtime)
+
+        if artifact_mtime == float('inf'):
+            return False  # 产物不存在，_artifacts_exist 会处理
+
+        # 源文件比产物新 → 需要重新执行
+        return source_mtime > artifact_mtime
 
     def _validate_artifacts(self, phase_id: str) -> tuple[bool, str]:
         """验证产物完整性"""

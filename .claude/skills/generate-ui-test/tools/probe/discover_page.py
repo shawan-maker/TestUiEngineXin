@@ -116,6 +116,85 @@ def _get_page_framework(page_data, global_framework=None):
     return global_framework
 
 
+def _load_fw_selectors(framework=None):
+    """Load framework-specific CSS selectors from JSON file.
+
+    Returns dict of selector names → CSS selector strings.
+    Falls back to Element UI selectors if framework is unknown.
+
+    :param framework: 'ant-design' | 'element-ui' | None
+    :return: dict
+    """
+    if framework is None:
+        framework = _load_framework()
+
+    js_dir = os.path.join(SCRIPT_DIR, 'js')
+    if framework == 'ant-design':
+        path = os.path.join(js_dir, 'selectors_antd.json')
+    else:
+        path = os.path.join(js_dir, 'selectors_element.json')
+
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"  [WARN] Failed to load fw selectors from {path}: {e}")
+        # Ultimate fallback: Element UI
+        fallback = os.path.join(js_dir, 'selectors_element.json')
+        if fallback != path:
+            try:
+                with open(fallback, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {}
+
+
+def _fw_js(fw_selectors):
+    """Generate JS const declaration for fwSelectors injection.
+
+    :param fw_selectors: dict from _load_fw_selectors()
+    :return: string like 'const fwSelectors = {...};'
+    """
+    return f'const fwSelectors = {json.dumps(fw_selectors)};'
+
+
+def _inject_selectors(js_code, fw_selectors):
+    """Prepend const fwSelectors declaration to JS code string.
+
+    :param js_code: original JS code string
+    :param fw_selectors: dict of selector names to CSS selector strings
+    :return: JS code with fwSelectors prepended
+    """
+    return f'const fwSelectors = {json.dumps(fw_selectors)};\n' + js_code
+
+
+# Module-level cache for fwSelectors — set once in discover(), used by all evaluate helpers
+_FW_SELECTORS = {}
+
+
+def _with_fw(js_code):
+    """Prepend const fwSelectors declaration to JS code string.
+
+    Uses module-level _FW_SELECTORS cache (set in discover()).
+    No-op if _FW_SELECTORS is empty.
+    """
+    if _FW_SELECTORS:
+        return f'const fwSelectors = {json.dumps(_FW_SELECTORS)};\n' + js_code
+    return js_code
+
+
+def _load_js(filename):
+    """Load JS code from external file in js/ directory.
+
+    :param filename: filename relative to js/ (e.g., '_discover_common.js')
+    :return: JS code string
+    """
+    path = os.path.join(SCRIPT_DIR, 'js', filename)
+    with open(path, 'r', encoding='utf-8') as f:
+        return f.read()
+
+
 # Container priority for select_priority_container
 CONTAINER_TYPE_PRIORITY = ['dialog', 'drawer', 'message-box']
 
@@ -270,438 +349,7 @@ def _generate_xpath_from_kb(page, elem_type, label, container_type=None, scope_f
 # JS discovery — scan all interactive elements
 # ============================================================================
 
-_DISCOVER_JS = """
-(scopeSelector) => {
-    const results = { buttons: [], inputs: [], tabs: [], row_buttons: [], detail_links: [], checkboxes: [], menu_items: [] };
-
-    // D2: scope to container DOM subtree, or full document
-    let root;
-    if (scopeSelector) {
-        const candidates = document.querySelectorAll(scopeSelector);
-        const visible = Array.from(candidates).filter(el => {
-            const r = el.getBoundingClientRect();
-            const s = window.getComputedStyle(el);
-            return r.width > 0 && r.height > 0
-                && s.display !== 'none'
-                && s.visibility !== 'hidden';
-        });
-        if (visible.length === 0) {
-            return results;
-        } else if (visible.length === 1) {
-            root = visible[0];
-        } else {
-            // Multiple visible same-type containers → pick the one with most form fields
-            root = visible.sort((a, b) =>
-                b.querySelectorAll('input,select,textarea,.el-select,.el-cascader,.el-date-editor').length
-                - a.querySelectorAll('input,select,textarea,.el-select,.el-cascader,.el-date-editor').length
-            )[0];
-        }
-    } else {
-        root = document;
-    }
-    if (!root) return results;
-
-    function findAssociatedLabel(input) {
-        function cleanLabel(t) {
-            return t.trim().replace(/^\\s*[*＊]\\s*|\\s*[*＊]\\s*$/g, '');
-        }
-
-        // ── Route 1: .el-form-item → .el-form-item__label ──
-        const formItem = input.closest('.el-form-item');
-        if (formItem) {
-            const lbl = formItem.querySelector('.el-form-item__label');
-            if (lbl) return cleanLabel(lbl.textContent);
-        }
-
-        // ── Route 2: textarea special handling ──
-        if (input.tagName === 'TEXTAREA') {
-            // Route 2a: .el-textarea wrapper → previousElementSibling
-            // Symmetric with input Route 3 (.el-input → previousElementSibling)
-            const textareaWrap = input.closest('.el-textarea');
-            if (textareaWrap) {
-                const prev = textareaWrap.previousElementSibling;
-                if (prev) {
-                    const text = prev.textContent.trim();
-                    if (text.length >= 1 && text.length <= 30) return cleanLabel(text);
-                }
-            }
-            // Route 2b: walk up 8 levels to find .el-form-item → .el-form-item__label
-            let parent = input.parentElement;
-            let depth = 0;
-            while (parent && depth < 8) {
-                const fi = parent.closest ? parent.closest('.el-form-item') : null;
-                if (fi) {
-                    const lbl = fi.querySelector('.el-form-item__label');
-                    if (lbl) return cleanLabel(lbl.textContent);
-                }
-                parent = parent.parentElement;
-                depth++;
-            }
-        }
-
-        // ── Route 3: .el-input → previousElementSibling ──
-        const prev = input.closest('.el-input')?.previousElementSibling;
-        if (prev) return cleanLabel(prev.textContent);
-
-        // ── Fallback: placeholder ──
-        return input.getAttribute('placeholder') || '';
-    }
-
-    function getText(el) {
-        return (el.textContent || '').trim().slice(0, 100);
-    }
-
-    function isDisabled(el) {
-        if (el.disabled || el.classList.contains('is-disabled')
-            || el.getAttribute('aria-disabled') === 'true') return true;
-        // D5: ancestor check (up to 5 levels)
-        let parent = el.parentElement, depth = 0;
-        while (parent && depth < 5) {
-            if (parent.classList.contains('is-disabled')) return true;
-            if (parent.getAttribute('aria-disabled') === 'true') return true;
-            parent = parent.parentElement; depth++;
-        }
-        return false;
-    }
-
-    function isVisible(el) {
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        return rect.width > 0 && rect.height > 0
-            && style.display !== 'none'
-            && style.visibility !== 'hidden';
-    }
-
-    // D7+D8: noise filter functions
-    function isBreadcrumb(el) {
-        return !!el.closest('.el-breadcrumb, .breadcrumb, [class*="breadcrumb"]');
-    }
-    function isTopNav(el) {
-        return el.getBoundingClientRect().top < 60;
-    }
-    function isUserDropdown(el) {
-        return !!el.closest('.el-dropdown, .user-info, .header-right, [class*="user"]');
-    }
-
-    // C7: Button subtype detection
-    function getButtonSubtype(el) {
-        if (el.querySelector('.el-icon-search') || /搜.*索|查.*询/.test(el.textContent))
-            return 'search-button';
-        if (el.classList && el.classList.contains('search-wrap'))
-            return 'search-button';
-        if (el.querySelector('.el-icon-download') || /导出|下载/.test(el.textContent))
-            return 'download-button';
-        return 'button';
-    }
-
-    // 1. Buttons (excluding row buttons — toolbar scope)
-    root.querySelectorAll('button.el-button, button.ec-button, button, [role="button"], .ec-button, div.search-wrap').forEach(el => {
-        if (!isVisible(el)) return;
-        if (el.closest('tbody')) return;  // skip row buttons here
-        if (!scopeSelector) {
-            // D7+D8: only filter noise on full-page scan (not container-scoped)
-            if (isBreadcrumb(el)) return;
-            if (isTopNav(el)) return;
-            if (isUserDropdown(el)) return;
-        }
-        let text = getText(el);
-        // 搜索图标容器：无文本时根据 class 推断合成标签
-        if (!text && el.classList && el.classList.contains('search-wrap')) {
-            text = '搜索图标';
-        }
-        if (!text) return;
-        results.buttons.push({
-            text: text,
-            type: getButtonSubtype(el),  // C7: button subtype
-            disabled: isDisabled(el),
-            locator: null,  // will be generated by KB
-            is_row_button: false  // §9.2 P1-A: mark as toolbar
-        });
-    });
-
-    // 1b. Clickable custom elements (divs/spans acting as buttons)
-    // Catches non-standard interactive elements like div.flex-item, div.card-item etc.
-    root.querySelectorAll(
-        'div.flex-item, div.card-item, div.action-item, '
-        + 'div[class*="btn-"], div[class*="-btn"], '
-        + 'span[class*="btn-"], span[class*="-btn"]'
-    ).forEach(el => {
-        if (!isVisible(el)) return;
-        if (el.closest('tbody')) return;  // skip row scope
-        if (!scopeSelector) {
-            if (isBreadcrumb(el)) return;
-            if (isTopNav(el)) return;
-            if (isUserDropdown(el)) return;
-        }
-        const text = getText(el);
-        if (!text || text.length > 30) return;  // skip overly long text
-        // Avoid duplicates with standard buttons already collected
-        const alreadyExists = results.buttons.some(b => b.text === text);
-        if (alreadyExists) return;
-        results.buttons.push({
-            text: text,
-            type: getButtonSubtype(el),
-            disabled: false,
-            locator: null,
-            is_row_button: false,
-            is_custom_clickable: true,  // mark as non-standard button
-            custom_class: el.className || ''  // preserve class for precise XPath
-        });
-    });
-
-    // 2. Inputs (excluding el-select, el-date, el-cascader)
-    root.querySelectorAll('input.el-input__inner:not([type="hidden"])').forEach(el => {
-        if (!isVisible(el)) return;
-        if (el.closest('.el-select') || el.closest('.el-date-editor') || el.closest('.el-cascader')) return;
-        const label = findAssociatedLabel(el);
-        results.inputs.push({ label: label, type: 'input', locator: null });
-    });
-
-    // 3. el-select
-    root.querySelectorAll('.el-select .el-input__inner').forEach(el => {
-        if (!isVisible(el)) return;
-        const label = findAssociatedLabel(el);
-        results.inputs.push({ label: label, type: 'el-select', locator: null });
-    });
-
-    // 4. textarea — Fix-3: 拓宽选择器，不依赖 class（el-textarea__inner 在某些版本不存在）
-    root.querySelectorAll('textarea').forEach(el => {
-        if (!isVisible(el)) return;
-        const label = findAssociatedLabel(el);
-        results.inputs.push({ label: label, type: 'textarea', locator: null });
-    });
-
-    // 4b. iframe 内全元素扫描（通用 iframe 支持）
-    root.querySelectorAll('iframe').forEach((iframe, iframeIdx) => {
-        try {
-            const doc = iframe.contentDocument;
-            if (!doc) return; // 跨域 iframe 由 Python 层处理
-
-            // 生成 iframe CSS 选择器（用于 frame_locator）
-            let iframeSelector = '';
-            if (iframe.id) {
-                iframeSelector = 'iframe#' + iframe.id;
-            } else if (iframe.name) {
-                iframeSelector = 'iframe[name="' + iframe.name + '"]';
-            } else {
-                iframeSelector = 'iframe:nth-of-type(' + (iframeIdx + 1) + ')';
-            }
-
-            // Helper: 从 iframe 父级查找 label
-            function findIframeLabel(iframeEl) {
-                let parent = iframeEl.parentElement;
-                let depth = 0;
-                while (parent && depth < 8) {
-                    const formItem = parent.closest ? parent.closest('.el-form-item') : null;
-                    if (formItem) {
-                        const lbl = formItem.querySelector('.el-form-item__label');
-                        if (lbl) return lbl.textContent.trim()
-                            .replace(/^\\s*[*＊]\\s*|\\s*[*＊]\\s*$/g, '');
-                    }
-                    parent = parent.parentElement;
-                    depth++;
-                }
-                return '';
-            }
-
-            // 扫描按钮
-            doc.querySelectorAll('button, [role="button"], .el-button, .ec-button')
-               .forEach(el => {
-                if (!isVisible(el)) return;
-                const text = getText(el);
-                if (!text || text.length > 30) return;
-                results.buttons.push({
-                    text: text,
-                    type: getButtonSubtype(el),
-                    disabled: isDisabled(el),
-                    locator: null,
-                    is_row_button: false,
-                    iframe_context: iframeSelector,
-                    iframe_index: iframeIdx,
-                });
-            });
-
-            // 扫描 input/textarea
-            doc.querySelectorAll('input:not([type="hidden"]), textarea')
-               .forEach(el => {
-                if (!isVisible(el)) return;
-                if (el.closest('.el-select') || el.closest('.el-date-editor')) return;
-                const label = findAssociatedLabel(el) || findIframeLabel(iframe);
-                if (!label) return;
-                const inputType = el.tagName === 'TEXTAREA' ? 'textarea' : 'input';
-                results.inputs.push({
-                    label: label,
-                    type: inputType,
-                    locator: null,
-                    iframe_context: iframeSelector,
-                    iframe_index: iframeIdx,
-                });
-            });
-
-            // 扫描 el-select
-            doc.querySelectorAll('.el-select .el-input__inner').forEach(el => {
-                if (!isVisible(el)) return;
-                const label = findAssociatedLabel(el) || findIframeLabel(iframe);
-                if (!label) return;
-                results.inputs.push({
-                    label: label,
-                    type: 'el-select',
-                    locator: null,
-                    iframe_context: iframeSelector,
-                    iframe_index: iframeIdx,
-                });
-            });
-
-            // 富文本编辑器（保留现有逻辑）
-            const editables = doc.querySelectorAll(
-                '[contenteditable="true"], body.mce-content-body, body.ql-editor'
-            );
-            editables.forEach(el => {
-                let label = findIframeLabel(iframe);
-                if (!label) return;
-                results.inputs.push({
-                    label: label,
-                    type: 'rich_text',
-                    locator: null,
-                    has_iframe: true,
-                    recommended_keyword: 'frame_fill_value',
-                    iframe_context: iframeSelector,
-                    iframe_index: iframeIdx,
-                });
-            });
-
-        } catch (e) {
-            // cross-origin iframe — 静默跳过（Python 层补充处理）
-        }
-    });
-
-    // 5. date picker
-    root.querySelectorAll('.el-date-editor input').forEach(el => {
-        if (!isVisible(el)) return;
-        const label = findAssociatedLabel(el);
-        results.inputs.push({ label: label, type: 'date_picker', locator: null });
-    });
-
-    // 6. cascader
-    root.querySelectorAll('.el-cascader .el-input__inner').forEach(el => {
-        if (!isVisible(el)) return;
-        const label = findAssociatedLabel(el);
-        results.inputs.push({ label: label, type: 'el-cascader', locator: null });
-    });
-
-    // 7. Tabs (D3: add type='tab' marker)
-    root.querySelectorAll('[role="tab"]').forEach(el => {
-        if (!isVisible(el)) return;
-        const name = getText(el);
-        results.tabs.push({ name: name, type: 'tab', locator: null });
-    });
-
-    // 8. Row buttons (inside tbody) — C7: all typed as table-action-button
-    //    Fix-2: 增加 el-dropdown 内 span 按钮（"更多"展开菜单等）
-    root.querySelectorAll('tbody .el-button, tbody .ec-button, tbody button, tbody .el-dropdown span.el-dropdown-link, tbody .ec-dropdown span.el-dropdown-link, tbody span.el-dropdown-link, tbody .el-dropdown span[style*="cursor"], tbody .ec-dropdown span[style*="cursor"]').forEach(el => {
-        if (!isVisible(el)) return;
-        const text = getText(el);
-        if (!text) return;
-        results.row_buttons.push({
-            text: text,
-            type: 'table-action-button',  // C7: tbody buttons are table-actions
-            disabled: isDisabled(el),
-            locator: null,
-            is_row_button: true
-        });
-    });
-
-    // 9. Detail links / clickable text inside table cells — F-R5
-    //    These are used for detail navigation (e.g., clicking a title to view details)
-    if (!results.detail_links) results.detail_links = [];
-    const seenDetailLinks = new Set();
-    // 9a: Inside table cells (a, cursor:pointer, .link, .common-href, + precise classes)
-    root.querySelectorAll([
-        'tbody td a',
-        'tbody td [style*="cursor: pointer"]',
-        'tbody td .link',
-        'tbody td .common-href',
-        'tbody td .link-style',
-        'tbody td .click-list',
-        'tbody td .resource-id',
-        'tbody td .edit-name'
-    ].join(', ')).forEach(el => {
-        if (!isVisible(el)) return;
-        const text = getText(el);
-        if (!text || text.length > 50) return;  // skip empty or overly long text
-        // Dedup by text content (only first occurrence per unique text)
-        if (seenDetailLinks.has(text)) return;
-        seenDetailLinks.add(text);
-        results.detail_links.push({
-            text: text,
-            locator: null,
-            is_detail_link: true,
-            has_common_href: el.classList.contains('common-href')  // D6 detail_link enhancement
-        });
-    });
-    // 9b: .common-href outside table cells (e.g., list items, cards)
-    root.querySelectorAll('.common-href').forEach(el => {
-        if (!isVisible(el)) return;
-        if (el.closest('tbody td')) return;  // already handled in 9a
-        const text = getText(el);
-        if (!text || text.length > 50) return;
-        if (seenDetailLinks.has(text)) return;
-        seenDetailLinks.add(text);
-        results.detail_links.push({
-            text: text,
-            locator: null,
-            is_detail_link: true,
-            has_common_href: true
-        });
-    });
-
-    // 10. Checkboxes (el-table and ant-table) — C5
-    const checkboxResults = [];
-    root.querySelectorAll('.el-checkbox__inner, .ant-checkbox-inner').forEach(el => {
-        if (!isVisible(el)) return;
-        // Element UI
-        const isHeader = !!el.closest('.el-table__header-wrapper');
-        const isBody = !!el.closest('.el-table__body-wrapper');
-        // Ant Design
-        const isAntHeader = !!el.closest('.ant-table-thead');
-        const isAntBody = !!el.closest('.ant-table-tbody');
-        if (!isHeader && !isBody && !isAntHeader && !isAntBody) return;  // skip non-table checkboxes
-        const isHeaderFinal = isHeader || isAntHeader;
-        const isBodyFinal = isBody || isAntBody;
-        checkboxResults.push({
-            type: isHeaderFinal ? 'checkbox-all' : 'checkbox',
-            name: isHeaderFinal ? '批量全选' : '第1行选择框',
-            label: isHeaderFinal ? '批量全选' : '第1行选择框',
-            locator: null,
-            row_index: isBodyFinal ? 0 : -1
-        });
-    });
-    // Dedup: one header checkbox, one body checkbox
-    const seenCheckbox = new Set();
-    results.checkboxes = checkboxResults.filter(c => {
-        const key = c.type;
-        if (seenCheckbox.has(key)) return false;
-        seenCheckbox.add(key);
-        return true;
-    });
-
-    // 11. Sidebar menu items — C6
-    results.menu_items = [];
-    root.querySelectorAll('.el-menu-item').forEach(el => {
-        if (!isVisible(el)) return;
-        const text = getText(el);
-        if (!text) return;
-        results.menu_items.push({
-            type: 'menu-item',
-            name: text,
-            label: text,
-            locator: null
-        });
-    });
-
-    return results;
-}
-"""
+_DISCOVER_JS = _load_js('_discover_common.js')
 
 
 # ============================================================================
@@ -728,7 +376,7 @@ def _discover_cross_origin_iframes(page, max_iframes=10):
         const isVisible = el => el.offsetParent !== null && el.offsetWidth > 0;
 
         // 扫描按钮
-        document.querySelectorAll('button, [role="button"], .el-button, .ec-button')
+        document.querySelectorAll('button, [role="button"], ' + fwSelectors.iframeButton)
             .forEach(el => {
                 if (!isVisible(el)) return;
                 const text = (el.textContent || '').trim();
@@ -740,7 +388,7 @@ def _discover_cross_origin_iframes(page, max_iframes=10):
         document.querySelectorAll('input:not([type="hidden"]), textarea')
             .forEach(el => {
                 if (!isVisible(el)) return;
-                if (el.closest('.el-select') || el.closest('.el-date-editor')) return;
+                if (el.closest(fwSelectors.selectExclude) || el.closest(fwSelectors.selectExclude)) return;
                 const label = el.getAttribute('placeholder') ||
                               el.getAttribute('aria-label') ||
                               el.getAttribute('name') || '';
@@ -765,7 +413,7 @@ def _discover_cross_origin_iframes(page, max_iframes=10):
             break
 
         try:
-            result = frame.evaluate(scan_js)
+            result = frame.evaluate(_with_fw(scan_js))
             if not result:
                 continue
 
@@ -823,7 +471,7 @@ def discover_all_elements(page, scope_selector=''):
         E.g. 'div.el-drawer' = only scan inside drawer.
     """
     try:
-        js_result = page.evaluate(_DISCOVER_JS, scope_selector)
+        js_result = page.evaluate(_with_fw(_DISCOVER_JS), scope_selector)
     except Exception as e:
         print(f"  [WARN] discover JS error: {e}")
         js_result = {'buttons': [], 'inputs': [], 'tabs': [], 'row_buttons': [], 'detail_links': [], 'checkboxes': [], 'menu_items': []}
@@ -908,70 +556,7 @@ def deduplicate_buttons(buttons, row_buttons):
 # Row button discovery with hover (§9.2 P4)
 # ============================================================================
 
-_ROW_HOVER_JS = """
-(rowIndex) => {
-    const buttons = [];
-    // BUG-11: 搜索双 tbody — fixed-right 优先（操作按钮在这里），主 tbody 补充
-    // Ant Design: 增加 ant-table-fixed-right 和 ant-table-tbody 选择器
-    const rowSelectors = [
-        '.el-table__fixed-right tbody tr',
-        '.el-table__body-wrapper > table > tbody > tr',
-        '.ant-table-fixed-right tbody tr.ant-table-row',
-        '.ant-table-tbody > tr.ant-table-row'
-    ];
-    for (const sel of rowSelectors) {
-        const rows = document.querySelectorAll(sel);
-        if (rowIndex >= rows.length) continue;
-        const row = rows[rowIndex];
-        if (!row) continue;
-        // Fix-2: 增加 el-dropdown span（hover 展开的"更多"菜单按钮）
-        // Ant Design: 增加 button.ant-btn, a.ant-btn, .ant-dropdown-trigger
-        row.querySelectorAll('.el-button, .ec-button, button, [role="button"], .el-dropdown span.el-dropdown-link, .ec-dropdown span.el-dropdown-link, span.el-dropdown-link, .el-dropdown span[style*="cursor"], .ec-dropdown span[style*="cursor"], button.ant-btn, a.ant-btn, .ant-dropdown-trigger').forEach(el => {
-            const rect = el.getBoundingClientRect();
-            const style = window.getComputedStyle(el);
-            // Relaxed visibility: only reject truly hidden elements (§9.2 P4 fix)
-            // — accept opacity<1, transform-hidden (Element UI row-action pattern)
-            if (rect.width <= 0 || rect.height <= 0) return;
-            if (style.display === 'none' || style.visibility === 'hidden') return;
-            // Ancestor chain visibility: reject if any ancestor is display:none/hidden
-            let ancestorHidden = false;
-            let ap = el.parentElement;
-            while (ap && ap !== document.body) {
-                const as = window.getComputedStyle(ap);
-                if (as.display === 'none' || as.visibility === 'hidden') { ancestorHidden = true; break; }
-                ap = ap.parentElement;
-            }
-            if (ancestorHidden) return;
-            const text = (el.textContent || '').trim().slice(0, 100);
-            if (!text) return;
-            // D5: Enhanced isDisabled with 5-level ancestor check (matches _DISCOVER_JS)
-            let isDisabled = el.disabled || el.classList.contains('is-disabled')
-                             || el.getAttribute('aria-disabled') === 'true';
-            if (!isDisabled) {
-                let p = el.parentElement;
-                let depth = 0;
-                while (p && depth < 5) {
-                    if (p.classList && p.classList.contains('is-disabled')) {
-                        isDisabled = true;
-                        break;
-                    }
-                    p = p.parentElement;
-                    depth++;
-                }
-            }
-            buttons.push({
-                text: text,
-                type: 'table-action-button',  // C7: 与 _DISCOVER_JS 对齐
-                disabled: isDisabled,
-                row_index: rowIndex,
-                locator: null,
-                is_row_button: true
-            });
-        });
-    }
-    return buttons;
-}
-"""
+_ROW_HOVER_JS = _load_js('_row_hover.js')
 
 
 def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
@@ -1033,28 +618,26 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
             # BUG-11: 同时 hover 主 tbody 和 fixed-right tbody 的对应行
             # Element UI 的 fixed-column overlay 不自动同步 hover 状态，
             # 必须手动分发事件到两个 tbody 的对应行。
-            page.evaluate("""(rowIndex) => {
-                const mainRows = document.querySelectorAll(
-                    '.el-table__body-wrapper > table > tbody > tr');
+            page.evaluate(_with_fw("""(rowIndex) => {
+                const mainRows = document.querySelectorAll(fwSelectors.tableBodyRows);
                 if (rowIndex < mainRows.length) {
                     const mainRow = mainRows[rowIndex];
                     mainRow.scrollIntoView({block: 'center', inline: 'nearest'});
                     mainRow.dispatchEvent(new MouseEvent('mouseover', {bubbles: true}));
                     mainRow.dispatchEvent(new MouseEvent('mouseenter', {bubbles: true}));
                 }
-                const fixedRows = document.querySelectorAll(
-                    '.el-table__fixed-right tbody tr');
+                const fixedRows = document.querySelectorAll(fwSelectors.tableFixedRows);
                 if (rowIndex < fixedRows.length) {
                     const fixedRow = fixedRows[rowIndex];
                     fixedRow.dispatchEvent(new MouseEvent('mouseover', {bubbles: true}));
                     fixedRow.dispatchEvent(new MouseEvent('mouseenter', {bubbles: true}));
                 }
-            }""", i)
+            }"""), i)
             page.wait_for_timeout(hover_delay_ms)
         except Exception:
             continue
         try:
-            btns = page.evaluate(_ROW_HOVER_JS, i)
+            btns = page.evaluate(_with_fw(_ROW_HOVER_JS), i)
             # Check if row has an expand trigger (更多)
             expand_btn = None
             for b in btns:
@@ -1064,18 +647,18 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
             # If expand exists, click it and scan menu items
             if expand_btn:
                 try:
-                    page.evaluate(f"""
+                    page.evaluate(_with_fw(f"""
                         ((rowIndex) => {{
                             // Step 1: 行内搜索展开按钮（原有逻辑，兼容其他项目）
-                            const fixedRows = document.querySelectorAll('.el-table__fixed-right tbody tr');
-                            const mainRows = document.querySelectorAll('.el-table__body-wrapper > table > tbody > tr');
+                            const fixedRows = document.querySelectorAll(fwSelectors.tableFixedRows);
+                            const mainRows = document.querySelectorAll(fwSelectors.tableBodyRows);
                             const row = (rowIndex < fixedRows.length) ? fixedRows[rowIndex]
                                         : ((rowIndex < mainRows.length) ? mainRows[rowIndex] : null);
                             let rowTarget = null;
                             let hasDropdownMore = false;
                             if (row) {{
                                 const labels = {json.dumps(list(EXPAND_LABELS), ensure_ascii=False)};
-                                row.querySelectorAll('.el-button, .ec-button, button, [role="button"], .el-dropdown span.el-dropdown-link, .ec-dropdown span.el-dropdown-link, span.el-dropdown-link, .el-dropdown span[style*="cursor"], .ec-dropdown span[style*="cursor"]').forEach(el => {{
+                                row.querySelectorAll(fwSelectors.rowButton + ', button, [role="button"]').forEach(el => {{
                                     const t = (el.textContent || '').trim();
                                     if (!labels.includes(t)) return;
                                     // Visibility filter — skip hidden copies
@@ -1120,17 +703,17 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
                                     p = p.parentElement;
                                 }}
                                 if (hidden) continue;
-                                const trigger = dm.querySelector('.el-dropdown-link, .el-popover__reference');
+                                const trigger = dm.querySelector(fwSelectors.dropdownLink);
                                 if (trigger) {{ trigger.click(); return; }}
                             }}
                         }})({i})
-                    """)
+                    """))
                     # 两阶段等待策略:
                     # 阶段1: 等待 el-loading-mask 消失（最多 15s）
                     for _poll in range(50):  # 50 × 300ms = 15s
                         page.wait_for_timeout(300)
                         _loading = page.evaluate(
-                            """() => document.querySelectorAll('.el-loading-mask:not([style*="display: none"])').length"""
+                            _with_fw("""() => document.querySelectorAll(fwSelectors.loadingMask + ':not([style*="display: none"])').length""")
                         )
                         if _loading == 0:
                             break
@@ -1294,69 +877,7 @@ def select_priority_container(visible_containers):
 # C4: Flexible locator — JS-based reverse XPath from DOM structure
 # ============================================================================
 
-_FLEXIBLE_LOCATOR_JS = """
-(label, elemType) => {
-    // Determine target elements by type
-    let targets;
-    switch(elemType) {
-        case 'el-select':
-            targets = document.querySelectorAll('.el-select .el-input__inner');
-            break;
-        case 'textarea':
-            targets = document.querySelectorAll('textarea.el-textarea__inner');
-            break;
-        case 'date_picker':
-        case 'date-picker':
-            targets = document.querySelectorAll('.el-date-editor input');
-            break;
-        case 'el-cascader':
-            targets = document.querySelectorAll('.el-cascader .el-input__inner');
-            break;
-        case 'menu-item':
-        case 'tab':
-        case 'detail-link':
-            // These types don't use input-based locator strategy
-            return null;
-        default:
-            targets = document.querySelectorAll('input.el-input__inner:not([type="hidden"])');
-    }
-
-    for (const el of targets) {
-        // Strategy 1: via el-form-item label
-        const formItem = el.closest('.el-form-item');
-        if (formItem) {
-            const lbl = formItem.querySelector('.el-form-item__label');
-            if (lbl && lbl.textContent.trim().includes(label)) {
-                const tag = el.tagName.toLowerCase();
-                const cls = el.className;
-                return "//*[contains(text(),'" + label + "')]//following-sibling::*[self::div or self::span]//"
-                    + tag + "[@class='" + cls + "']";
-            }
-        }
-
-        // Strategy 2: via placeholder
-        const ph = el.getAttribute('placeholder');
-        if (ph && ph.includes(label)) {
-            return "//*[@placeholder='" + ph + "']";
-        }
-
-        // Strategy 3: via nearest text-bearing ancestor
-        let parent = el.parentElement;
-        let depth = 0;
-        while (parent && depth < 6) {
-            const text = parent.textContent?.trim();
-            if (text && text.includes(label) && text.length < 50) {
-                const tag = el.tagName.toLowerCase();
-                const cls = el.className;
-                return "//*[contains(text(),'" + label + "')]//" + tag + "[@class='" + cls + "']";
-            }
-            parent = parent.parentElement;
-            depth++;
-        }
-    }
-    return null;  // unable to generate
-}
-"""
+_FLEXIBLE_LOCATOR_JS = _load_js('_flexible_locator.js')
 
 
 # ============================================================================
@@ -1590,7 +1111,7 @@ def _generate_locators_for_elements(page, elements, container_type=None):
         if not xpath:
             # C4: Try flexible locator before hardcoded fallback
             try:
-                flexible = page.evaluate(_FLEXIBLE_LOCATOR_JS, label, elem_type)
+                flexible = page.evaluate(_with_fw(_FLEXIBLE_LOCATOR_JS), label, elem_type)
                 if flexible:
                     xpath = flexible
                     # Inject hidden filter
@@ -1779,6 +1300,12 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
             print(f"[Discover] Page framework detected: {page_framework}")
         else:
             print(f"[Discover] Page framework: unknown (will fallback to global)")
+
+        # S2: Load framework-specific CSS selectors for JS injection
+        fw_selectors = _load_fw_selectors(page_framework)
+        global _FW_SELECTORS
+        _FW_SELECTORS = fw_selectors
+        print(f"[Discover] Loaded {len(fw_selectors)} framework selectors")
 
         # §12.2 改动 2b: baseline URL = 页面加载后的真实 URL
         baseline_url = page.url
@@ -2021,14 +1548,10 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                     if is_from_expand:
                         # ── BUG-12 from_expand 路径（两次 evaluate） ──
                         # 第一次: hover 行 + 点击展开触发器
-                        page.evaluate(f"""
+                        page.evaluate(_with_fw(f"""
                             (() => {{
-                                const fixedRows = document.querySelectorAll('.el-table__fixed-right tbody tr');
-                                const mainRows = document.querySelectorAll(
-                                    '.el-table__body-wrapper > table > tbody > tr');
-                                // Ant Design: 增加 ant-table-fixed-right 和 ant-table-tbody 选择器
-                                const antFixedRows = document.querySelectorAll('.ant-table-fixed-right tbody tr.ant-table-row');
-                                const antMainRows = document.querySelectorAll('.ant-table-tbody > tr.ant-table-row');
+                                const fixedRows = document.querySelectorAll(fwSelectors.tableFixedRows);
+                                const mainRows = document.querySelectorAll(fwSelectors.tableBodyRows);
 
                                 if ({row_idx} < mainRows.length) {{
                                     const mainRow = mainRows[{row_idx}];
@@ -2041,43 +1564,18 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                                     fixedRow.dispatchEvent(new MouseEvent('mouseover', {{bubbles: true}}));
                                     fixedRow.dispatchEvent(new MouseEvent('mouseenter', {{bubbles: true}}));
                                 }}
-                                // Ant Design: hover ant-table 行
-                                if ({row_idx} < antMainRows.length) {{
-                                    const antMainRow = antMainRows[{row_idx}];
-                                    antMainRow.scrollIntoView({{block: 'center', inline: 'nearest'}});
-                                    antMainRow.dispatchEvent(new MouseEvent('mouseover', {{bubbles: true}}));
-                                    antMainRow.dispatchEvent(new MouseEvent('mouseenter', {{bubbles: true}}));
-                                }}
-                                if ({row_idx} < antFixedRows.length) {{
-                                    const antFixedRow = antFixedRows[{row_idx}];
-                                    antFixedRow.dispatchEvent(new MouseEvent('mouseover', {{bubbles: true}}));
-                                    antFixedRow.dispatchEvent(new MouseEvent('mouseenter', {{bubbles: true}}));
-                                }}
 
-                                // 优先使用 fixed-right，回退到 main tbody，最后尝试 ant-table
+                                // 优先使用 fixed-right，回退到 main tbody
                                 const searchRow = ({row_idx} < fixedRows.length)
                                     ? fixedRows[{row_idx}]
-                                    : ({row_idx} < antFixedRows.length)
-                                    ? antFixedRows[{row_idx}]
                                     : ({row_idx} < mainRows.length)
                                     ? mainRows[{row_idx}]
-                                    : ({row_idx} < antMainRows.length)
-                                    ? antMainRows[{row_idx}]
                                     : null;
 
                                 if (searchRow) {{
                                     const expandLabels = {json.dumps(list(EXPAND_LABELS), ensure_ascii=False)};
                                     let expandTrigger = null;
-                                    // Ant Design: 增加 button.ant-btn, a.ant-btn, .ant-dropdown-trigger 选择器
-                                    searchRow.querySelectorAll(
-                                        '.el-button, button, [role="button"], '
-                                        + '.el-dropdown span.el-dropdown-link, '
-                                        + '.ec-dropdown span.el-dropdown-link, '
-                                        + 'span.el-dropdown-link, '
-                                        + '.el-dropdown span[style*="cursor"], '
-                                        + '.ec-dropdown span[style*="cursor"], '
-                                        + 'button.ant-btn, a.ant-btn, .ant-dropdown-trigger'
-                                    ).forEach(el => {{
+                                    searchRow.querySelectorAll(fwSelectors.rowButton + ', button, [role="button"]').forEach(el => {{
                                         const t = (el.textContent || '').trim();
                                         if (expandLabels.includes(t) && !expandTrigger) {{
                                             expandTrigger = el;
@@ -2086,19 +1584,18 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                                     if (expandTrigger) expandTrigger.click();
                                 }}
                             }})()
-                        """)
+                        """))
                         # 两阶段等待策略（与发现阶段一致）:
                         # 阶段1: 等待 el-loading-mask 消失（最多 15s）
                         for _poll in range(50):
                             page.wait_for_timeout(300)
                             _loading = page.evaluate(
-                                """() => document.querySelectorAll('.el-loading-mask:not([style*="display: none"])').length"""
+                                _with_fw("""() => document.querySelectorAll(fwSelectors.loadingMask + ':not([style*="display: none"])').length""")
                             )
                             if _loading == 0:
                                 break
                         # 阶段2: 等待菜单项出现（最多 15s）
-                        # Ant Design: 增加 ant-dropdown-menu 选择器
-                        _menu_sel_expand = (
+                        _menu_sel_expand = fwSelectors.dropdownMenu if fwSelectors else (
                             '.el-dropdown-menu .el-dropdown-menu__item, '
                             '.el-dropdown-menu li, '
                             '.el-popover .el-button, '
@@ -2118,20 +1615,10 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                                 break
 
                         # 第二次: 在菜单浮层中搜索目标并点击
-                        # Ant Design: 增加 ant-dropdown-menu 选择器
-                        page.evaluate(f"""
+                        page.evaluate(_with_fw(f"""
                             (() => {{
                                 let target = null;
-                                const menuSelectors = [
-                                    '.el-dropdown-menu .el-dropdown-menu__item',
-                                    '.el-dropdown-menu li',
-                                    '.el-popover .el-button',
-                                    '.el-tooltip__popper .el-button',
-                                    'div[x-placement] div.el-tooltip.clickClass',
-                                    'div[x-placement] div.clickClass',
-                                    '.ant-dropdown-menu .ant-dropdown-menu-item',
-                                    '.ant-dropdown-menu li'
-                                ];
+                                const menuSelectors = fwSelectors.dropdownMenu.split(', ');
                                 for (const sel of menuSelectors) {{
                                     if (target) break;
                                     document.querySelectorAll(sel).forEach(el => {{
@@ -2145,18 +1632,13 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                                 if (target) target.click();
                                 return !!target;
                             }})()
-                        """)
+                        """))
                     else:
                         # ── 普通行按钮路径（原有逻辑，单次 evaluate） ──
-                        # Ant Design: 增加 ant-table 选择器
-                        page.evaluate(f"""
+                        page.evaluate(_with_fw(f"""
                             (() => {{
-                                const fixedRows = document.querySelectorAll('.el-table__fixed-right tbody tr');
-                                const mainRows = document.querySelectorAll(
-                                    '.el-table__body-wrapper > table > tbody > tr');
-                                // Ant Design: 增加 ant-table-fixed-right 和 ant-table-tbody 选择器
-                                const antFixedRows = document.querySelectorAll('.ant-table-fixed-right tbody tr.ant-table-row');
-                                const antMainRows = document.querySelectorAll('.ant-table-tbody > tr.ant-table-row');
+                                const fixedRows = document.querySelectorAll(fwSelectors.tableFixedRows);
+                                const mainRows = document.querySelectorAll(fwSelectors.tableBodyRows);
 
                                 if ({row_idx} < mainRows.length) {{
                                     const mainRow = mainRows[{row_idx}];
@@ -2169,34 +1651,17 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                                     fixedRow.dispatchEvent(new MouseEvent('mouseover', {{bubbles: true}}));
                                     fixedRow.dispatchEvent(new MouseEvent('mouseenter', {{bubbles: true}}));
                                 }}
-                                // Ant Design: hover ant-table 行
-                                if ({row_idx} < antMainRows.length) {{
-                                    const antMainRow = antMainRows[{row_idx}];
-                                    antMainRow.scrollIntoView({{block: 'center', inline: 'nearest'}});
-                                    antMainRow.dispatchEvent(new MouseEvent('mouseover', {{bubbles: true}}));
-                                    antMainRow.dispatchEvent(new MouseEvent('mouseenter', {{bubbles: true}}));
-                                }}
-                                if ({row_idx} < antFixedRows.length) {{
-                                    const antFixedRow = antFixedRows[{row_idx}];
-                                    antFixedRow.dispatchEvent(new MouseEvent('mouseover', {{bubbles: true}}));
-                                    antFixedRow.dispatchEvent(new MouseEvent('mouseenter', {{bubbles: true}}));
-                                }}
 
-                                // 优先使用 fixed-right，回退到 main tbody，最后尝试 ant-table
+                                // 优先使用 fixed-right，回退到 main tbody
                                 const searchRow = ({row_idx} < fixedRows.length)
                                     ? fixedRows[{row_idx}]
-                                    : ({row_idx} < antFixedRows.length)
-                                    ? antFixedRows[{row_idx}]
                                     : ({row_idx} < mainRows.length)
                                     ? mainRows[{row_idx}]
-                                    : ({row_idx} < antMainRows.length)
-                                    ? antMainRows[{row_idx}]
                                     : null;
 
                                 let target = null;
                                 if (searchRow) {{
-                                    // Ant Design: 增加 button.ant-btn, a.ant-btn, .ant-dropdown-trigger 选择器
-                                    searchRow.querySelectorAll('.el-button, .ec-button, button, [role="button"], .el-dropdown span.el-dropdown-link, .ec-dropdown span.el-dropdown-link, span.el-dropdown-link, .el-dropdown span[style*="cursor"], .ec-dropdown span[style*="cursor"], button.ant-btn, a.ant-btn, .ant-dropdown-trigger').forEach(el => {{
+                                    searchRow.querySelectorAll(fwSelectors.rowButton + ', button, [role="button"]').forEach(el => {{
                                         const t = (el.textContent || '').trim();
                                         if (t === {json.dumps(btn_text, ensure_ascii=False)}) target = el;
                                     }});
@@ -2204,7 +1669,7 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                                 if (target) target.click();
                                 return !!target;
                             }})()
-                        """)
+                        """))
                         page.wait_for_timeout(500)
                 except Exception as e:
                     print(f"    [WARN] JS click dispatch failed: {str(e)[:80]}")

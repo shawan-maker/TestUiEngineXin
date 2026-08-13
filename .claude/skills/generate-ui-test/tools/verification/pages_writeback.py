@@ -116,7 +116,7 @@ def _store_verified_locator(v_loc, v_ct, step, pages_dict, verified_locators,
         CONTAINER_MARKERS = ('el-dialog', 'el-drawer', 'el-message-box',
                             'ant-modal', 'ant-drawer')
         CONTAINER_GROUP_MARKERS = ('_drawer_', '_dialog_', '_messagebox_',
-                                    '_message_box_')
+                                    '_message_box_', '_ant-modal_', '_ant-drawer_')
         orig_has_container = any(m in orig_xpath for m in CONTAINER_MARKERS)
         new_has_container = any(m in v_xpath for m in CONTAINER_MARKERS)
 

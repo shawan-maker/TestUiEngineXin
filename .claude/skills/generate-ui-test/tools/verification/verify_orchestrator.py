@@ -61,6 +61,7 @@ from generation.pages_writer import (
 # R6: AI probe functions (optional)
 try:
     from probe.ai_probe import (
+        init as _ai_probe_init,
         ai_probe_locator as _ai_probe_locator,
         MARKER_MAP as _AI_MARKER_MAP,
         flush_diagnostics as _ai_probe_flush,
@@ -69,6 +70,7 @@ try:
 except ImportError:
     _HAS_AI_PROBE = False
     _AI_MARKER_MAP = {}
+    _ai_probe_init = lambda *args, **kwargs: None
     _ai_probe_flush = lambda *args, **kwargs: None
 
 # ─── Sibling module imports ───
@@ -494,8 +496,18 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                         local_storage[str(k)] = str(v)
                 # R6: 读取 AI probe 配置并初始化
                 if _HAS_AI_PROBE and cfg.get('ai_probe'):
-                    _ai_probe_init(cfg['ai_probe'])
-                    print(f"  R6: AI probe enabled (model: {cfg['ai_probe'].get('model', 'gpt-4o-mini')})")
+                    # 读取 framework.json
+                    import json
+                    fw_path = os.path.join(project_dir, '_probe', 'framework.json')
+                    framework = None
+                    if os.path.isfile(fw_path):
+                        try:
+                            with open(fw_path, encoding='utf-8') as fw_f:
+                                framework = json.load(fw_f).get('framework')
+                        except Exception:
+                            pass
+                    _ai_probe_init(cfg['ai_probe'], framework=framework)
+                    print(f"  R6: AI probe enabled (model: {cfg['ai_probe'].get('model', 'gpt-4o-mini')}, framework: {framework or 'element-ui'})")
             except Exception:
                 pass
 

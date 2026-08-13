@@ -22,6 +22,7 @@ from core.xpath_utils import (
 )
 from core.element_types import normalize_type as _normalize_type
 from core.element_resolver import ElementResolver
+from core.framework_registry import get_framework_locator as _fw_locator
 from probe.probe_element import _get_expand_patterns, _safe_format, load_knowledge
 from generation.case_utils import (
     _slugify, _detect_container_type, _build_date_picker_xpath,
@@ -169,7 +170,7 @@ class CaseGenerator:
     # ─── 兼容适配层 ───────────────────────────────────────────
 
     def _build_dropdown_option_xpath(self, action):
-        """构建下拉菜单选项的 XPath（L3e: 框架感知）
+        """构建下拉菜单选项的 XPath（使用 framework_registry）
 
         用于 click_more_then 和 click_more_then_click 分支。
 
@@ -179,40 +180,30 @@ class CaseGenerator:
         Returns:
             str: 带 xpath= 前缀的定位器
         """
-        if self._framework == 'ant-design':
-            # Ant Design: 使用 ant-dropdown-menu 容器
-            return (f"xpath=//ul[contains(@class,'ant-dropdown-menu')]"
-                    f"//li[contains(@class,'ant-dropdown-menu-item')]"
-                    f"//*[contains(text(),'{action}')]"
-                    f"[not(ancestor-or-self::*[contains(@class,'ant-dropdown-hidden')])]")
-        else:
-            # Element UI: 使用 x-placement 定位浮层
-            return (f"xpath=//*[@x-placement and not(@x-placement='')]"
-                    f"//*[contains(text(),'{action}')]"
-                    f"[not(ancestor-or-self::*[contains(@class,'is-hidden')])]"
-                    f"[not(ancestor-or-self::*[contains(@style,'display: none')])]")
+        xpath = _fw_locator('dropdown-menu', self._framework, label=action)
+        return f"xpath={xpath}"
 
     def _build_more_button_fallback_xpath(self):
-        """构建「更多」按钮的回退 XPath（L3e: 框架感知）
+        """构建「更多」按钮的回退 XPath（使用 framework_registry）
 
         当找不到更多按钮的定位器时使用。
 
         Returns:
             str: 带 xpath= 前缀的定位器
         """
+        # 回退定位器需要更精确的上下文（tbody + 排除下拉菜单）
+        # 这与 toolbar 的 'more-button' 不同，保持内联逻辑
         if self._framework == 'ant-design':
-            # Ant Design: 排除下拉菜单中的「更多」文本
             return ("xpath=(//*[contains(text(),'更多')]"
                     "[not(ancestor-or-self::*[contains(@class,'ant-select-dropdown')])]"
                     "[ancestor::tbody])[1]")
         else:
-            # Element UI: 排除下拉菜单中的「更多」文本
             return ("xpath=(//*[contains(text(),'更多')]"
                     "[not(ancestor-or-self::*[contains(@class,'el-select-dropdown')])]"
                     "[ancestor::tbody])[1]")
 
     def _build_month_table_xpath(self, scope_prefix=''):
-        """构建月份选择器的 XPath（L3c: 框架感知）
+        """构建月份选择器的 XPath（使用 framework_registry）
 
         Args:
             scope_prefix: 容器作用域前缀
@@ -220,11 +211,10 @@ class CaseGenerator:
         Returns:
             str: XPath 表达式
         """
+        # 月份表格容器定位器（不同于具体月份单元格）
         if self._framework == 'ant-design':
-            # Ant Design: 使用 ant-picker-month-panel
             return f"{scope_prefix}//table[contains(@class,'ant-picker-month-panel')]"
         else:
-            # Element UI: 使用 el-month-table
             return f"{scope_prefix}//table[@class='el-month-table']"
 
     def _compat_groups(self):

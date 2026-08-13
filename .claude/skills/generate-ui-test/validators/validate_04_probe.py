@@ -33,7 +33,13 @@ except ImportError:
 # XPath 隐藏过滤正则 (R3.3)
 # ============================================================================
 
-HIDDEN_FILTER_CLASS = re.compile(r"contains\(@class,['\"]is-hidden['\"]\)")
+# Element UI: is-hidden
+# Ant Design: *-hidden (ant-modal-hidden, ant-drawer-hidden, ant-select-item-option-hidden)
+HIDDEN_FILTER_CLASS = re.compile(
+    r"contains\(@class,['\"]"
+    r"(?:is-hidden|[\w-]*hidden)"  # is-hidden 或 *-hidden
+    r"['\"]\)"
+)
 HIDDEN_FILTER_STYLE = re.compile(r"contains\(@style,['\"]display: none['\"]\)")
 
 # 不需要隐藏过滤的定位器（通用存在性断言：//*[contains(.,'...')]）

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""_ai_probe.py — Phase 6 R6 AI 兜底探测模块
+"""ai_probe.py — Phase 6 R6 AI 兜底探测模块
 
 独立模块：当 R0-R5 全部失败且 locator 仍为 [待确认] 时，
 通过 DOM 快照 + AI 生成 XPath 做最后的兜底尝试。
@@ -14,7 +14,7 @@
   - playwright（由调用方传入 page 对象）
 
 用法：
-  from _ai_probe import init, ai_probe_locator, flush_diagnostics
+  from probe.ai_probe import init, ai_probe_locator, flush_diagnostics
 
   init(config.get('ai_probe'))          # Phase 6 开始时
   result = ai_probe_locator(...)         # R5 失败时
@@ -23,6 +23,47 @@
 
 import json
 import os
+from pathlib import Path
+
+# ============================================================================
+# JS 文件加载（模块级缓存）
+# ============================================================================
+
+_JS_DIR = Path(__file__).parent / 'js'
+
+
+def _load_ai_js(filename):
+    """加载 AI 探测 JS 文件
+
+    Args:
+        filename: JS 文件名（如 '_ai_xpath_from_elem.js'）
+
+    Returns:
+        JS 代码字符串
+    """
+    filepath = _JS_DIR / filename
+    if not filepath.exists():
+        raise FileNotFoundError(f"AI JS file not found: {filepath}")
+    return filepath.read_text(encoding='utf-8')
+
+
+def _inject_fw_into_js(js_code, break_classes=None, container_classes=None, selectors=None):
+    """将框架变量注入 JS 代码
+
+    Args:
+        js_code: JS 代码字符串
+        break_classes: 中断类名列表（用于 _XPATH_FROM_ELEMENT_JS）
+        container_classes: 容器类名列表（用于 _DOM_EXTRACT_JS）
+        selectors: 选择器 dict（用于 _PAGE_SUMMARY_JS）
+
+    Returns:
+        注入后的 JS 代码
+    """
+    injection = f"const fwBreakClasses = {json.dumps(break_classes or [])};\n"
+    injection += f"const fwContainerClasses = {json.dumps(container_classes or [])};\n"
+    injection += f"const fwSelectors = {json.dumps(selectors or {})};\n"
+    return injection + js_code
+
 
 # ============================================================================
 # 常量
@@ -69,22 +110,64 @@ MARKER_MAP = {
 _config = None          # ai_probe 配置 dict
 _ai_call_count = 0      # 当前模块的 AI 调用计数
 _diagnoses = []         # 诊断记录列表
+_framework = None       # 当前框架（'element-ui' | 'ant-design' | None）
+
+# JS 文件缓存
+_XPATH_FROM_ELEMENT_JS = None
+_DOM_EXTRACT_JS = None
+_PAGE_SUMMARY_JS = None
 
 
 # ============================================================================
 # 公开接口
 # ============================================================================
 
-def init(config_dict):
+def init(config_dict, framework=None):
     """初始化 AI 探测模块。在 verify_project() 开始时调用一次。
 
     Args:
         config_dict: config.yaml 中的 ai_probe 配置段，或 None
+        framework: 页面 UI 框架（'ant-design' | 'element-ui' | None）
     """
-    global _config, _ai_call_count, _diagnoses
+    global _config, _ai_call_count, _diagnoses, _framework
+    global _XPATH_FROM_ELEMENT_JS, _DOM_EXTRACT_JS, _PAGE_SUMMARY_JS
+
     _config = config_dict
     _ai_call_count = 0
     _diagnoses = []
+    _framework = framework or 'element-ui'
+
+    # 加载 JS 文件（每次 init 时重新加载，确保框架切换时正确）
+    from core.framework_registry import (
+        get_js_break_classes, get_js_container_classes, get_discover_selectors_json
+    )
+
+    # 获取框架感知的类名列表
+    break_classes = get_js_break_classes(_framework)
+    container_classes = get_js_container_classes(_framework)
+    selectors_json = get_discover_selectors_json(_framework)
+
+    # 加载并注入框架变量
+    base_xpath_js = _load_ai_js('_ai_xpath_from_elem.js')
+    base_dom_js = _load_ai_js('_ai_dom_extract.js')
+    base_summary_js = _load_ai_js('_ai_page_summary.js')
+
+    _XPATH_FROM_ELEMENT_JS = _inject_fw_into_js(
+        base_xpath_js,
+        break_classes=break_classes,
+        container_classes=container_classes
+    )
+    _DOM_EXTRACT_JS = _inject_fw_into_js(
+        base_dom_js,
+        break_classes=break_classes,
+        container_classes=container_classes
+    )
+    _PAGE_SUMMARY_JS = _inject_fw_into_js(
+        base_summary_js,
+        break_classes=break_classes,
+        container_classes=container_classes,
+        selectors=json.loads(selectors_json)
+    )
 
 
 def ai_probe_locator(page, step, label, elem_type, current_ct,
@@ -100,7 +183,7 @@ def ai_probe_locator(page, step, label, elem_type, current_ct,
         steps_so_far: 已执行步骤列表
         container_context: 上一步的容器上下文
         inject_hidden_filter: 从 xpath_utils 注入隐藏过滤的函数
-            （由调用方传入，避免 _ai_probe.py 直接 import verify_locators 的工具链）
+            （由调用方传入，避免 ai_probe.py 直接 import verify_locators 的工具链）
 
     Returns:
         dict: {locator, is_best_guess, hit_source, marker}
@@ -240,39 +323,6 @@ def flush_diagnostics(project_dir):
 # 内部：Layer 0 — Playwright 内置定位器
 # ============================================================================
 
-_XPATH_FROM_ELEMENT_JS = """el => {
-    const parts = [];
-    let node = el;
-    while (node && node.nodeType === 1 && node !== document.body) {
-        if (node.id) {
-            parts.unshift(`//*[@id='${node.id}']`);
-            break;
-        }
-        let idx = 1;
-        let sib = node.previousElementSibling;
-        while (sib) {
-            if (sib.tagName === node.tagName) idx++;
-            sib = sib.previousElementSibling;
-        }
-        const tag = node.tagName.toLowerCase();
-        const cls = node.className && typeof node.className === 'string'
-                    ? node.className.trim().split(/\\s+/)[0] : '';
-        if (cls && !cls.match(/^[\\d]/)) {
-            parts.unshift(`${tag}[contains(@class,'${cls}')]`);
-            if (cls.startsWith('el-dialog') || cls.startsWith('el-drawer')
-                || cls.startsWith('el-form-item')) {
-                break;
-            }
-        } else {
-            parts.unshift(`${tag}[${idx}]`);
-        }
-        node = node.parentElement;
-        if (parts.length > 6) break;
-    }
-    return '//' + parts.join('/');
-}"""
-
-
 def _layer0_playwright(page, label, elem_type, container_prefix_str,
                         inject_hidden_filter):
     """Layer 0: Playwright 内置定位器 + XPath 反推。
@@ -293,6 +343,7 @@ def _layer0_playwright(page, label, elem_type, container_prefix_str,
 
     if elem_type in ('el-select', 'el-cascader'):
         strategies.append(('role-combobox', page.get_by_role('combobox', name=label)))
+
 
     if elem_type == 'tab':
         strategies.append(('role-tab', page.get_by_role('tab', name=label)))
@@ -330,87 +381,11 @@ def _layer0_playwright(page, label, elem_type, container_prefix_str,
 # 内部：DOM 提取
 # ============================================================================
 
-_DOM_EXTRACT_JS = """(label, containerXpath) => {
-    const results = [];
-    const walker = document.createTreeWalker(
-        document.body, NodeFilter.SHOW_TEXT, null
-    );
-    while (walker.nextNode()) {
-        const textNode = walker.currentNode;
-        if (!textNode.textContent.includes(label)) continue;
-        const parent = textNode.parentElement;
-        if (!parent) continue;
-        let fieldRoot = parent;
-        for (let i = 0; i < 4 && fieldRoot.parentElement; i++) {
-            const p = fieldRoot.parentElement;
-            if (p.classList.contains('el-form-item')
-                || p.classList.contains('el-dialog')
-                || p.classList.contains('el-drawer')
-                || p.classList.contains('el-table')
-                || p.tagName === 'FORM') {
-                fieldRoot = p;
-                break;
-            }
-            fieldRoot = p;
-        }
-        const snippet = fieldRoot.outerHTML
-            .replace(/style="[^"]*"/g, '')
-            .replace(/>([^<]{30,})</g, '>[...]</')
-            .substring(0, 1500);
-        results.push({
-            html: snippet,
-            tag: fieldRoot.tagName.toLowerCase(),
-            classes: (typeof fieldRoot.className === 'string') ? fieldRoot.className : '',
-            parentTag: fieldRoot.parentElement?.tagName?.toLowerCase() || '',
-            parentClasses: (typeof fieldRoot.parentElement?.className === 'string')
-                          ? fieldRoot.parentElement.className : '',
-        });
-        if (results.length >= 5) break;
-    }
-    let container = null;
-    if (containerXpath) {
-        try {
-            const cel = document.evaluate(
-                containerXpath, document, null,
-                XPathResult.FIRST_ORDERED_NODE_TYPE, null
-            ).singleNodeValue;
-            if (cel) {
-                container = {
-                    tag: cel.tagName.toLowerCase(),
-                    classes: cel.className || '',
-                    children: Array.from(cel.children).slice(0, 10).map(c => ({
-                        tag: c.tagName.toLowerCase(),
-                        classes: (typeof c.className === 'string') ? c.className.substring(0, 80) : '',
-                        text: (c.textContent || '').substring(0, 50).trim()
-                    }))
-                };
-            }
-        } catch(e) {}
-    }
-    return { matches: results, container: container };
-}"""
-
-
-_PAGE_SUMMARY_JS = """() => {
-    const fields = [];
-    document.querySelectorAll('.el-form-item').forEach(item => {
-        const label = item.querySelector('.el-form-item__label');
-        const input = item.querySelector('input, textarea, .el-select, .ql-editor');
-        if (label) {
-            fields.push({
-                label: label.textContent.trim().substring(0, 30),
-                inputTag: input?.tagName?.toLowerCase() || 'none',
-                inputClass: (typeof input?.className === 'string')
-                           ? input.className.substring(0, 60) : ''
-            });
-        }
-    });
-    return fields.slice(0, 20);
-}"""
-
-
 def _extract_dom(page, label, container_prefix_str):
     """提取目标区域的 DOM 快照。"""
+    if _DOM_EXTRACT_JS is None:
+        print("    [AI-PROBE] JS 文件未加载，请先调用 init()")
+        return None
     try:
         return page.evaluate(_DOM_EXTRACT_JS, [label, container_prefix_str or ''])
     except Exception as e:
@@ -424,7 +399,7 @@ def _extract_dom(page, label, container_prefix_str):
 
 def _build_prompt(desc, label, elem_type, container_type, page_url,
                   steps_so_far, dom_result):
-    """构建 AI Prompt。"""
+    """构建 AI Prompt（框架感知）。"""
 
     prev_lines = []
     for s in (steps_so_far or [])[-3:]:
@@ -453,11 +428,13 @@ def _build_prompt(desc, label, elem_type, container_type, page_url,
     else:
         container_text = "(无容器或容器未检测到)"
 
-    prefix_hints = {
-        'dialog': "//div[contains(@class,'el-dialog')]",
-        'drawer': "//div[contains(@class,'el-drawer')]",
-        'message-box': "//div[contains(@class,'el-message-box')]",
-    }
+    # 框架感知的 prefix hints 和 input/select 提示
+    from core.framework_registry import get_prompt_templates
+    templates = get_prompt_templates(_framework)
+    prefix_hints = templates.get('prefix_hints', {})
+    input_hint = templates.get('input_hint', "对于输入框: 定位 input 元素")
+    select_hint = templates.get('select_hint', "对于下拉框: 定位 select 的 input")
+
     prefix_hint = prefix_hints.get(container_type, '(无容器前缀)')
 
     return f"""你是一个 Web UI 自动化测试的 XPath 专家。
@@ -483,9 +460,9 @@ def _build_prompt(desc, label, elem_type, container_type, page_url,
 ## 生成规则
 1. 使用相对路径，禁止绝对路径（/html/body/...）
 2. 容器前缀: {prefix_hint}
-3. 对于输入框: 定位 input[@class='el-input__inner'] 或 textarea 或 .ql-editor
+3. {input_hint}
 4. 对于按钮: 定位 button 元素
-5. 对于 el-select: 定位 .el-select 的 input（触发器）
+5. {select_hint}
 6. 加隐藏过滤: not(ancestor-or-self::*[contains(@style,'display: none')])
 7. 避免硬编码 index（div[3]），优先用 class 或文本
 8. 只返回一个 XPath，不要解释，不要 ``` 代码块"""

@@ -159,9 +159,13 @@ def _auto_generate_slug(cn_name):
 
 
 def _extract_slug_from_url(cn_name, module_urls):
-    """从 module_urls.json 的 URL 路径第一段提取 slug。
+    """从 module_urls.json 的 URL 路径提取 slug。
 
-    例: "站内信查看" → URLs 含 "#/instation-mail/read-list" → "instation-mail"
+    提取策略（按优先级）:
+    1. Hash 路由 #/path 的第一个段
+    2. 普通路径的第三个段（如果前两个段是通用名称如 /estack/web/）
+    3. 普通路径的第二个段（如果第一个段是通用名称）
+    4. 普通路径的第一个段
 
     Args:
         cn_name: 中文模块名
@@ -175,16 +179,49 @@ def _extract_slug_from_url(cn_name, module_urls):
     if not urls:
         return None
     url = urls[0]
-    # 优先匹配 #/path 格式（hash 路由），回退到普通 /path
+
+    def _validate_segment(seg):
+        """校验 segment 是否为合法 slug"""
+        return seg and re.match(r'^[a-z][a-z0-9-]{1,29}$', seg)
+
+    def _is_generic_segment(seg):
+        """判断 segment 是否为通用名称（不适合作为模块名）"""
+        generic_names = {'estack', 'web', 'api', 'static', 'app', 'console'}
+        return seg.lower() in generic_names
+
+    # 策略 1: 优先匹配 #/path 格式（hash 路由）
     match = re.search(r'#/([^/]+)', url)
-    if not match:
-        # 回退: 取域名后的第一个路径段
-        match = re.search(r'https?://[^/]+/([^/]+)', url)
     if match:
         segment = match.group(1)
-        # 基本校验: 全英文+连字符+数字，长度 2-30
-        if re.match(r'^[a-z][a-z0-9-]{1,29}$', segment):
+        if _validate_segment(segment):
             return segment
+
+    # 提取普通路径的所有段
+    match = re.search(r'https?://[^/]+(/[^?#]*)', url)
+    if match:
+        path = match.group(1)
+        segments = [s for s in path.split('/') if s]
+
+        # 策略 2: 尝试第三个段（如果前两个是通用名称）
+        if len(segments) >= 3:
+            if _is_generic_segment(segments[0]) and _is_generic_segment(segments[1]):
+                segment = segments[2]
+                if _validate_segment(segment) and not _is_generic_segment(segment):
+                    return segment
+
+        # 策略 3: 尝试第二个段（如果第一个是通用名称）
+        if len(segments) >= 2:
+            if _is_generic_segment(segments[0]):
+                segment = segments[1]
+                if _validate_segment(segment) and not _is_generic_segment(segment):
+                    return segment
+
+        # 策略 4: 第一个段（兜底）
+        if segments:
+            segment = segments[0]
+            if _validate_segment(segment):
+                return segment
+
     return None
 
 

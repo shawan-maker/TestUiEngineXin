@@ -33,6 +33,23 @@ from generation.case_generator import CaseGenerator
 from generation.self_check import SelfCheckLayer, _SC_ENGINE_KEYWORDS
 
 
+def _load_target_url(project_dir):
+    """从 config.yaml 加载 target_url。
+
+    Returns: target_url 字符串或 None
+    """
+    if not project_dir:
+        return None
+    config_path = os.path.join(project_dir, 'config.yaml')
+    if not os.path.isfile(config_path):
+        return None
+    try:
+        with open(config_path, encoding='utf-8') as f:
+            config = yaml.safe_load(f) or {}
+        return config.get('target_url')
+    except Exception:
+        return None
+
 
 def _load_l3_trigger_patterns(project_dir):
     """从 _knowledge/*.yaml 动态加载 L3 触发模式。"""
@@ -460,6 +477,17 @@ def generate_case_file(case_data, generator, seq, output_dir, module='', project
         if m:
             url = m.group(1)
             break
+
+    # Fallback: 相对路径（以 / 开头）→ 拼接 config.yaml 的 target_url
+    if not url:
+        for step in raw_steps:
+            m = re.search(r'访问\s+(/\S+)', step)
+            if m:
+                rel_path = m.group(1)
+                target_url = _load_target_url(project_dir)
+                if target_url:
+                    url = target_url.rstrip('/') + rel_path
+                break
 
     all_steps = generator.generate_preamble(url or 'http://localhost')
     generator.collect_refs_from_steps(all_steps)

@@ -14,6 +14,7 @@ import re
 
 from core.xpath_utils import CONTAINER_XPATH
 from core.field_suffixes import DIALOG_CONFIRM_LABELS
+from core.framework_registry import get_container_xpath, CHECKBOX_HARDCODED
 
 
 # ============================================================
@@ -118,7 +119,8 @@ KB_KEY_ALIAS = {raw: canon for raw, canon in _D2K.items() if raw != canon}
 
 # Fix-2: checkbox 硬编码兜底模板（KB 无 "checkbox" 键，只有 "checkbox-all"）
 # 默认勾选表格第一行的 checkbox
-CHECKBOX_HARDCODED = [
+# 已迁移到 framework_registry.CHECKBOX_HARDCODED，这里保留向后兼容的引用
+_CHECKBOX_HARDCODED_LEGACY = [
     '//div[contains(@class,"el-table__body-wrapper")]//tbody//tr[1]//*[@class="el-checkbox__inner"]',
     # Ant Design
     '//div[contains(@class,"ant-table-tbody")]//tr[contains(@class,"ant-table-row")][1]//span[contains(@class,"ant-checkbox-inner")]'
@@ -263,7 +265,7 @@ def _detect_rich_text(page, label):
 # ---- 拷贝自 probe_element.py line 437-510 ----
 # 适配：内部调用的 _get_expand_patterns / _xpath_escape_label / _safe_format
 # 改为调用本模块的同名函数（无需 import，同文件内直接可用）
-def kb_fallback(etype, label, key, actual_type=None):
+def kb_fallback(etype, label, key, actual_type=None, framework=None):
     """count=0 兜底：取 KB 该类型第一个可替换的 expand pattern 作为 locator
 
     KB pattern 结构正确（经验证），只是当前缺数据。
@@ -272,8 +274,15 @@ def kb_fallback(etype, label, key, actual_type=None):
     Fix-1: 查找链 actual_type → etype → KB_KEY_ALIAS[etype]，
     确保子类型（search-button 等）和别名类型（input→input-generic）都能命中。
 
-    确认/取消按钮特殊处理：当所有探测失败时，默认加 el-dialog 前缀，
-    因为 Element UI 确认对话框中的按钮通常在未弹出的 el-dialog 内。
+    确认/取消按钮特殊处理：当所有探测失败时，默认加 dialog 前缀，
+    框架感知（Element UI 用 el-dialog，Ant Design 用 ant-modal）。
+
+    Args:
+        etype: 元素类型（如 'button', 'checkbox'）
+        label: 元素标签文本
+        key: 元素 key 标识
+        actual_type: 实际探测到的类型（用于候选查找链扩展）
+        framework: UI 框架名称（'element-ui' / 'ant-design'），S1.3 框架感知
     """
     # Fix-1: 构建候选查找链
     candidates = []
@@ -292,8 +301,13 @@ def kb_fallback(etype, label, key, actual_type=None):
             break
 
     # Fix-2: checkbox 硬编码兜底（KB 无此类型）
+    # S1.3: 使用 framework_registry 的框架感知版本
     if not patterns and etype == 'checkbox':
-        patterns = CHECKBOX_HARDCODED
+        cb_xpath = CHECKBOX_HARDCODED.get(
+            framework or 'element-ui',
+            CHECKBOX_HARDCODED.get('element-ui', '')
+        )
+        patterns = [cb_xpath] if cb_xpath else _CHECKBOX_HARDCODED_LEGACY
         matched_key = 'checkbox-hardcoded'
 
     fmt_vars = {
@@ -318,12 +332,12 @@ def kb_fallback(etype, label, key, actual_type=None):
                 p = p.replace("'{char2}'", _xpath_escape_label(label[-1]))
         xpath = _safe_format(p, fmt_vars)
         if '{' not in xpath:  # 能完全替换的才用
-            # 确认/取消按钮：强制加 el-dialog 前缀
+            # 确认/取消按钮：强制加 dialog 前缀（框架感知）
             strategy = "kb-fallback"
             if matched_key and matched_key != etype:
                 strategy = f"kb-fallback({matched_key})"
             if etype == "button" and label in DIALOG_CONFIRM_LABELS:
-                dialog_prefix = CONTAINER_XPATH.get("dialog", "")
+                dialog_prefix = get_container_xpath("dialog", framework)
                 xpath = dialog_prefix + xpath
                 strategy = "kb-fallback+dialog-prefix"
             return {

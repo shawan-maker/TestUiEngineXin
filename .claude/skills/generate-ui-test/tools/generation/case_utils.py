@@ -191,20 +191,22 @@ def _get_assertion_kb_pattern(category, **kwargs):
     return None
 
 
-def _get_first_kb_pattern(kb_key, label, step_type=None):
+def _get_first_kb_pattern(kb_key, label, step_type=None, framework=None):
     """从 KB 获取第一个可完全替换的 pattern（Fix-4）。
 
     Args:
         kb_key: KB 类型键（如 'input-generic'），None 表示硬编码兜底
         label: 中文标签
         step_type: 步骤类型（用于 checkbox 硬编码判断）
+        framework: UI 框架名称，'ant-design' 或 None (默认 Element UI)
 
     Returns: 替换后的 XPath 字符串，或 None
     """
     if kb_key is None:
         if step_type == 'checkbox':
-            return ('//div[contains(@class,"el-table__body-wrapper")]'
-                    '//tbody//tr[1]//*[@class="el-checkbox__inner"]')
+            # Use framework-aware checkbox pattern from framework_registry
+            from core.framework_registry import get_checkbox_hardcoded
+            return get_checkbox_hardcoded(framework)
         return None
 
     patterns = _get_expand_patterns(kb_key)

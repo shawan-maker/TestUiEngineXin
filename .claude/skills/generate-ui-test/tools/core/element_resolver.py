@@ -222,7 +222,8 @@ class ElementResolver:
                         return gname
 
         # 4. 任何有容器前缀的 group（R6: 加 module_slug 过滤）
-        _any_container_markers = ('el-drawer', 'el-dialog', 'el-message-box')
+        _any_container_markers = ('el-drawer', 'el-dialog', 'el-message-box',
+                                  'ant-drawer', 'ant-modal')
         _module_prefix = module_slug.replace('-', '_') if module_slug else None
         for gname in self._group_map:
             if gname == 'common_elements':
@@ -468,7 +469,8 @@ class ElementResolver:
                 for btn in _GENERIC_BTNS & set(gfields.keys()):
                     entry = gfields[btn]
                     if entry.locator and any(c in str(entry.locator) for c in
-                            ('el-dialog', 'el-drawer', 'el-message-box')):
+                            ('el-dialog', 'el-drawer', 'el-message-box',
+                             'ant-modal', 'ant-drawer')):
                         sc_log.append({
                             'rule': 'R4.28',
                             'action': 'warning',
@@ -496,9 +498,9 @@ class ElementResolver:
                 if not entry.locator:
                     continue
                 loc = str(entry.locator)
-                if 'el-drawer' in loc:
+                if 'el-drawer' in loc or 'ant-drawer' in loc:
                     drawer_count += 1
-                elif 'el-dialog' in loc:
+                elif 'el-dialog' in loc or 'ant-modal' in loc:
                     dialog_count += 1
             if drawer_count and dialog_count:
                 sc_log.append({

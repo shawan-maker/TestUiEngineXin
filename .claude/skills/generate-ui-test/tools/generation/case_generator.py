@@ -1098,7 +1098,7 @@ class CaseGenerator:
                     continue
                 if field_name.endswith('_menu') and label in locator:
                     return f"${{{group_name}.{field_name}}}"
-                if "el-menu-item" in locator and label in locator:
+                if ("el-menu-item" in locator or "ant-menu-item" in locator) and label in locator:
                     return f"${{{group_name}.{field_name}}}"
         pending_ref, _ = self.resolver.make_pending_ref(
             label, 'menu_item',
@@ -1296,7 +1296,8 @@ class CaseGenerator:
         错误返回 drawer/dialog group。
         """
         prefix = self.module.replace('-', '_')
-        _container_markers = ('el-drawer', 'el-dialog', 'el-message-box')
+        _container_markers = ('el-drawer', 'el-dialog', 'el-message-box',
+                              'ant-drawer', 'ant-modal')
         # 在 resolver 的 group_map 中找第一个非容器、非同模块的 group
         for gname in self.resolver._group_map:
             if gname == 'common_elements' or gname.startswith('common_'):
@@ -2756,12 +2757,21 @@ class CaseGenerator:
 
             if label:
                 # 有标签：生成带标签的 XPath（KB 模板 pattern[0] + 隐藏过滤）
-                xpath = (
-                    f"//*[contains(text(),'{label}')]//following-sibling::i"
-                    f"[contains(@class,'el-icon-close')"
-                    f" and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
-                    f" and not(ancestor-or-self::*[contains(@style,'display: none')])]"
-                )
+                if self._framework == 'ant-design':
+                    xpath = (
+                        f"//*[contains(text(),'{label}')]//following-sibling::span"
+                        f"[contains(@class,'ant-modal-close-x') or contains(@class,'ant-drawer-close')"
+                        f" and not(ancestor-or-self::*[contains(@class,'ant-drawer-hidden')])"
+                        f" and not(ancestor-or-self::*[contains(@class,'ant-modal-hidden')])"
+                        f" and not(ancestor-or-self::*[contains(@style,'display: none')])]"
+                    )
+                else:
+                    xpath = (
+                        f"//*[contains(text(),'{label}')]//following-sibling::i"
+                        f"[contains(@class,'el-icon-close')"
+                        f" and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
+                        f" and not(ancestor-or-self::*[contains(@style,'display: none')])]"
+                    )
                 steps.append({
                     'desc': f'点击「{label}」的关闭按钮',
                     'keyword': 'click_element',
@@ -2769,11 +2779,19 @@ class CaseGenerator:
                 })
             else:
                 # 无标签：生成通用 XPath（KB 模板 pattern[1] + 隐藏过滤）
-                xpath = (
-                    "//i[contains(@class,'el-icon-close')"
-                    " and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
-                    " and not(ancestor-or-self::*[contains(@style,'display: none')])]"
-                )
+                if self._framework == 'ant-design':
+                    xpath = (
+                        "//span[contains(@class,'ant-modal-close-x') or contains(@class,'ant-drawer-close')"
+                        " and not(ancestor-or-self::*[contains(@class,'ant-drawer-hidden')])"
+                        " and not(ancestor-or-self::*[contains(@class,'ant-modal-hidden')])"
+                        " and not(ancestor-or-self::*[contains(@style,'display: none')])]"
+                    )
+                else:
+                    xpath = (
+                        "//i[contains(@class,'el-icon-close')"
+                        " and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
+                        " and not(ancestor-or-self::*[contains(@style,'display: none')])]"
+                    )
                 steps.append({
                     'desc': '点击关闭按钮',
                     'keyword': 'click_element',

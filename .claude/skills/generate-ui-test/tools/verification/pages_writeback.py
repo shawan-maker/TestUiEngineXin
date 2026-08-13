@@ -113,7 +113,8 @@ def _store_verified_locator(v_loc, v_ct, step, pages_dict, verified_locators,
 
     # 只在 locator 有变化时存储（减少不必要的回写）
     if orig_xpath and v_xpath and v_xpath != orig_xpath:
-        CONTAINER_MARKERS = ('el-dialog', 'el-drawer', 'el-message-box')
+        CONTAINER_MARKERS = ('el-dialog', 'el-drawer', 'el-message-box',
+                            'ant-modal', 'ant-drawer')
         CONTAINER_GROUP_MARKERS = ('_drawer_', '_dialog_', '_messagebox_',
                                     '_message_box_')
         orig_has_container = any(m in orig_xpath for m in CONTAINER_MARKERS)

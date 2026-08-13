@@ -322,11 +322,14 @@ def _try_find_in_iframes(page, locator: str, max_iframes=10):
 
 
 def _convert_input_to_el_select(input_locator: str) -> str:
-    """将 input[@class='el-input__inner'] 转换为 el-select 容器
+    """将 input[@class='el-input__inner'] 或 input[contains(@class,'ant-input')] 转换为 select 容器
 
     转换规则：
-    //input[@class='el-input__inner' and ...]
+    Element UI: //input[@class='el-input__inner' and ...]
     → //div[contains(@class,'el-select') and not(contains(@class,'el-select-dropdown'))]
+
+    Ant Design: //input[contains(@class,'ant-input') and ...]
+    → //div[contains(@class,'ant-select') and not(contains(@class,'ant-select-dropdown'))]
 
     使用 bracket-depth 扫描替代正则，正确处理嵌套 []（如 hidden filter 中的
     not(ancestor::*[contains(@style,'display: none')])）。
@@ -338,17 +341,31 @@ def _convert_input_to_el_select(input_locator: str) -> str:
         input_locator: input 目标的 locator（含 xpath= 前缀）
 
     Returns:
-        str: 转换后的 el-select 容器 locator，转换失败返回原值
+        str: 转换后的 select 容器 locator，转换失败返回原值
     """
     if not input_locator.startswith('xpath='):
         return input_locator
 
     xpath = input_locator[6:]  # 去掉 xpath= 前缀
 
-    # 定位 //input[@class='el-input__inner'
-    marker = "//input[@class='el-input__inner'"
-    start = xpath.find(marker)
-    if start < 0:
+    # Element UI marker
+    marker_eu = "//input[@class='el-input__inner'"
+    start_eu = xpath.find(marker_eu)
+
+    # Ant Design marker
+    marker_antd = "//input[contains(@class,'ant-input')"
+    start_antd = xpath.find(marker_antd)
+
+    # 选择第一个匹配的 marker
+    if start_eu >= 0 and (start_antd < 0 or start_eu <= start_antd):
+        marker = marker_eu
+        start = start_eu
+        is_antd = False
+    elif start_antd >= 0:
+        marker = marker_antd
+        start = start_antd
+        is_antd = True
+    else:
         return input_locator
 
     # 从 [ 开始 bracket-depth 扫描，找到匹配的 ]
@@ -368,8 +385,11 @@ def _convert_input_to_el_select(input_locator: str) -> str:
         # 未找到匹配的 ]，返回原值
         return input_locator
 
-    # 整段替换为 el-select 容器表达式（使用 //div 精确匹配，而非 //* 通配）
-    replacement = "//div[contains(@class,'el-select') and not(contains(@class,'el-select-dropdown'))]"
+    # 整段替换为 select 容器表达式（使用 //div 精确匹配，而非 //* 通配）
+    if is_antd:
+        replacement = "//div[contains(@class,'ant-select') and not(contains(@class,'ant-select-dropdown'))]"
+    else:
+        replacement = "//div[contains(@class,'el-select') and not(contains(@class,'el-select-dropdown'))]"
     converted = xpath[:start] + replacement + xpath[end:]
 
     # 保留原始的 ()[n] 包裹：如果已有则保持 [n] 不变，否则添加 ()[1]
@@ -384,7 +404,7 @@ def _convert_input_to_el_select(input_locator: str) -> str:
 
 
 def _generate_el_select_candidates(input_locator):
-    """Generate dual candidates for el-select expand step.
+    """Generate dual candidates for el-select/ant-select expand step.
 
     When the input locator contains `following-sibling::*[self::div or self::span]`,
     generate two candidates:
@@ -406,11 +426,32 @@ def _generate_el_select_candidates(input_locator):
 
     # Candidate 2: 直接兄弟模式
     # 匹配: /following-sibling::*[self::div or self::span]//input[@class='el-input__inner'...]
+    # 或: /following-sibling::*[self::div or self::span]//input[contains(@class,'ant-input')...]
     # 替换: /following-sibling::*[self::div or self::span][contains(@class,'el-select') and not(contains(@class,'el-select-dropdown'))]
+    # 或: /following-sibling::*[self::div or self::span][contains(@class,'ant-select') and not(contains(@class,'ant-select-dropdown'))]
     sibling_marker = "following-sibling::*[self::div or self::span]"
-    input_marker = "//input[@class='el-input__inner'"
+
+    # 检测 Element UI 或 Ant Design 的 input marker
+    input_marker_eu = "//input[@class='el-input__inner'"
+    input_marker_antd = "//input[contains(@class,'ant-input')"
+
     sib_pos = input_locator.find(sibling_marker)
-    inp_pos = input_locator.find(input_marker)
+    inp_pos_eu = input_locator.find(input_marker_eu)
+    inp_pos_antd = input_locator.find(input_marker_antd)
+
+    # 选择第一个匹配的 marker
+    if inp_pos_eu >= 0 and (inp_pos_antd < 0 or inp_pos_eu <= inp_pos_antd):
+        input_marker = input_marker_eu
+        inp_pos = inp_pos_eu
+        is_antd = False
+    elif inp_pos_antd >= 0:
+        input_marker = input_marker_antd
+        inp_pos = inp_pos_antd
+        is_antd = True
+    else:
+        # No input marker found, return single candidate
+        return [cand1]
+
     if sib_pos >= 0 and inp_pos > sib_pos:
         # 先剥离原始 ()[N] 包裹，避免替换后 )[N] 残留导致双重包裹
         from core.xpath_utils import _unwrap_positional, _rewrap_positional
@@ -431,7 +472,10 @@ def _generate_el_select_candidates(input_locator):
                         end = i + 1
                         break
             if end > 0:
-                replacement = "[contains(@class,'el-select') and not(contains(@class,'el-select-dropdown'))]"
+                if is_antd:
+                    replacement = "[contains(@class,'ant-select') and not(contains(@class,'ant-select-dropdown'))]"
+                else:
+                    replacement = "[contains(@class,'el-select') and not(contains(@class,'el-select-dropdown'))]"
                 cand2_body = loc_inner[:inp_pos2] + replacement + loc_inner[end:]
                 # 重新包裹：保留原始 ()[N] 索引，无则添加 ()[1]
                 cand2 = _rewrap_positional(cand2_body, orig_wrap if orig_wrap else '[1]')
@@ -471,9 +515,9 @@ def _get_original_xpath(ref, pages_dict):
 # Locator verification — try candidates × prefixes
 # ============================================================================
 
-# 容器前缀剥离正则（匹配 el-dialog/el-drawer/el-message-box 前缀）
+# 容器前缀剥离正则（匹配 el-dialog/el-drawer/el-message-box/ant-modal/ant-drawer 前缀）
 CONTAINER_PREFIX_PATTERN = re.compile(
-    r"^//div\[contains\(@class,'el-(dialog|drawer|message-box)'\)\]"
+    r"^//div\[contains\(@class,'(el-(dialog|drawer|message-box)|ant-(modal|drawer))'\)\]"
 )
 
 
@@ -851,7 +895,8 @@ def _smart_wait_after_action(page, wait_dom_stable=True):
     except Exception:
         pass
     try:
-        mask = page.locator("xpath=//div[contains(@class,'el-loading-mask') and not(contains(@style,'display: none'))]")
+        # Element UI: el-loading-mask, Ant Design: ant-spin-spinning
+        mask = page.locator("xpath=//div[(contains(@class,'el-loading-mask') or contains(@class,'ant-spin-spinning')) and not(contains(@style,'display: none'))]")
         if mask.count() > 0:
             mask.first.wait_for(state='hidden', timeout=3000)
     except Exception:
@@ -915,7 +960,11 @@ def _wait_for_container_after_click(page, timeout_ms=2000):
         "xpath=//div[contains(@class,'el-drawer')"
         " and not(contains(@style,'display: none'))] | "
         "//div[contains(@class,'el-dialog')] | "
-        "//div[contains(@class,'el-message-box')]"
+        "//div[contains(@class,'el-message-box')] | "
+        "//div[contains(@class,'ant-drawer')"
+        " and not(contains(@class,'ant-drawer-hidden'))] | "
+        "//div[contains(@class,'ant-modal')"
+        " and not(contains(@class,'ant-modal-hidden'))]"
     )
     try:
         page.locator(container_selector).first.wait_for(
@@ -1029,18 +1078,27 @@ def _detect_actual_element_type(page, label, container_prefix=''):
                 for (let j = 0; j < 3 && sibling; j++) {{
                     if (sibling.querySelector('textarea') || sibling.tagName === 'TEXTAREA')
                         return 'textarea';
-                    const sel = sibling.querySelector('.el-select') ||
+                    // Element UI: .el-select
+                    const sel_eu = sibling.querySelector('.el-select') ||
                                 (sibling.classList && sibling.classList.contains('el-select') ? sibling : null);
-                    if (sel) return 'select';
+                    if (sel_eu) return 'select';
+                    // Ant Design: .ant-select
+                    const sel_antd = sibling.querySelector('.ant-select') ||
+                                (sibling.classList && sibling.classList.contains('ant-select') ? sibling : null);
+                    if (sel_antd) return 'select';
+                    // Element UI: .el-date-editor
                     const dateEl = sibling.querySelector('.el-date-editor');
                     if (dateEl) return 'date';
+                    // Ant Design: .ant-picker
+                    const pickerEl = sibling.querySelector('.ant-picker');
+                    if (pickerEl) return 'date';
                     const inp = sibling.querySelector('input:not([type=hidden])') ||
                                 (sibling.tagName === 'INPUT' ? sibling : null);
                     if (inp) return 'input';
                     sibling = sibling.nextElementSibling;
                 }}
 
-                // Strategy 2: el-form-item parent structure
+                // Strategy 2: el-form-item parent structure (Element UI)
                 const formItem = node.closest('.el-form-item');
                 if (formItem) {{
                     const content = formItem.querySelector('.el-form-item__content');
@@ -1048,6 +1106,17 @@ def _detect_actual_element_type(page, label, container_prefix=''):
                         if (content.querySelector('textarea')) return 'textarea';
                         if (content.querySelector('.el-select')) return 'select';
                         if (content.querySelector('.el-date-editor')) return 'date';
+                        if (content.querySelector('input:not([type=hidden])')) return 'input';
+                    }}
+                }}
+                // Strategy 2b: ant-form-item parent structure (Ant Design)
+                const formItemAntd = node.closest('.ant-form-item');
+                if (formItemAntd) {{
+                    const content = formItemAntd.querySelector('.ant-form-item-control-input-content');
+                    if (content) {{
+                        if (content.querySelector('textarea')) return 'textarea';
+                        if (content.querySelector('.ant-select')) return 'select';
+                        if (content.querySelector('.ant-picker')) return 'date';
                         if (content.querySelector('input:not([type=hidden])')) return 'input';
                     }}
                 }}
@@ -1532,7 +1601,8 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         kb_locators = _get_kb_locators(elem_type, label, _framework)
         print(f"    [TRACE-P6] KB templates: {len(kb_locators)} locators")
         for i, kb_xpath in enumerate(kb_locators):
-            has_prefix = 'el-dialog' in kb_xpath or 'el-drawer' in kb_xpath or 'el-message-box' in kb_xpath
+            has_prefix = ('el-dialog' in kb_xpath or 'el-drawer' in kb_xpath or 'el-message-box' in kb_xpath
+                         or 'ant-modal' in kb_xpath or 'ant-drawer' in kb_xpath)
             print(f"    [TRACE-P6]   KB[{i}]: has_prefix={has_prefix}, {kb_xpath[:100]}")
 
         # ─── el-select 展开步骤定位器转换 ───
@@ -1654,7 +1724,8 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         print(f"    [TRACE-P6] discovery: found={disc_locator is not None}, "
               f"discovery_ct={discovery_ct}")
         if disc_locator:
-            has_prefix = 'el-dialog' in disc_locator or 'el-drawer' in disc_locator or 'el-message-box' in disc_locator
+            has_prefix = ('el-dialog' in disc_locator or 'el-drawer' in disc_locator or 'el-message-box' in disc_locator
+                         or 'ant-modal' in disc_locator or 'ant-drawer' in disc_locator)
             print(f"    [TRACE-P6]   disc_locator: has_prefix={has_prefix}, {disc_locator[:100]}{'...' if len(disc_locator) > 100 else ''}")
             _discovery_verified = True  # _find_in_discovery 只返回 verified=true 的元素
             disc_raw = (disc_locator.replace('xpath=', '')
@@ -1684,7 +1755,8 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         and len(locator) > 5):             # guard 3b: 非退化值
         _resolved_bare = (locator.replace('xpath=', '', 1)
                           if locator.startswith('xpath=') else locator)
-        has_prefix = 'el-dialog' in _resolved_bare or 'el-drawer' in _resolved_bare or 'el-message-box' in _resolved_bare
+        has_prefix = ('el-dialog' in _resolved_bare or 'el-drawer' in _resolved_bare or 'el-message-box' in _resolved_bare
+                     or 'ant-modal' in _resolved_bare or 'ant-drawer' in _resolved_bare)
         print(f"    [TRACE-P6] Original locator: has_prefix={has_prefix}, {_resolved_bare[:100]}")
         if not any(c[0] == _resolved_bare for c in candidates):    # Fix-6: 去重
             candidates.append((_resolved_bare, 'original'))   # Fix-6: 始终加入尾部作为安全网
@@ -1832,7 +1904,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
     if not verified_locator:
         # D5: Try KB fallback before giving up
         if label:
-            fb = kb_fallback(elem_type, label, label)
+            fb = kb_fallback(elem_type, label, label, framework=_framework)
             # [TRACE-P6] kb_fallback 调用结果
             print(f"    [TRACE-P6] kb_fallback: result={'found' if fb and fb.get('locator') else 'None'}")
             if fb and fb.get('locator'):
@@ -1850,7 +1922,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         if not verified_locator and label and elem_type == 'input-generic':
             _CROSS_TYPE_ALIASES = ['textarea-generic']
             for _cross_type in _CROSS_TYPE_ALIASES:
-                fb_cross = kb_fallback(_cross_type, label, label)
+                fb_cross = kb_fallback(_cross_type, label, label, framework=_framework)
                 if fb_cross and fb_cross.get('locator'):
                     fb_locator = inject_hidden_filter(fb_cross['locator'], elem_type=_cross_type)
                     _fb_result = _verify_count_or_first(page, fb_locator)
@@ -1865,8 +1937,11 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             # [TRACE-P6] D1/M11 兜底决策入口
             print(f"    [TRACE-P6] D1/M11 fallback: label='{label}', in_dialog_confirm={label in DIALOG_CONFIRM_LABELS}, has_candidates={len(candidates) > 0}")
             if label in DIALOG_CONFIRM_LABELS:
-                # 确认/取消按钮 → default el-dialog prefix
-                fallback_xpath = f"//div[contains(@class,'el-dialog')]//button[contains(.,'{label}')]"
+                # 确认/取消按钮 → framework-aware dialog prefix
+                if _framework == 'ant-design':
+                    fallback_xpath = f"//div[contains(@class,'ant-modal')]//button[contains(.,'{label}')]"
+                else:
+                    fallback_xpath = f"//div[contains(@class,'el-dialog')]//button[contains(.,'{label}')]"
                 fallback_xpath = inject_hidden_filter(f"xpath={fallback_xpath}", elem_type='button')
                 print(f"    [TRACE-P6]   D1 dialog-confirm: {fallback_xpath[:100]}")
                 _fb_result = _verify_count_or_first(page, fallback_xpath)
@@ -2112,9 +2187,11 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         # Phase 6 只需验证触发器 locator 存在 + 点击展开
         if keyword == 'click_select_option':
             page.locator(verified_locator).click(timeout=5000)  # 方案 B: 严格模式
-            # 验证下拉面板出现（证明触发器有效）
-            panel_xpath = ("xpath=//div[contains(@class,'el-select-dropdown') "
-                           "and not(contains(@style,'display: none'))]")
+            # 验证下拉面板出现（证明触发器有效）— 支持 Element UI 和 Ant Design
+            panel_xpath = ("xpath=//div[(contains(@class,'el-select-dropdown') "
+                           "and not(contains(@style,'display: none'))) "
+                           "or (contains(@class,'ant-select-dropdown') "
+                           "and not(contains(@class,'ant-select-dropdown-hidden')))]")
             try:
                 page.locator(panel_xpath).first.wait_for(
                     state='visible', timeout=3000)
@@ -2343,6 +2420,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                     is_readonly = el.evaluate(
                         "e => e.hasAttribute('readonly') || e.getAttribute('role') === 'combobox'"
                         " || e.closest('.el-select') !== null"
+                        " || e.closest('.ant-select') !== null"
                     )
                     if is_readonly:
                         # readonly el-select 触发器 — 验证 locator 存在即可，跳过 fill

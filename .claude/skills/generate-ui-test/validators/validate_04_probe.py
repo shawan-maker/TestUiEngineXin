@@ -430,7 +430,8 @@ def check_r3_4_multi_step(cases_dir: str, project_dir: str) -> Tuple[List[str], 
             if keyword == 'click_element' and any(w in desc for w in ['展开', '下拉', 'select']):
                 # M3: 扩展检测条件 — 显式匹配 _select 字段命名约定和 _editable companion
                 if ('el-select' in locator or 'select' in locator or '下拉' in desc
-                        or '_select' in locator or '_editable' in locator):
+                        or '_select' in locator or '_editable' in locator
+                        or 'ant-select' in locator):
                     multi_step_count += 1
                     sub_issues = check_el_select_three_steps(steps, i)
                     for issue in sub_issues:

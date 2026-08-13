@@ -621,12 +621,12 @@ def infer_type_from_field(field: str, locator: str = '') -> str:
             return FIELD_TYPE_SUFFIXES[suffix]
     # locator 特征匹配
     if locator:
-        if 'el-select' in locator:
+        if 'el-select' in locator or 'ant-select' in locator:
             return 'el-select'
         if 'textarea' in locator:
             return 'textarea-generic'
         if "@role='tab'" in locator or '@role="tab"' in locator:
             return 'tab'
-        if 'el-checkbox' in locator or 'checkbox' in locator:
+        if 'el-checkbox' in locator or 'ant-checkbox' in locator or 'checkbox' in locator:
             return 'checkbox'
     return 'button'

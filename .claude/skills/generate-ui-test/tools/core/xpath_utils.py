@@ -23,11 +23,23 @@ HIDDEN_FILTER = (
     " and not(ancestor-or-self::*[contains(@style,'display: none')])"
 )
 
+# 向后兼容：默认使用 element-ui 的隐藏过滤
+def get_hidden_filter(framework=None):
+    """获取框架感知的隐藏过滤表达式"""
+    from core.framework_registry import get_hidden_filter as _fw_get
+    return _fw_get(framework)
+
 # 按钮禁用状态过滤（排除 disabled 按钮）
 DISABLED_FILTER = (
     " and not(@disabled)"
     " and not(ancestor-or-self::*[contains(@class,'is-disabled')])"
 )
+
+# 向后兼容：默认使用 element-ui 的禁用过滤
+def get_disabled_filter(framework=None):
+    """获取框架感知的禁用过滤表达式"""
+    from core.framework_registry import get_disabled_filter as _fw_get
+    return _fw_get(framework)
 
 # 按钮类型集合（这些类型需要注入 disabled 过滤）
 BUTTON_TYPES = {'button', 'search-button', 'table-action-button', 'close-button', 'download-button'}
@@ -43,7 +55,8 @@ EXEMPT_PATTERNS = [
     re.compile(r'@x-placement'),                  # option 定位器（已有自己的可见性逻辑）
     re.compile(r'^text='),                        # Playwright text 选择器
     re.compile(r'^role='),                        # Playwright role 选择器
-    re.compile(r'el-loading-mask'),               # loading 遮罩（用于等待消失）
+    re.compile(r'el-loading-mask'),               # Element UI loading 遮罩（用于等待消失）
+    re.compile(r'ant-spin-spinning'),             # Ant Design loading 遮罩（用于等待消失）
 ]
 
 # ============================================================================
@@ -72,21 +85,24 @@ CONTAINER_CLASS_PATTERNS = [
 _OUTER_WRAP_RE = re.compile(r'^\(.*\)\[(\d+|last\(\))\]$')
 
 
-_HIDDEN_FILTER_SIGNATURE = "not(ancestor-or-self::*[contains(@class,'is-hidden')])"
+_HIDDEN_FILTER_SIGNATURES = [
+    "not(ancestor-or-self::*[contains(@class,'is-hidden')])",           # Element UI
+    "not(ancestor-or-self::*[contains(@class,'ant-drawer-hidden')])",   # Ant Design
+    "not(ancestor-or-self::*[contains(@class,'ant-modal-hidden')])",    # Ant Design
+]
+_HIDDEN_FILTER_LEGACY = "not(ancestor::*[contains(@class,'is-hidden')])"
+
 
 def has_hidden_filter(locator: str) -> bool:
-    """检测 locator 是否已包含隐藏过滤属性（兼容新旧两种签名）
+    """检测 locator 是否已包含隐藏过滤属性（兼容所有框架签名）
 
-    使用完整的 not(ancestor-or-self::...) / not(ancestor::...) 签名匹配，
-    避免 is-hidden 作为 class 名匹配时的子串误判。
-    HIDDEN_FILTER 总是同时注入 is-hidden + display:none 两个条件，
-    检测其中一个的完整签名即可。
-    兼容旧版 ancestor:: 和新版 ancestor-or-self:: 两种写法。
+    匹配 Element UI (is-hidden)、Ant Design (ant-drawer-hidden/ant-modal-hidden)
+    以及旧版 ancestor:: 写法。
     """
     if not locator or not isinstance(locator, str):
         return False
-    return (_HIDDEN_FILTER_SIGNATURE in locator
-            or "not(ancestor::*[contains(@class,'is-hidden')])" in locator)
+    return (any(sig in locator for sig in _HIDDEN_FILTER_SIGNATURES)
+            or _HIDDEN_FILTER_LEGACY in locator)
 
 
 def _is_exempt(locator: str) -> bool:
@@ -261,13 +277,14 @@ def detect_container_type(locator):
     return None
 
 
-def inject_hidden_filter(locator: str, in_iframe: bool = False, elem_type: str = None) -> str:
+def inject_hidden_filter(locator: str, framework=None, in_iframe: bool = False, elem_type: str = None) -> str:
     """在 XPath 最终元素标签上注入隐藏过滤属性（R4.11）
 
     幂等：已有则跳过。非 XPath → 跳过。豁免模式 → 跳过。
 
     Args:
         locator: XPath locator 字符串
+        framework: UI 框架名称（'element-ui' 或 'ant-design'），默认 'element-ui'
         in_iframe: 如果为 True，跳过注入（iframe 内元素的 XPath 相对于
                    iframe document，主页面的 hidden filter 语义不适用）。
                    _iframe companion 字段（指向主页面 iframe 元素）应设为 False。
@@ -296,12 +313,17 @@ def inject_hidden_filter(locator: str, in_iframe: bool = False, elem_type: str =
     if _is_exempt(v):
         return locator
 
+    # 根据框架获取对应的过滤表达式
+    hidden_filter = get_hidden_filter(framework)
+    hidden_filter_new = re.sub(r'^\s*and\s+', '', hidden_filter.strip())
+
     # 根据 elem_type 决定注入的过滤条件
-    _filter = HIDDEN_FILTER
-    _filter_new = HIDDEN_FILTER_NEW_PRED
+    _filter = hidden_filter
+    _filter_new = hidden_filter_new
     if elem_type and elem_type in BUTTON_TYPES:
-        _filter = HIDDEN_FILTER + DISABLED_FILTER
-        _filter_new = re.sub(r'^\s*and\s+', '', (HIDDEN_FILTER + DISABLED_FILTER).strip())
+        disabled_filter = get_disabled_filter(framework)
+        _filter = hidden_filter + disabled_filter
+        _filter_new = re.sub(r'^\s*and\s+', '', (hidden_filter + disabled_filter).strip())
 
     has_prefix = v.startswith('xpath=')
     xpath = v[6:] if has_prefix else v
@@ -439,8 +461,9 @@ def apply_hidden_filters_to_pages(pages_data: dict, source_files: dict, pages_di
 
 
 # R3.14：禁止使用 not(ancestor::...) 负向排除
+# 支持 Element UI 和 Ant Design 容器
 _NOT_ANCESTOR_RE = re.compile(
-    r"\s+and\s+not\(ancestor(?:-or-self)?::\*\[contains\(@class,'(?:el-drawer|el-dialog|el-message-box)'\)\]\)"
+    r"\s+and\s+not\(ancestor(?:-or-self)?::\*\[contains\(@class,'(?:el-drawer|el-dialog|el-message-box|ant-drawer|ant-modal)'\)\]\)"
 )
 
 

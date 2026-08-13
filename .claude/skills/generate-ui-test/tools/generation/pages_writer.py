@@ -57,10 +57,19 @@ except ImportError:
 # ═══════════════════════════════════════════════════════════════════
 
 # el-select 选项 XPath 模板（R4.12 双向面板 + R4.11 隐藏过滤在 li 上）
+# 注意：这是 Element UI 默认模板，Ant Design 模板在 PagesWriter.__init__ 中按框架选择
 _OPTION_XPATH_TEMPLATE = (
     "(//div[@x-placement and not(@x-placement='')]//"
     "li[{match_expr}"
     " and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
+    " and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
+)
+
+# Ant Design select option 模板
+_OPTION_XPATH_TEMPLATE_ANTD = (
+    "(//div[contains(@class,'ant-select-dropdown')"
+    " and not(contains(@class,'ant-select-dropdown-hidden'))]//"
+    "div[contains(@class,'ant-select-item')][{match_expr}"
     " and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
 )
 
@@ -72,13 +81,29 @@ _FIRST_OPTION_XPATH = (
     " and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
 )
 
-# 通用定位器模板
+# Ant Design _first_option XPath
+_FIRST_OPTION_XPATH_ANTD = (
+    "(//div[contains(@class,'ant-select-dropdown')"
+    " and not(contains(@class,'ant-select-dropdown-hidden'))]//"
+    "div[contains(@class,'ant-select-item')][1])"
+)
+
+# 通用定位器模板（Element UI 默认）
 DEFAULT_COMMON_ELEMENTS = OrderedDict([
     ('loading_mask', "xpath=//div[contains(@class,'el-loading-mask')]"),
     ('success_text', "xpath=//*[contains(.,'成功')]"),
     ('error_text', "xpath=//*[contains(.,'失败') or contains(.,'错误')]"),
     ('confirm_btn', "xpath=//button[contains(.,'确') and contains(.,'定') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]"),
     ('cancel_btn', "xpath=//button[contains(.,'取') and contains(.,'消') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]"),
+])
+
+# Ant Design 通用定位器模板
+DEFAULT_COMMON_ELEMENTS_ANTD = OrderedDict([
+    ('loading_mask', "xpath=//div[contains(@class,'ant-spin-spinning')]"),
+    ('success_text', "xpath=//*[contains(.,'成功')]"),
+    ('error_text', "xpath=//*[contains(.,'失败') or contains(.,'错误')]"),
+    ('confirm_btn', "xpath=//button[contains(.,'确') and contains(.,'定') and not(ancestor-or-self::*[contains(@style,'display: none')])]"),
+    ('cancel_btn', "xpath=//button[contains(.,'取') and contains(.,'消') and not(ancestor-or-self::*[contains(@style,'display: none')])]"),
 ])
 
 # 正则
@@ -123,12 +148,28 @@ def _slugify(text):
 
 
 def _make_editable_locator(sel_locator):
-    """从 _select locator 生成 _editable locator（加 not(@readonly)）。"""
-    target = "input[@class='el-input__inner'"
-    if target not in sel_locator:
+    """从 _select locator 生成 _editable locator（加 not(@readonly)）。
+
+    支持 Element UI（el-input__inner）和 Ant Design（ant-input）。
+    """
+    # Element UI marker
+    target_eu = "input[@class='el-input__inner'"
+    # Ant Design marker
+    target_antd = "input[contains(@class,'ant-input')"
+
+    # 选择匹配的 marker
+    target = None
+    target_pos = -1
+    if target_eu in sel_locator:
+        target = target_eu
+        target_pos = sel_locator.index(target)
+    elif target_antd in sel_locator:
+        target = target_antd
+        target_pos = sel_locator.index(target)
+
+    if target is None:
         return sel_locator
 
-    target_pos = sel_locator.index(target)
     after_target = sel_locator[target_pos + len(target):]
 
     bracket_depth = 1
@@ -225,12 +266,23 @@ def fix_el_select_div_to_input(locator):
 class PagesWriter:
     """从 required_fields + discovery 数据生成 pages YAML。"""
 
-    def __init__(self, element_resolver):
+    def __init__(self, element_resolver, framework=None):
         """
         Args:
             element_resolver: ElementResolver 实例（获取 locator 值）
+            framework: UI 框架名称（'ant-design' 或 None 默认 Element UI）
         """
         self._resolver = element_resolver
+        self._framework = framework
+        # 按框架选择模板常量
+        if framework == 'ant-design':
+            self._option_template = _OPTION_XPATH_TEMPLATE_ANTD
+            self._first_option_xpath = _FIRST_OPTION_XPATH_ANTD
+            self._common_elements = DEFAULT_COMMON_ELEMENTS_ANTD
+        else:
+            self._option_template = _OPTION_XPATH_TEMPLATE
+            self._first_option_xpath = _FIRST_OPTION_XPATH
+            self._common_elements = DEFAULT_COMMON_ELEMENTS
 
     # ─── 公共接口 ───
 
@@ -351,7 +403,7 @@ class PagesWriter:
 
         with open(output_path, 'a', encoding='utf-8') as f:
             f.write('\ncommon_elements:\n')
-            for key, locator in DEFAULT_COMMON_ELEMENTS.items():
+            for key, locator in self._common_elements.items():
                 scalar = _yaml_scalar(locator)
                 f.write(f'  {key}: {scalar}\n')
 
@@ -449,8 +501,9 @@ class PagesWriter:
                     continue
                 if not isinstance(locator, str):
                     continue
-                # 检测 el-select 触发器模式
+                # 检测 el-select 或 ant-select 触发器模式
                 if ("el-input__inner" in locator or "el-select" in locator
+                        or "ant-input" in locator or "ant-select" in locator
                         or field_key.endswith('_select')):
                     prefix = field_key[:-7]  # 去掉 _select
                     if prefix and prefix not in el_select_prefixes:
@@ -461,7 +514,7 @@ class PagesWriter:
                     continue
                 if not isinstance(locator, str):
                     continue
-                if "el-input__inner" in locator or "el-select" in locator:
+                if "el-input__inner" in locator or "el-select" in locator or "ant-input" in locator or "ant-select" in locator:
                     prefix = field_key[:-7]
                     if prefix and prefix not in el_select_prefixes:
                         el_select_prefixes.add(prefix)
@@ -519,7 +572,7 @@ class PagesWriter:
                 first_key = f'{prefix}_first_option'
                 if first_key not in fields and first_key not in new_fields:
                     new_fields[first_key] = (
-                        f'xpath={_FIRST_OPTION_XPATH}',
+                        f'xpath={self._first_option_xpath}',
                         f'{base_comment}（第一个可见选项）'
                     )
 
@@ -571,7 +624,7 @@ class PagesWriter:
                         else:
                             match_expr = f"contains(.,'{opt_text}')"
 
-                    xpath = _OPTION_XPATH_TEMPLATE.replace(
+                    xpath = self._option_template.replace(
                         '{match_expr}', match_expr)
                     fields[opt_key] = (
                         f'xpath={xpath}',

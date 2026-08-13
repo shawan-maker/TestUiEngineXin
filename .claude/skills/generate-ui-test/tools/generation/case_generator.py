@@ -71,16 +71,18 @@ class CaseGenerator:
     _RANDOM_NAME_RE = re.compile(r'随机名称[(（](.*?)[)）]')
     _CT_HASH_RE = re.compile(r'_([0-9a-f]{4})$')  # BUG-14: 容器哈希后缀检测
 
-    def __init__(self, resolver, module_name, project_dir=''):
+    def __init__(self, resolver, module_name, project_dir='', framework=None):
         """
         Args:
             resolver: ElementResolver 实例（唯一 discovery 数据源）
             module_name: 模块 slug
             project_dir: 项目根目录
+            framework: 页面 UI 框架（'ant-design' | 'element-ui' | None）
         """
         self.resolver = resolver
         self.module = module_name
         self._project_dir = project_dir
+        self._framework = framework  # L3: 页面级框架
         self._workflow_cache = None
         self.data_entries = {}
         self.data_group_name = f"{module_name.replace('-', '_')}_data"
@@ -165,6 +167,65 @@ class CaseGenerator:
             self.field_meta[(group, f'{base_field}_iframe')] = meta_entry
 
     # ─── 兼容适配层 ───────────────────────────────────────────
+
+    def _build_dropdown_option_xpath(self, action):
+        """构建下拉菜单选项的 XPath（L3e: 框架感知）
+
+        用于 click_more_then 和 click_more_then_click 分支。
+
+        Args:
+            action: 菜单项文本
+
+        Returns:
+            str: 带 xpath= 前缀的定位器
+        """
+        if self._framework == 'ant-design':
+            # Ant Design: 使用 ant-dropdown-menu 容器
+            return (f"xpath=//ul[contains(@class,'ant-dropdown-menu')]"
+                    f"//li[contains(@class,'ant-dropdown-menu-item')]"
+                    f"//*[contains(text(),'{action}')]"
+                    f"[not(ancestor-or-self::*[contains(@class,'ant-dropdown-hidden')])]")
+        else:
+            # Element UI: 使用 x-placement 定位浮层
+            return (f"xpath=//*[@x-placement and not(@x-placement='')]"
+                    f"//*[contains(text(),'{action}')]"
+                    f"[not(ancestor-or-self::*[contains(@class,'is-hidden')])]"
+                    f"[not(ancestor-or-self::*[contains(@style,'display: none')])]")
+
+    def _build_more_button_fallback_xpath(self):
+        """构建「更多」按钮的回退 XPath（L3e: 框架感知）
+
+        当找不到更多按钮的定位器时使用。
+
+        Returns:
+            str: 带 xpath= 前缀的定位器
+        """
+        if self._framework == 'ant-design':
+            # Ant Design: 排除下拉菜单中的「更多」文本
+            return ("xpath=(//*[contains(text(),'更多')]"
+                    "[not(ancestor-or-self::*[contains(@class,'ant-select-dropdown')])]"
+                    "[ancestor::tbody])[1]")
+        else:
+            # Element UI: 排除下拉菜单中的「更多」文本
+            return ("xpath=(//*[contains(text(),'更多')]"
+                    "[not(ancestor-or-self::*[contains(@class,'el-select-dropdown')])]"
+                    "[ancestor::tbody])[1]")
+
+    def _build_month_table_xpath(self, scope_prefix=''):
+        """构建月份选择器的 XPath（L3c: 框架感知）
+
+        Args:
+            scope_prefix: 容器作用域前缀
+
+        Returns:
+            str: XPath 表达式
+        """
+        if self._framework == 'ant-design':
+            # Ant Design: 使用 ant-picker-month-panel
+            return f"{scope_prefix}//table[contains(@class,'ant-picker-month-panel')]"
+        else:
+            # Element UI: 使用 el-month-table
+            return f"{scope_prefix}//table[@class='el-month-table']"
 
     def _compat_groups(self):
         """将 resolver 的 {group: {field: ElementEntry}} 转为 {group: {field: locator}}。
@@ -376,11 +437,21 @@ class CaseGenerator:
                 trigger=self._current_context)
 
         # 3. KB 标准 XPath（来自 probe_knowledge.json el-select multi_step）
-        select_xpath_base = (
-            f"//*[contains(text(),'{label}')]"
-            f"/following-sibling::*[self::div or self::span]"
-            f"//input[@class='el-input__inner']"
-        )
+        # L3: 根据框架选择不同的 XPath 模式
+        if self._framework == 'ant-design':
+            # Ant Design: 使用 ant-select-selector
+            select_xpath_base = (
+                f"//*[contains(text(),'{label}')]"
+                f"/ancestor::*[contains(@class,'ant-form-item')]"
+                f"//span[contains(@class,'ant-select-selector')]"
+            )
+        else:
+            # Element UI (默认): 使用 el-input__inner
+            select_xpath_base = (
+                f"//*[contains(text(),'{label}')]"
+                f"/following-sibling::*[self::div or self::span]"
+                f"//input[@class='el-input__inner']"
+            )
 
         # 4. 容器前缀（在 drawer/dialog 内时限定范围，避免跨容器误匹配）
         select_xpath_base = apply_container_prefix(select_xpath_base, self.current_container)
@@ -421,12 +492,22 @@ class CaseGenerator:
                           label=f'{label}（可编辑状态）')
         #     _first_option: 通用第一项 XPath（带 hidden filter，下拉面板选项可能被虚拟滚动隐藏）
         #     注意：下拉面板渲染在 body 级别（非容器 DOM 内），不加容器前缀
-        first_option_xpath = (
-            "(//div[@x-placement and not(@x-placement='')]//li"
-            "[contains(@class,'el-select-dropdown__item')"
-            " and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
-            " and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
-        )
+        # L3: 根据框架选择下拉面板 XPath
+        if self._framework == 'ant-design':
+            # Ant Design: 使用 ant-select-dropdown + ant-select-item-option
+            first_option_xpath = (
+                "(//div[contains(@class,'ant-select-dropdown')]"
+                "//*[contains(@class,'ant-select-item-option')"
+                " and not(contains(@class,'ant-select-item-option-disabled'))])[1]"
+            )
+        else:
+            # Element UI (默认): 使用 x-placement + el-select-dropdown__item
+            first_option_xpath = (
+                "(//div[@x-placement and not(@x-placement='')]//li"
+                "[contains(@class,'el-select-dropdown__item')"
+                " and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
+                " and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
+            )
         self._track_field(group, f'{field}_first_option',
                           locator=f'xpath={first_option_xpath}',
                           label=f'{label}（第一个可见选项）')
@@ -447,12 +528,23 @@ class CaseGenerator:
         expand_ref = f'${{{group}.{field}_expand}}'
 
         # 8. 选项 XPath（inline，不走 PagesWriter Stage 2，需手动拼接 hidden filter）
-        option_xpath = (
-            f"(//div[@x-placement and not(@x-placement='')]//li"
-            f"[contains(.,'{option_ref}')"
-            f" and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
-            f" and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
-        )
+        # L3: 根据框架选择下拉面板 XPath
+        if self._framework == 'ant-design':
+            # Ant Design: 使用 ant-select-dropdown + ant-select-item-option
+            option_xpath = (
+                f"(//div[contains(@class,'ant-select-dropdown')]"
+                f"//*[contains(@class,'ant-select-item-option')"
+                f" and contains(.,'{option_ref}')"
+                f" and not(contains(@class,'ant-select-item-option-disabled'))])[1]"
+            )
+        else:
+            # Element UI (默认): 使用 x-placement + el-select-dropdown__item
+            option_xpath = (
+                f"(//div[@x-placement and not(@x-placement='')]//li"
+                f"[contains(.,'{option_ref}')"
+                f" and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
+                f" and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
+            )
 
         # === Step 1: 点击下拉框 ===
         nth_desc = f"第{nth}个" if nth > 1 else ""
@@ -1397,7 +1489,11 @@ class CaseGenerator:
                 })
                 for i, text in enumerate(levels[:-1]):
                     level_ref = self.add_data(f'{el["field_prefix"]}_level{i+1}', text)
-                    level_xpath = f"//li[@role='menuitem']//span[contains(text(),'{level_ref}')]"
+                    # L3: 根据框架选择级联菜单 XPath
+                    if self._framework == 'ant-design':
+                        level_xpath = f"//div[contains(@class,'ant-cascader-menu')]//li[contains(.,'{level_ref}')]"
+                    else:
+                        level_xpath = f"//li[@role='menuitem']//span[contains(text(),'{level_ref}')]"
                     level_xpath = _inject_hidden_filter(level_xpath)
                     steps.append({
                         'desc': f'「{label}」第{i+1}级: {text}',
@@ -1409,12 +1505,18 @@ class CaseGenerator:
                     })
                 last = levels[-1]
                 last_ref = self.add_data(f'{el["field_prefix"]}_last', last)
-                checkbox_xpath = (f"//li[@role='menuitem' and contains(.,'{last_ref}')]"
-                                 f"//span[@class='el-checkbox__inner']")
+                # L3: 根据框架选择最后一级 XPath
+                if self._framework == 'ant-design':
+                    checkbox_xpath = (f"//div[contains(@class,'ant-cascader-menu')]//li[contains(.,'{last_ref}')]"
+                                     f"//span[contains(@class,'ant-checkbox-inner')]")
+                    text_xpath = (f"//div[contains(@class,'ant-cascader-menu')]//li[contains(.,'{last_ref}')]")
+                else:
+                    checkbox_xpath = (f"//li[@role='menuitem' and contains(.,'{last_ref}')]"
+                                     f"//span[@class='el-checkbox__inner']")
+                    text_xpath = (f"//li[@role='menuitem']//span"
+                                 f"[contains(text(),'{last_ref}')]")
                 checkbox_xpath = _inject_hidden_filter(checkbox_xpath)
                 checkbox_xpath = f"xpath={checkbox_xpath}"
-                text_xpath = (f"//li[@role='menuitem']//span"
-                             f"[contains(text(),'{last_ref}')]")
                 text_xpath = _inject_hidden_filter(text_xpath)
                 text_xpath = f"xpath={text_xpath}"
                 steps.append({
@@ -2178,7 +2280,7 @@ class CaseGenerator:
                     'label': '更多',
                     'params': {'timeout': 1000},
                 })
-                option_ref = f"xpath=//*[@x-placement and not(@x-placement='')]//*[contains(text(),'{action}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]"
+                option_ref = self._build_dropdown_option_xpath(action)
                 steps.append({
                     'desc': f'选择「{action}」',
                     'keyword': 'click_element',
@@ -2186,13 +2288,12 @@ class CaseGenerator:
                     'params': {'locator': option_ref},
                 })
             else:
+                more_fallback = self._build_more_button_fallback_xpath()
                 steps.append({
                     'desc': "[待确认] 点击更多按钮",
                     'keyword': 'click_element',
                     'label': '更多',
-                    'params': {'locator': "xpath=(//*[contains(text(),'更多')]"
-                               "[not(ancestor-or-self::*[contains(@class,'el-select-dropdown')])]"
-                               "[ancestor::tbody])[1]"},
+                    'params': {'locator': more_fallback},
                 })
                 steps.append({
                     'desc': "等待下拉菜单",
@@ -2200,10 +2301,7 @@ class CaseGenerator:
                     'label': '更多',
                     'params': {'timeout': 1000},
                 })
-                option_ref = (f"xpath=//*[@x-placement and not(@x-placement='')]"
-                              f"//*[contains(text(),'{action}')"
-                              f" and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
-                              f" and not(ancestor-or-self::*[contains(@style,'display: none')])]")
+                option_ref = self._build_dropdown_option_xpath(action)
                 steps.append({
                     'desc': f'[待确认] 选择「{action}」',
                     'keyword': 'click_element',
@@ -2243,7 +2341,7 @@ class CaseGenerator:
                     'label': '更多',
                     'params': {'timeout': 1000},
                 })
-                option_ref = f"xpath=//*[@x-placement and not(@x-placement='')]//*[contains(text(),'{action}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]"
+                option_ref = self._build_dropdown_option_xpath(action)
                 steps.append({
                     'desc': f'点击「{action}」',
                     'keyword': 'click_element',
@@ -2263,13 +2361,12 @@ class CaseGenerator:
                         'params': {'locator': pending_ref},
                     })
                 else:
+                    more_fallback = self._build_more_button_fallback_xpath()
                     steps.append({
                         'desc': "[待确认] 点击更多按钮",
                         'keyword': 'click_element',
                         'label': '更多',
-                        'params': {'locator': "xpath=(//*[contains(text(),'更多')]"
-                                   "[not(ancestor-or-self::*[contains(@class,'el-select-dropdown')])]"
-                                   "[ancestor::tbody])[1]"},
+                        'params': {'locator': more_fallback},
                     })
                 steps.append({
                     'desc': "等待下拉菜单展开",
@@ -2277,10 +2374,7 @@ class CaseGenerator:
                     'label': '更多',
                     'params': {'timeout': 1000},
                 })
-                option_ref = (f"xpath=//*[@x-placement and not(@x-placement='')]"
-                              f"//*[contains(text(),'{action}')"
-                              f" and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
-                              f" and not(ancestor-or-self::*[contains(@style,'display: none')])]")
+                option_ref = self._build_dropdown_option_xpath(action)
                 steps.append({
                     'desc': f'点击「{action}」',
                     'keyword': 'click_element',
@@ -2562,8 +2656,15 @@ class CaseGenerator:
             if context:
                 groups = self._compat_groups()
                 for group_name, fields in groups.items():
-                    if context in group_name and ('dialog' in group_name or 'drawer' in group_name):
-                        container_cls = 'el-drawer' if 'drawer' in group_name else 'el-dialog'
+                    if context in group_name and ('dialog' in group_name or 'drawer' in group_name or 'modal' in group_name):
+                        # L3d: 根据框架选择容器类名
+                        if self._framework == 'ant-design':
+                            if 'drawer' in group_name:
+                                container_cls = 'ant-drawer'
+                            else:
+                                container_cls = 'ant-modal'
+                        else:
+                            container_cls = 'el-drawer' if 'drawer' in group_name else 'el-dialog'
                         dialog_scope = f"//div[contains(@class,'{container_cls}') and .//*[contains(text(),'{context}')]]"
                         break
 

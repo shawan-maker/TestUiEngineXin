@@ -263,9 +263,13 @@ def _strip_container_prefix(xpath_expr):
     支持两种格式：
     - 裸 XPath: //div[...]//button → //button
     - 包裹 XPath: (//div[...]//button)[1] → (//button)[1]
+
+    L4b: 同时支持 Element UI 和 Ant Design 容器前缀
     """
     inner, wrap = _unwrap_positional(xpath_expr)
-    pattern = r"^//div\[contains\(@class,'el-(drawer|dialog|message-box)'\)\]"
+    # 支持 Element UI (el-drawer, el-dialog, el-message-box) 和
+    # Ant Design (ant-drawer, ant-modal) 容器前缀
+    pattern = r"^//div\[contains\(@class,'(el-(drawer|dialog|message-box)|ant-(drawer|modal))'\)\]"
     stripped = re.sub(pattern, "", inner)
     return _rewrap_positional(stripped, wrap)
 

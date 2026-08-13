@@ -27,6 +27,7 @@ except ImportError:
 from probe.probe_element import _xpath_escape_label, _safe_format
 from probe.probe_utils import (
     get_kb_patterns, get_all_patterns, get_multi_step_patterns,
+    get_multi_step_patterns_for_framework,
     KB_KEY_ALIAS
 )
 from core.element_types import (
@@ -84,8 +85,14 @@ def _same_family(type_a, type_b):
 # KB locators
 # ============================================================================
 
-def _get_kb_locators_for_type(elem_type, fmt_vars):
-    """Generate KB template locators for a single element type (internal)."""
+def _get_kb_locators_for_type(elem_type, fmt_vars, framework=None):
+    """Generate KB template locators for a single element type (internal).
+
+    Args:
+        elem_type: 元素类型（如 'el-select', 'button'）
+        fmt_vars: 格式化变量字典
+        framework: UI 框架名称（如 'ant-design'），L4a 框架感知
+    """
     locators = []
 
     # 1. single_step + composite direct patterns
@@ -95,8 +102,9 @@ def _get_kb_locators_for_type(elem_type, fmt_vars):
             locators.append(x)
 
     # 2. multi_step expand + editable-check patterns
+    # L4a: 使用框架感知的辅助函数（framework=None 时回退到默认 element-ui）
     for step_name in ('expand', 'editable-check'):
-        for p in get_multi_step_patterns(elem_type, step_name):
+        for p in get_multi_step_patterns_for_framework(elem_type, step_name, framework):
             x = _safe_format(p, fmt_vars)
             if '{' not in x:
                 locators.append(x)
@@ -112,7 +120,7 @@ def _get_kb_locators_for_type(elem_type, fmt_vars):
     return locators
 
 
-def _get_kb_locators(elem_type, label):
+def _get_kb_locators(elem_type, label, framework=None):
     """Generate all KB template locators for a given element type and label.
 
     Uses probe_utils shared functions instead of independent KB loading.
@@ -121,6 +129,11 @@ def _get_kb_locators(elem_type, label):
     detail-link), also appends locators from the other types in the list
     (deduplicated). This ensures click_element steps can match elements
     rendered as <a>, <span>, <button>, etc.
+
+    Args:
+        elem_type: 元素类型（如 'el-select', 'button'）
+        label: 元素标签文本
+        framework: UI 框架名称（如 'ant-design'），L4a 框架感知
     """
     fmt_vars = {
         'label': label,
@@ -134,7 +147,7 @@ def _get_kb_locators(elem_type, label):
     }
 
     # 1. 主类型（必查，最高优先级）
-    locators = _get_kb_locators_for_type(elem_type, fmt_vars)
+    locators = _get_kb_locators_for_type(elem_type, fmt_vars, framework)
     seen = set(locators)
 
     # 2. click_element 扩展类型（仅当主类型在 CLICK_EXPAND_TYPES 中时）
@@ -142,7 +155,7 @@ def _get_kb_locators(elem_type, label):
         for alt_type in CLICK_EXPAND_TYPES:
             if alt_type == elem_type:
                 continue
-            for loc in _get_kb_locators_for_type(alt_type, fmt_vars):
+            for loc in _get_kb_locators_for_type(alt_type, fmt_vars, framework):
                 if loc not in seen:
                     locators.append(loc)
                     seen.add(loc)

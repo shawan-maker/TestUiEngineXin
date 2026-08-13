@@ -66,6 +66,56 @@ def _load_framework():
     return None
 
 
+def _detect_page_framework(page):
+    """检测当前页面的 UI 框架
+
+    Ant Design 优先：如果检测到 ant-btn 或 ant-table，返回 'ant-design'
+    Element UI：如果检测到 el-button 或 el-table，返回 'element-ui'
+    其他：返回 None
+
+    :param page: Playwright page
+    :return: 'ant-design' | 'element-ui' | None
+    """
+    try:
+        return page.evaluate("""() => {
+            // Ant Design: 检查 ant-btn 或 ant-table
+            if (document.querySelector('.ant-btn') || document.querySelector('.ant-table')) {
+                return 'ant-design';
+            }
+            // Element UI: 检查 el-button 或 el-table
+            if (document.querySelector('.el-button') || document.querySelector('.el-table')) {
+                return 'element-ui';
+            }
+            return null;
+        }""")
+    except Exception:
+        return None
+
+
+def _get_page_framework(page_data, global_framework=None):
+    """获取页面框架：优先页面级，回退全局。
+
+    L1: 页面级框架感知 — 每个页面可以有独立的框架信息。
+
+    Args:
+        page_data: 页面数据字典，包含 'framework' 字段
+        global_framework: 全局框架（来自 framework.json）
+
+    Returns:
+        'ant-design' | 'element-ui' | None
+    """
+    # 优先：页面级 framework
+    page_fw = page_data.get('framework') if isinstance(page_data, dict) else None
+    if page_fw:
+        return page_fw
+
+    # 回退：全局 framework.json
+    if global_framework is None:
+        global_framework = _load_framework()
+
+    return global_framework
+
+
 # Container priority for select_priority_container
 CONTAINER_TYPE_PRIORITY = ['dialog', 'drawer', 'message-box']
 
@@ -1721,6 +1771,15 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
 
         _wait_for_dom_stable(page, timeout_ms=3000, debug=True)  # 等待 DOM 渲染（含表格行）
 
+        # ================================================================
+        # Step 0: Detect page-level framework (L1: 页面级框架感知)
+        # ================================================================
+        page_framework = _detect_page_framework(page)
+        if page_framework:
+            print(f"[Discover] Page framework detected: {page_framework}")
+        else:
+            print(f"[Discover] Page framework: unknown (will fallback to global)")
+
         # §12.2 改动 2b: baseline URL = 页面加载后的真实 URL
         baseline_url = page.url
         if baseline_url != url:
@@ -2693,6 +2752,7 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
         result = {
             'module': module_name,
             'url': baseline_url,
+            'framework': page_framework,   # L1: 页面级框架
             'list_page': list_page,
             'containers': containers,
         }
@@ -2830,6 +2890,7 @@ def main():
                 pages.append({
                     'name': page_name,
                     'url': page_url,
+                    'framework': single_result.get('framework'),  # L1: 保留页面级框架
                     'list_page': single_result.get('list_page', {}),
                     'containers': single_result.get('containers', []),
                 })
@@ -2840,6 +2901,7 @@ def main():
                     pages.append({
                         'name': page_name,
                         'url': page_url,
+                        'framework': None,  # L1: 探测失败时框架未知
                         'list_page': {},
                         'containers': [],
                     })
@@ -2852,6 +2914,7 @@ def main():
             'pages': pages,
             # 向后兼容：顶层保留第一个 URL 的数据
             'url': multi_urls[0][1],
+            'framework': pages[0].get('framework'),  # L1: 顶层框架（向后兼容）
             'list_page': pages[0].get('list_page', {}),
             'containers': pages[0].get('containers', []),
         }

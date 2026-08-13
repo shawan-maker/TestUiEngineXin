@@ -1152,6 +1152,9 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
     params = step.get('params', {})
     desc = step.get('desc', '')
 
+    # L4a: 从 discovery_data 提取框架信息
+    _framework = discovery_data.get('framework') if discovery_data else None
+
     # 清空上一次执行的 iframe 发现（防止跨步骤状态泄漏）
     # 只有调用 verify_locator() 的步骤才会重新设置此变量
     global _last_iframe_discovery
@@ -1526,7 +1529,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
     # 优先级 0: KB templates (highest priority — stable, universal XPath patterns)
     kb_locators = []
     if label:
-        kb_locators = _get_kb_locators(elem_type, label)
+        kb_locators = _get_kb_locators(elem_type, label, _framework)
         print(f"    [TRACE-P6] KB templates: {len(kb_locators)} locators")
         for i, kb_xpath in enumerate(kb_locators):
             has_prefix = 'el-dialog' in kb_xpath or 'el-drawer' in kb_xpath or 'el-message-box' in kb_xpath
@@ -1778,7 +1781,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             _alt_candidates = []
 
             # KB locators for this type - Priority 0 (highest)
-            _alt_kb = _get_kb_locators(_alt_type, label)
+            _alt_kb = _get_kb_locators(_alt_type, label, _framework)
             for _alt_kb_xpath in _alt_kb:
                 _alt_candidates.append((_alt_kb_xpath, 'kb'))
 
@@ -1878,7 +1881,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 # M11 修复: 优先用 KB locator 兜底，不用 candidates[0]
                 _m11_resolved = False
                 if label:
-                    kb_locators = _get_kb_locators(elem_type, label)
+                    kb_locators = _get_kb_locators(elem_type, label, _framework)
                     print(f"    [TRACE-P6]   M11 KB fallback: {len(kb_locators)} locators, prefix={_fallback_prefix_str[:50]}")
                     for i, kb_loc in enumerate(kb_locators):
                         fallback_xpath = inject_hidden_filter(
@@ -1895,7 +1898,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                     # Scheme 4 (M11): 跨类型 fallback — input-generic 失败时尝试 textarea-generic
                     if not _m11_resolved and elem_type == 'input-generic':
                         for _cross_type in ('textarea-generic',):
-                            cross_kb_locators = _get_kb_locators(_cross_type, label)
+                            cross_kb_locators = _get_kb_locators(_cross_type, label, _framework)
                             for kb_loc in cross_kb_locators:
                                 fallback_xpath = inject_hidden_filter(
                                     f"xpath={_fallback_prefix_str}{kb_loc}", elem_type=_cross_type)
@@ -2024,7 +2027,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
 
             # 优先级 1: KB 模板 locator（推断类型 + 容器前缀）
             if label:
-                kb_locs = _get_kb_locators(elem_type, label)
+                kb_locs = _get_kb_locators(elem_type, label, _framework)
                 if kb_locs:
                     _bg_locator = inject_hidden_filter(
                         f"xpath={_fallback_prefix_str}{kb_locs[0]}", elem_type=elem_type)

@@ -398,3 +398,37 @@ def get_multi_step_patterns(etype, step_name=None):
     for step in steps.values():
         all_patterns.extend(step.get('patterns', []))
     return all_patterns
+
+
+def get_multi_step_patterns_for_framework(etype, step_name=None, framework=None):
+    """获取 multi_step 指定步骤的 patterns，支持框架变体（L2）。
+
+    优先使用 framework_variants 中的 ant-design 变体，
+    如果不存在或 framework 不匹配，则回退到默认 steps。
+
+    :param etype: 元素类型（如 'el-select', 'el-cascader', 'date-picker'）
+    :param step_name: 指定步骤名（如 'expand', 'select'）。None 时返回所有步骤。
+    :param framework: 框架名（如 'ant-design', 'element-ui'）。None 时使用默认。
+    :returns: list of XPath pattern strings
+    """
+    db = load_knowledge()
+    cats = db.get('multi_step', {}).get('categories', {})
+    if etype not in cats:
+        return []
+
+    entry = cats[etype]
+
+    # 优先使用框架变体
+    if framework and framework in entry.get('framework_variants', {}):
+        variant = entry['framework_variants'][framework]
+        steps = variant.get('steps', {})
+    else:
+        steps = entry.get('steps', {})
+
+    if step_name:
+        return list(steps.get(step_name, {}).get('patterns', []))
+
+    all_patterns = []
+    for step in steps.values():
+        all_patterns.extend(step.get('patterns', []))
+    return all_patterns

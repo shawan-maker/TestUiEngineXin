@@ -430,7 +430,11 @@ def _process_single_module(module_slug, case_list, discovery_dir, output_dir,
     print(f"[INFO] Discovery 覆盖率: {preflight_result.get('final_hit_rate', 'N/A')}")
 
     # 2e. CaseGenerator 生成 cases + data + required_fields
-    generator = CaseGenerator(resolver, module_slug, project_dir=output_dir)
+    # L3: 传入页面级框架信息（优先页面级，回退全局）
+    from probe.discover_page import _get_page_framework
+    page_framework = _get_page_framework(disc_data)
+    generator = CaseGenerator(resolver, module_slug, project_dir=output_dir,
+                              framework=page_framework)
 
     cases_dir = os.path.join(output_dir, 'cases', module_slug)
     os.makedirs(cases_dir, exist_ok=True)

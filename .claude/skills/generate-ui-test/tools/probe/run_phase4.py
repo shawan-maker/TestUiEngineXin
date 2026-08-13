@@ -99,6 +99,7 @@ def _merge_discovery_files(probe_dir, slug):
                 # 旧格式（单 URL）：包装为 pages[] 条目
                 merged['pages'].append({
                     'url': data.get('url', ''),
+                    'framework': data.get('framework'),  # L1: 保留页面级框架
                     'containers': data.get('containers', []),
                     'list_page': data.get('list_page', {}),
                 })

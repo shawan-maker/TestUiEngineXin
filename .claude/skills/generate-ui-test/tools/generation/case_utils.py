@@ -53,8 +53,8 @@ def _detect_container_type(locator):
     return detect_container_type(locator)
 
 
-def _build_date_picker_xpath(value, scope_prefix=''):
-    """根据时间选择值构建正确的 Element UI 日期面板 XPath。
+def _build_date_picker_xpath(value, scope_prefix='', framework=None):
+    """根据时间选择值构建正确的日期面板 XPath。
 
     KB 知识库定义 4 种模式:
     - 今天: td[contains(@class,'today')] in @x-placement panel
@@ -65,39 +65,71 @@ def _build_date_picker_xpath(value, scope_prefix=''):
     Args:
         value: 用户指定的时间值（"今天"/"此刻"/"当月"/"开始时间"/"结束时间"）
         scope_prefix: 可选的容器作用域前缀（如 dialog scope）
+        framework: UI 框架名称，'ant-design' 或 None (默认 Element UI)
     Returns:
         (xpath_str, desc_str): XPath 和步骤描述
     """
-    panel_scope = (f"{scope_prefix}//div[@x-placement"
-                   f" and not(@x-placement='')]")
-    table_filter = "not(contains(@style,'display: none'))"
+    # L3: 根据框架选择不同的日期选择器 XPath
+    if framework == 'ant-design':
+        # Ant Design 使用 ant-picker-dropdown 和 ant-picker-panel
+        panel_scope = f"{scope_prefix}//div[contains(@class,'ant-picker-dropdown')]"
 
-    if '今天' in value or '当天' in value or 'today' in value.lower():
-        xpath = (f"{panel_scope}//table[{table_filter}]"
-                 f"//td[contains(@class,'today')]")
-        desc = "选择今天"
-    elif '此刻' in value or 'now' in value.lower():
-        xpath = (f"{panel_scope}//table[{table_filter}]"
-                 f"//button[contains(.,'此刻')]")
-        desc = "选择此刻"
-    elif '当月' in value or 'current' in value.lower():
-        xpath = (f"//table[@class='el-month-table' and {table_filter}]"
-                 f"//td[@class='today' or @class='current']")
-        if scope_prefix:
-            xpath = f"{scope_prefix}{xpath}"
-        desc = "选择当月"
-    elif '开始' in value or 'start' in value.lower():
-        xpath = (f"({scope_prefix}//div[contains(@class,'is-left')]"
-                 f"//*[contains(@class,'available')])[1]")
-        desc = "选择开始时间"
-    elif '结束' in value or 'end' in value.lower():
-        xpath = (f"({scope_prefix}//div[contains(@class,'is-right')]"
-                 f"//*[contains(@class,'available')])[1]")
-        desc = "选择结束时间"
+        if '今天' in value or '当天' in value or 'today' in value.lower():
+            xpath = (f"{panel_scope}//div[contains(@class,'ant-picker-panel')]"
+                     f"//button[contains(@class,'ant-picker-today-btn')]")
+            desc = "选择今天"
+        elif '此刻' in value or 'now' in value.lower():
+            xpath = (f"{panel_scope}//div[contains(@class,'ant-picker-panel')]"
+                     f"//button[contains(@class,'ant-picker-now-btn')]")
+            desc = "选择此刻"
+        elif '当月' in value or 'current' in value.lower():
+            xpath = (f"{panel_scope}//div[contains(@class,'ant-picker-panel')]"
+                     f"//td[contains(@class,'ant-picker-cell-today')]")
+            desc = "选择当月"
+        elif '开始' in value or 'start' in value.lower():
+            xpath = (f"({scope_prefix}//div[contains(@class,'ant-picker-range')]"
+                     f"//input[@placeholder='开始日期'])[1]")
+            desc = "选择开始时间"
+        elif '结束' in value or 'end' in value.lower():
+            xpath = (f"({scope_prefix}//div[contains(@class,'ant-picker-range')]"
+                     f"//input[@placeholder='结束日期'])[1]")
+            desc = "选择结束时间"
+        else:
+            xpath = (f"{panel_scope}//div[contains(@class,'ant-picker-panel')]"
+                     f"//td[@title='{value}']")
+            desc = f"选择「{value}」"
     else:
-        xpath = (f"{panel_scope}//table[{table_filter}]"
-                 f"//*[contains(.,'{value}')]")
-        desc = f"选择「{value}」"
+        # Element UI (默认)
+        panel_scope = (f"{scope_prefix}//div[@x-placement"
+                       f" and not(@x-placement='')]")
+        table_filter = "not(contains(@style,'display: none'))"
+
+        if '今天' in value or '当天' in value or 'today' in value.lower():
+            xpath = (f"{panel_scope}//table[{table_filter}]"
+                     f"//td[contains(@class,'today')]")
+            desc = "选择今天"
+        elif '此刻' in value or 'now' in value.lower():
+            xpath = (f"{panel_scope}//table[{table_filter}]"
+                     f"//button[contains(.,'此刻')]")
+            desc = "选择此刻"
+        elif '当月' in value or 'current' in value.lower():
+            xpath = (f"//table[@class='el-month-table' and {table_filter}]"
+                     f"//td[@class='today' or @class='current']")
+            if scope_prefix:
+                xpath = f"{scope_prefix}{xpath}"
+            desc = "选择当月"
+        elif '开始' in value or 'start' in value.lower():
+            xpath = (f"({scope_prefix}//div[contains(@class,'is-left')]"
+                     f"//*[contains(@class,'available')])[1]")
+            desc = "选择开始时间"
+        elif '结束' in value or 'end' in value.lower():
+            xpath = (f"({scope_prefix}//div[contains(@class,'is-right')]"
+                     f"//*[contains(@class,'available')])[1]")
+            desc = "选择结束时间"
+        else:
+            xpath = (f"{panel_scope}//table[{table_filter}]"
+                     f"//*[contains(.,'{value}')]")
+            desc = f"选择「{value}」"
     return xpath, desc
 
 

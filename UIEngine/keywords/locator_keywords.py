@@ -30,13 +30,27 @@ class LocatorMixin(BaseBrowser):
         :param force: 是否强制点击（跳过 actionability 检查，用于被覆盖的元素）
         """
         self.log.debug_log(f"正在点击元素:{locator}")
-        self.page.locator(locator).click(timeout=timeout, force=force)
+        loc = self.page.locator(locator)
+        try:
+            loc.click(timeout=timeout, force=force)
+        except Exception:
+            # 元素可能在局部滚动容器内，先滚动到视口再重试一次
+            self.log.debug_log(f"元素不在视口内，尝试滚动后重试:{locator}")
+            loc.scroll_into_view_if_needed(timeout=timeout)
+            loc.click(timeout=timeout, force=force)
 
     @KeyWordManager.register("hover", "悬停")
     def hover(self, locator, timeout=3000):
         """悬停到元素上方"""
         self.log.debug_log(f"正在悬停到元素:{locator}")
-        self.page.locator(locator).hover(timeout=timeout)
+        loc = self.page.locator(locator)
+        try:
+            loc.hover(timeout=timeout)
+        except Exception:
+            # 元素可能在局部滚动容器内，先滚动到视口再重试一次
+            self.log.debug_log(f"元素不在视口内，尝试滚动后重试:{locator}")
+            loc.scroll_into_view_if_needed(timeout=timeout)
+            loc.hover(timeout=timeout)
 
     @KeyWordManager.register("focus_element", "聚焦元素")
     def focus_element(self, locator, timeout=3000):
@@ -89,7 +103,14 @@ class LocatorMixin(BaseBrowser):
         :param timeout: 等待元素可见的最大超时时间
         """
         self.log.debug_log(f"正在双击元素:{locator}")
-        self.page.locator(locator).dblclick(timeout=timeout)
+        loc = self.page.locator(locator)
+        try:
+            loc.dblclick(timeout=timeout)
+        except Exception:
+            # 元素可能在局部滚动容器内，先滚动到视口再重试一次
+            self.log.debug_log(f"元素不在视口内，尝试滚动后重试:{locator}")
+            loc.scroll_into_view_if_needed(timeout=timeout)
+            loc.dblclick(timeout=timeout)
 
     @KeyWordManager.register("check", "勾选")
     def check(self, locator, timeout=3000):

@@ -23,19 +23,6 @@ from core.xpath_utils import detect_container_type
 from probe.probe_element import load_knowledge, _safe_format, _get_expand_patterns
 
 
-def _load_framework():
-    """从 _probe/framework.json 读取 UI 框架信息"""
-    import json
-    try:
-        fw_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '_probe', 'framework.json')
-        if os.path.exists(fw_path):
-            with open(fw_path, 'r', encoding='utf-8') as f:
-                return json.load(f).get('framework')
-    except Exception:
-        pass
-    return None
-
-
 def _slugify(text):
     """中文/英文 → 小写 slug"""
     if not text:
@@ -133,7 +120,7 @@ def _build_date_picker_xpath(value, scope_prefix='', framework=None):
     return xpath, desc
 
 
-def _get_assertion_kb_pattern(category, **kwargs):
+def _get_assertion_kb_pattern(category, framework=None, **kwargs):
     """从 KB assertion 段读取模板并填充参数。
 
     支持两种 pattern 格式:
@@ -144,6 +131,7 @@ def _get_assertion_kb_pattern(category, **kwargs):
 
     Args:
         category: 'success-toast' / 'error-toast' / 'first-row-content' / 'field-value'
+        framework: UI 框架名称，由调用方传入（避免从全局文件读取导致跨项目污染）
         **kwargs: 模板参数 (keyword, field_label 等)
     Returns:
         str or None: 填充后的 XPath
@@ -157,8 +145,6 @@ def _get_assertion_kb_pattern(category, **kwargs):
         patterns = cats[category].get('patterns', [])
         if not patterns:
             return None
-
-        framework = _load_framework()  # 读取当前框架
 
         candidates = []
         for p in patterns:

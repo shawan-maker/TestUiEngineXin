@@ -540,12 +540,22 @@ def deduplicate_buttons(buttons, row_buttons):
         toolbar_seen.add(text)
         toolbar_unique.append(btn)
 
+    # Dedup row buttons: prefer non-disabled occurrence
+    # Pass 1: collect first non-disabled occurrence per text
     row_seen = set()
     row_unique = []
     for btn in row_buttons:
         text = btn['text']
+        if text in row_seen or btn.get('disabled'):
+            continue  # skip: already have non-disabled copy, or this one is disabled
+        row_seen.add(text)
+        row_unique.append(btn)
+    # Pass 2: fallback — collect first disabled occurrence for texts not yet in row_seen
+    # (texts that were ONLY disabled in all rows didn't enter row_seen in Pass 1)
+    for btn in row_buttons:
+        text = btn['text']
         if text in row_seen:
-            continue
+            continue  # skip: already collected in Pass 1 (non-disabled version exists)
         row_seen.add(text)
         row_unique.append(btn)
 

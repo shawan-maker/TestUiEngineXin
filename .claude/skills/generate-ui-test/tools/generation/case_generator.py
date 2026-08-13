@@ -718,8 +718,9 @@ class CaseGenerator:
 
     # Scheme 2: 类型守卫 — fill/textarea 步骤不兼容的元素类型
     _FILL_INCOMPATIBLE_TYPES = frozenset({
-        'button', 'row_button', 'download-button', 'close-button',
-        'tab', 'detail_link', 'checkbox', 'menu_item',
+        'button', 'table-action-button', 'download-button', 'close-button',
+        'search-button', 'tab', 'detail_link', 'detail-link',
+        'checkbox', 'menu_item', 'menu-item',
     })
 
     def find_input(self, label, preferred_container=None):
@@ -766,30 +767,53 @@ class CaseGenerator:
             return entry.get('container_type')
         return None
 
-    def _lookup_discovery_element(self, label, context=None):
+    def _lookup_discovery_element(self, label, context=None, type_hint=None):
         """从 discovery_element_map 查找元素（两层 context 回退）。
 
         多URL场景：优先按 page_slug 精确索引查找，避免跨URL同名覆盖。
         L3 全局回退已删除（2026-08-07）：防止跨页面误匹配，未命中时返回 None，
         交由调用方生成 [待确认] 占位符，Phase 6 运行时补探。
+
+        type_hint: 类型过滤提示（'input', 'button' 等），防止精确匹配返回
+                   类型不兼容的元素（如 fill 步骤匹配到 table-action-button）。
         """
+        # 类型兼容性映射（与 _discovery_lookup 中的子串搜索保持一致）
+        _TYPE_COMPAT = {
+            'button': {'button', 'table-action-button', 'close-button', 'search-button'},
+            'input': {'input', 'textarea', 'input-generic', 'textarea-generic'},
+            'el-select': {'el-select', 'el-cascader'},
+            'textarea': {'textarea', 'input', 'textarea-generic', 'input-generic'},
+            'el-cascader': {'el-cascader', 'el-select'},
+        }
+
+        def _type_ok(elem):
+            if not type_hint:
+                return True
+            elem_type = elem.get('type', '')
+            if not elem_type:
+                return True  # 无类型信息时不过滤
+            compat = _TYPE_COMPAT.get(type_hint)
+            if compat:
+                return elem_type in compat
+            return elem_type == type_hint
+
         ctx = context or self._current_context or 'list_page'
         page_slug = self._get_current_page_slug()
 
         # L1: 多URL精确索引：优先按 page_slug 查找
         if page_slug:
             elem = self._discovery_page_element_map.get((page_slug, ctx, label))
-            if elem and elem.get('locator'):
+            if elem and elem.get('locator') and _type_ok(elem):
                 return elem
             # 容器回退到 list_page
             if ctx != 'list_page':
                 elem = self._discovery_page_element_map.get((page_slug, 'list_page', label))
-                if elem and elem.get('locator'):
+                if elem and elem.get('locator') and _type_ok(elem):
                     return elem
 
         # L2: 向后兼容：原有逻辑（无 page_slug 维度）
         elem = self._discovery_element_map.get((ctx, label))
-        if elem and elem.get('locator'):
+        if elem and elem.get('locator') and _type_ok(elem):
             return elem
         if ctx != 'list_page':
             is_container_ctx = ctx in self._discovery_trigger_map
@@ -798,7 +822,7 @@ class CaseGenerator:
                       f"跳过 list_page 回退（避免无前缀引用）")
                 return None
             elem = self._discovery_element_map.get(('list_page', label))
-            if elem and elem.get('locator'):
+            if elem and elem.get('locator') and _type_ok(elem):
                 return elem
         # L3 已删除：不再做跨 context 全局回退，直接返回 None
         return None
@@ -810,7 +834,7 @@ class CaseGenerator:
               f"context_param='{context}', current_context='{self._current_context}', "
               f"effective_ctx='{ctx}'")
 
-        elem = self._lookup_discovery_element(label, ctx)
+        elem = self._lookup_discovery_element(label, ctx, type_hint=type_hint)
         if elem:
             group = elem.get('group_name', '?')
             field = elem.get('field_key', '?')
@@ -1949,7 +1973,7 @@ class CaseGenerator:
 
         elif ptype == 'assert_row':
             value = args[0]
-            kb_xpath = _get_assertion_kb_pattern('first-row-content', keyword=value)
+            kb_xpath = _get_assertion_kb_pattern('first-row-content', framework=self._framework, keyword=value)
             if not kb_xpath:
                 kb_xpath = f"//tbody/tr[1]//*[contains(.,'{value}')]"
             kb_xpath = _inject_hidden_filter(kb_xpath)
@@ -2455,7 +2479,7 @@ class CaseGenerator:
 
         elif ptype == 'conditional_click_btn':
             section, label = args[0], args[1]
-            check_xpath = _get_assertion_kb_pattern('first-row-content', keyword=section)
+            check_xpath = _get_assertion_kb_pattern('first-row-content', framework=self._framework, keyword=section)
             if not check_xpath:
                 check_xpath = f"//tbody/tr[1]//*[contains(.,'{section}')]"
             check_xpath = _inject_hidden_filter(check_xpath)
@@ -2484,7 +2508,7 @@ class CaseGenerator:
 
         elif ptype == 'conditional_click_tab':
             section, tab_label = args[0], args[1]
-            check_xpath = _get_assertion_kb_pattern('first-row-content', keyword=section)
+            check_xpath = _get_assertion_kb_pattern('first-row-content', framework=self._framework, keyword=section)
             if not check_xpath:
                 check_xpath = f"//tbody/tr[1]//*[contains(.,'{section}')]"
             check_xpath = _inject_hidden_filter(check_xpath)
@@ -2505,7 +2529,7 @@ class CaseGenerator:
 
         elif ptype == 'conditional_click_row':
             section = args[0] if args else ''
-            check_xpath = _get_assertion_kb_pattern('first-row-content', keyword=section)
+            check_xpath = _get_assertion_kb_pattern('first-row-content', framework=self._framework, keyword=section)
             if not check_xpath:
                 check_xpath = f"//tbody/tr[1]//*[contains(.,'{section}')]"
             check_xpath = _inject_hidden_filter(check_xpath)
@@ -2535,7 +2559,7 @@ class CaseGenerator:
 
         elif ptype == 'conditional_click':
             section = args[0] if args else ''
-            check_xpath = _get_assertion_kb_pattern('first-row-content', keyword=section)
+            check_xpath = _get_assertion_kb_pattern('first-row-content', framework=self._framework, keyword=section)
             if not check_xpath:
                 check_xpath = f"//tbody/tr[1]//*[contains(.,'{section}')]"
             check_xpath = _inject_hidden_filter(check_xpath)
@@ -2564,7 +2588,7 @@ class CaseGenerator:
 
             if field_label and check_value:
                 kb_xpath = _get_assertion_kb_pattern(
-                    'field-value', field_label=field_label, keyword=check_value)
+                    'field-value', framework=self._framework, field_label=field_label, keyword=check_value)
                 if not kb_xpath:
                     kb_xpath = (f"//*[contains(text(),'{field_label}')]"
                                 f"/following-sibling::*[self::div or self::span]"

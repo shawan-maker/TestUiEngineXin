@@ -23,12 +23,6 @@ def test_framework_loading():
     print(f"[OK] Phase 4 _load_framework() returns: {fw}")
     assert fw == "ant-design", f"Expected 'ant-design', got '{fw}'"
 
-    # Test Phase 5 _load_framework
-    from generation.case_utils import _load_framework as load_fw_phase5
-    fw2 = load_fw_phase5()
-    print(f"[OK] Phase 5 _load_framework() returns: {fw2}")
-    assert fw2 == "ant-design", f"Expected 'ant-design', got '{fw2}'"
-
     print("[PASS] Test 1 passed\n")
 
 def test_assertion_kb_patterns():
@@ -40,7 +34,7 @@ def test_assertion_kb_patterns():
     from generation.case_utils import _get_assertion_kb_pattern
 
     # Test first-row-content
-    pattern = _get_assertion_kb_pattern('first-row-content', keyword='testdata')
+    pattern = _get_assertion_kb_pattern('first-row-content', framework='ant-design', keyword='testdata')
     print(f"[OK] first-row-content pattern: {pattern}")
     assert pattern is not None, "first-row-content pattern should not be None"
     assert 'testdata' in pattern, f"Pattern should contain 'testdata', got: {pattern}"
@@ -48,13 +42,13 @@ def test_assertion_kb_patterns():
     assert 'ant-table' in pattern or 'tbody' in pattern, f"Should contain table selector, got: {pattern}"
 
     # Test field-value (antd pattern only uses keyword, not field_label)
-    pattern2 = _get_assertion_kb_pattern('field-value', field_label='name', keyword='vm')
+    pattern2 = _get_assertion_kb_pattern('field-value', framework='ant-design', field_label='name', keyword='vm')
     print(f"[OK] field-value pattern: {pattern2}")
     assert pattern2 is not None, "field-value pattern should not be None"
     assert 'vm' in pattern2, f"Pattern should contain 'vm', got: {pattern2}"
 
     # Test generic pattern (success-toast has no framework-specific pattern)
-    pattern3 = _get_assertion_kb_pattern('success-toast', keyword='create')
+    pattern3 = _get_assertion_kb_pattern('success-toast', framework='ant-design', keyword='create')
     print(f"[OK] success-toast pattern (generic): {pattern3}")
     assert pattern3 is not None, "success-toast pattern should not be None"
     assert 'create' in pattern3, f"Pattern should contain 'create', got: {pattern3}"
@@ -71,7 +65,7 @@ def test_hidden_filter_on_antd_patterns():
     from generation.case_utils import _get_assertion_kb_pattern
 
     # Get antd pattern
-    pattern = _get_assertion_kb_pattern('first-row-content', keyword='test')
+    pattern = _get_assertion_kb_pattern('first-row-content', framework='ant-design', keyword='test')
     print(f"Original pattern: {pattern}")
 
     # Inject hidden filter

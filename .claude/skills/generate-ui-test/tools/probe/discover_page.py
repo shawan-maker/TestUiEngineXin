@@ -1595,7 +1595,7 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                             if _loading == 0:
                                 break
                         # 阶段2: 等待菜单项出现（最多 15s）
-                        _menu_sel_expand = fwSelectors.dropdownMenu if fwSelectors else (
+                        _menu_sel_expand = _FW_SELECTORS.get('dropdownMenu') if _FW_SELECTORS else (
                             '.el-dropdown-menu .el-dropdown-menu__item, '
                             '.el-dropdown-menu li, '
                             '.el-popover .el-button, '

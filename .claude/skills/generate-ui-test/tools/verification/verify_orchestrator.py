@@ -497,7 +497,6 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                 # R6: 读取 AI probe 配置并初始化
                 if _HAS_AI_PROBE and cfg.get('ai_probe'):
                     # 读取 framework.json
-                    import json
                     fw_path = os.path.join(project_dir, '_probe', 'framework.json')
                     framework = None
                     if os.path.isfile(fw_path):

@@ -524,11 +524,14 @@ def generate_case_file(case_data, generator, seq, output_dir, module='', project
 
     pending_desc = None
     source_map = []
+    url_step_consumed = False  # 追踪是否已跳过第一个"访问"步骤
     i = 0
     while i < len(raw_steps):
         step_text = raw_steps[i]
 
-        if re.search(r'^访问\s*https?://', step_text):
+        # 跳过已被 preamble 处理的第一个"访问"步骤（同时匹配完整 URL 和相对路径）
+        if re.search(r'^访问\s*(https?://|/\S+)', step_text) and not url_step_consumed:
+            url_step_consumed = True
             i += 1
             generator._pending_nav_wait = False
             continue

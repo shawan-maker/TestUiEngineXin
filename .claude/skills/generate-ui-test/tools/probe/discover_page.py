@@ -770,7 +770,18 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
                                     ap = ap.parentElement;
                                 }
                                 if (ancestorHidden) return;
-                                const text = (el.textContent || '').trim().slice(0, 100);
+                                // 提取直接文本节点，排除子元素（如<span>角标）
+                                let text = '';
+                                for (const node of el.childNodes) {
+                                    if (node.nodeType === 3) { // TEXT_NODE
+                                        const t = node.textContent.trim();
+                                        if (t) {
+                                            text = t;
+                                            break;
+                                        }
+                                    }
+                                }
+                                text = text.slice(0, 100);
                                 if (!text) return;
                                 items.push({
                                     text: text,
@@ -789,6 +800,62 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
                     # Tag with current row_index (so click can hover row again)
                     for mi in menu_items:
                         mi['row_index'] = i
+
+                    # 【修复2】菜单仍打开时，批量验证所有菜单项的 locator
+                    for mi in menu_items:
+                        text_raw = mi.get('text', '')
+                        if not text_raw:
+                            mi['verified'] = False
+                            mi['count'] = 0
+                            continue
+
+                        escaped = _xpath_escape_label(text_raw)
+
+                        # Element UI: @x-placement 作用域
+                        xpath_el = (
+                            f"//*[@x-placement and not(@x-placement='')]"
+                            f"//*[contains(text(),'{escaped}')"
+                            f" and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
+                            f" and not(ancestor-or-self::*[contains(@style,'display: none')])]"
+                        )
+
+                        # Ant Design: .ant-dropdown 作用域
+                        xpath_ant = (
+                            f"//div[contains(@class,'ant-dropdown')]"
+                            f"//*[contains(text(),'{escaped}')"
+                            f" and not(ancestor-or-self::*[contains(@class,'ant-dropdown-hidden')])]"
+                        )
+
+                        # 双作用域尝试
+                        count_el = 0
+                        count_ant = 0
+                        try:
+                            count_el = page.locator(f"xpath={xpath_el}").count()
+                        except Exception:
+                            pass
+                        if count_el == 0:
+                            try:
+                                count_ant = page.locator(f"xpath={xpath_ant}").count()
+                            except Exception:
+                                pass
+
+                        # 选择匹配数 > 0 的作用域
+                        if count_el > 0:
+                            xpath, count = xpath_el, count_el
+                        elif count_ant > 0:
+                            xpath, count = xpath_ant, count_ant
+                        else:
+                            xpath, count = xpath_el, 0
+
+                        verified = (count >= 1)
+                        if count > 1:
+                            xpath = f"({xpath})[1]"
+                            verified = True
+
+                        mi['locator'] = xpath
+                        mi['verified'] = verified
+                        mi['count'] = count
+
                     all_row_buttons.extend(menu_items)
                     # Close menu: press Escape
                     try:
@@ -962,6 +1029,10 @@ def _generate_locators_for_elements(page, elements, container_type=None):
         # 使用 @x-placement 作用域，跳过 KB（KB 返回 click-more 而非 click-action）
         # Ant Design: 增加 .ant-dropdown 作用域作为备选
         if elem.get('from_expand') and 'text' in elem:
+            # 修改3: 如果探测阶段已验证（修改2），直接复用结果
+            if elem.get('locator') and elem.get('verified') is not None:
+                continue
+
             escaped = _xpath_escape_label(label)
 
             # Element UI: @x-placement 作用域
@@ -1231,7 +1302,8 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
         domain = urlparse(url).hostname
         cookies = parse_cookie(cookie, domain)
 
-        context = browser.new_context(no_viewport=True)
+        context = browser.new_context(no_viewport=True, ignore_https_errors=True)
+        print(f"[INFO] HTTPS certificate errors will be ignored (ignore_https_errors=True)")
         context.add_cookies(cookies)
 
         # Build localStorage: CLI override + cookie token (cookie wins)

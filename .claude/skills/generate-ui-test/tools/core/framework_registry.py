@@ -278,7 +278,8 @@ CHECKBOX_HARDCODED = {
 
 GENERATOR_LOCATORS = {
     'dropdown-menu': {
-        'element-ui': "//li[contains(@class,'el-dropdown__item')][contains(.,'{label}')]",
+        # 修改4: Element UI 使用 @x-placement 作用域（与 discover 阶段一致）
+        'element-ui': "//*[@x-placement and not(@x-placement='')]//*[contains(text(),'{label}')]",
         'ant-design': "//li[contains(@class,'ant-dropdown-menu-item')][contains(.,'{label}')]",
     },
     'more-button': {

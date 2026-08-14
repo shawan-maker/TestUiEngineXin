@@ -1401,7 +1401,9 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
     # BUG-3 fix: can now produce 'table-action-button'
     # BUG-5 fix: can now produce 'detail-link'
     # BUG-7 fix: pass locator_ref for _select/_editable suffix detection
-    elem_type = _infer_elem_type(keyword, desc, locator_ref=raw_locator_ref)
+    # 优先读取 step 中预设的 elem_type（如 click_more_then 两步法的 dropdown-menu-item）
+    # 预设值来自 case_generator，避免 Phase 6 重新推断时因 label 歧义导致错误类型
+    elem_type = step.get('elem_type') or _infer_elem_type(keyword, desc, locator_ref=raw_locator_ref)
     # [TRACE-P6] 类型推断结果
     print(f"    [TRACE-P6] infer: label='{label}', elem_type={elem_type}")
 

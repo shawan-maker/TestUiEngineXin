@@ -1270,6 +1270,12 @@ class PipelineExecutor:
 
         print(f"  [Phase 9] 执行测试脚本: {run_py}")
         try:
+            # 构建 PYTHONPATH：包含仓库根目录（UIEngine 所在位置）
+            repo_root = str(Path(__file__).resolve().parent.parent.parent.parent)
+            env = os.environ.copy()
+            existing = env.get("PYTHONPATH", "")
+            env["PYTHONPATH"] = repo_root + (os.pathsep + existing if existing else "")
+
             result = subprocess.run(
                 [sys.executable, str(run_py)],
                 cwd=self.project_dir,
@@ -1277,7 +1283,8 @@ class PipelineExecutor:
                 text=True,
                 encoding='utf-8',
                 errors='replace',
-                timeout=3600  # 测试运行可能需要较长时间
+                timeout=3600,  # 测试运行可能需要较长时间
+                env=env,
             )
 
             if result.returncode == 0:

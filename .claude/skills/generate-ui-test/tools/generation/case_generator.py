@@ -1614,7 +1614,20 @@ class CaseGenerator:
             )
             inline_xpath = apply_container_prefix(inline_xpath, self.current_container)
 
-            # ── Step 6: 生成 case step（内联 XPath）──
+            # ── Step 6: 插入鼠标滚轮步骤（触发虚拟滚动）──
+            # 虚拟滚动的元素在未滚动时不在 DOM 中，需要 CDP 级别的 mouse.wheel 触发
+            steps.append({
+                'desc': f'滚动页面让{label}选项列表可见（虚拟滚动）',
+                'keyword': 'mouse_wheel',
+                'params': {'delta_y': 300, 'times': 15, 'delay': 200},
+            })
+            steps.append({
+                'desc': '等待虚拟滚动渲染',
+                'keyword': 'wait_for_time',
+                'params': {'timeout': 1000},
+            })
+
+            # ── Step 7: 生成 case step（内联 XPath）──
             steps.append({
                 'desc': f"在「{label}」选项卡中选择「{value}」",
                 'keyword': 'click_element',
@@ -2300,6 +2313,7 @@ class CaseGenerator:
                     'desc': f'选择「{action}」',
                     'keyword': 'click_element',
                     'label': action,
+                    'elem_type': 'dropdown-menu-item',
                     'params': {'locator': option_ref},
                 })
             else:
@@ -2321,6 +2335,7 @@ class CaseGenerator:
                     'desc': f'[待确认] 选择「{action}」',
                     'keyword': 'click_element',
                     'label': action,
+                    'elem_type': 'dropdown-menu-item',
                     'params': {'locator': option_ref},
                 })
 
@@ -2361,6 +2376,7 @@ class CaseGenerator:
                     'desc': f'点击「{action}」',
                     'keyword': 'click_element',
                     'label': action,
+                    'elem_type': 'dropdown-menu-item',
                     'params': {'locator': option_ref},
                 })
             else:
@@ -2394,6 +2410,7 @@ class CaseGenerator:
                     'desc': f'点击「{action}」',
                     'keyword': 'click_element',
                     'label': action,
+                    'elem_type': 'dropdown-menu-item',
                     'params': {'locator': option_ref},
                 })
 

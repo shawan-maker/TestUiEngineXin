@@ -72,3 +72,53 @@ class MouseMixin(BaseBrowser):
         """
         self.log.debug_log(f"正在右键点击元素:{locator}")
         self.page.locator(locator).click(button="right", timeout=timeout)
+
+    @KeyWordManager.register("mouse_wheel", "鼠标滚轮")
+    def mouse_wheel(self, delta_x=0, delta_y=300, times=1, delay=200, locator=None):
+        """
+        模拟鼠标滚轮滚动（用于触发虚拟滚动）
+        :param delta_x: 水平滚动量（正数向右，负数向左）
+        :param delta_y: 垂直滚动量（正数向下，负数向上）
+        :param times: 滚动次数
+        :param delay: 每次滚动间隔时间（毫秒）
+        :param locator: 可选，滚动前先移动光标到该元素（确保滚轮事件命中正确容器）
+        """
+        import time
+        self.log.debug_log(f"正在模拟鼠标滚轮：delta_x={delta_x}, delta_y={delta_y}, times={times}, delay={delay}ms"
+                          + (f", locator={locator}" if locator else ""))
+        if locator:
+            loc = self.page.locator(locator).first
+            self.log.debug_log(f"[mouse_wheel] 准备 hover 到: {locator}")
+            try:
+                loc.hover(timeout=3000)
+                # 获取 hover 后的元素信息
+                info = loc.evaluate("""(el) => ({
+                    tag: el.tagName,
+                    class: el.className,
+                    scrollHeight: el.scrollHeight,
+                    clientHeight: el.clientHeight,
+                    scrollTop: el.scrollTop,
+                    textContent: el.textContent.substring(0, 200),
+                    bodyHasC5k: document.body.innerText.includes('c5k'),
+                    wrapperCount: document.querySelectorAll('.el-table__body-wrapper').length
+                })""")
+                self.log.debug_log(f"[mouse_wheel] hover 成功: {info}")
+            except Exception as e:
+                self.log.debug_log(f"[mouse_wheel] hover 失败: {e}")
+        for i in range(times):
+            self.page.mouse.wheel(delta_x, delta_y)
+            if i < times - 1:
+                time.sleep(delay / 1000.0)
+
+        if locator:
+            # 滚动后检查 scrollTop 变化
+            try:
+                info_after = loc.evaluate("""(el) => ({
+                    scrollTop: el.scrollTop,
+                    hasC5k: document.body.innerText.includes('c5k.large.2'),
+                    bodyHasC5k: document.body.innerText.includes('c5k'),
+                    c5kVariants: document.body.innerText.match(/c5k\\S+/g) || []
+                })""")
+                self.log.debug_log(f"[mouse_wheel] 滚动后: {info_after}")
+            except:
+                pass

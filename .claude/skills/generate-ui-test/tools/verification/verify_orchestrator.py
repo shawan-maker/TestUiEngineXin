@@ -106,6 +106,41 @@ NAV_KEYWORDS = {
 }
 
 
+def _is_non_button_click(step):
+    """判断是否为非按钮点击（不应改变容器上下文）
+
+    非按钮点击包括：
+    - 下拉框展开（点击 el-select/ant-select 的 input）
+    - 下拉选项选择（click_select_option）
+    - Tab 切换
+
+    原则：只有按钮点击才触发容器消失检测（新容器/新页面/不变/容器消失 4 种判断）。
+    非按钮点击不应改变容器上下文，两次按钮点击之间容器前缀保持一致。
+
+    Args:
+        step: 步骤字典
+
+    Returns:
+        bool: True 表示非按钮点击，不应触发容器消失检测
+    """
+    keyword = step.get('keyword', '')
+    desc = step.get('desc', '')
+
+    # 下拉框展开（el-select/ant-select expand）
+    if keyword == 'click_element' and '下拉框' in desc:
+        return True
+
+    # 下拉选项选择
+    if keyword == 'click_select_option':
+        return True
+
+    # Tab 切换
+    if keyword == 'click_tab' or 'Tab' in desc or 'tab' in desc:
+        return True
+
+    return False
+
+
 def _is_page_changed(prev_url, curr_url):
     """比较 path + fragment 判断页面是否变化（与 Phase 4 check_url_change 对齐）
 
@@ -124,6 +159,123 @@ def _is_page_changed(prev_url, curr_url):
     p = urlparse(prev_url)
     c = urlparse(curr_url)
     return c.path != p.path or c.fragment != p.fragment
+
+
+def _derive_el_select_substep_locator(sub, expand_verified_locator, pages_dict):
+    """基于验证后的 _expand locator 推导 _editable/_select 的 locator
+
+    el-select 下拉框的 4 个步骤中，只有 _expand（点击下拉框）需要页面探测验证，
+    其他 3 个步骤（_editable 可编辑检查、_select 输入文本、_first_option 选择选项）
+    可以直接基于 _expand 验证结果推导，无需重新探测。
+
+    推导规则：
+    - _expand:   //label[...]/following-sibling::...//div[contains(@class,'el-select') and not(contains(@class,'el-select-dropdown'))]
+    - _editable: 将 //div[el-select] 替换为 //input[contains(@class,'el-input__inner') and not(@readonly)]
+    - _select:   将 //div[el-select] 替换为 //input[contains(@class,'el-input__inner')]
+    - _first_option: 全局硬编码 XPath，不依赖 _expand
+
+    Args:
+        sub: 子步骤字典（会被原地修改 params.locator）
+        expand_verified_locator: _expand 验证后的完整 locator（含 xpath= 前缀）
+        pages_dict: pages.yaml 数据（用于查找 group_name）
+
+    Returns:
+        bool: True 表示成功推导并修改了 sub，False 表示跳过（不是目标字段）
+    """
+    params = sub.get('params', {})
+    locator_ref = params.get('locator', '')
+
+    # 必须是变量引用 ${group.field_xxx}
+    if not locator_ref.startswith('${'):
+        return False
+
+    # 提取 field 名称
+    field_name = locator_ref.split('.')[-1].rstrip('}')
+
+    # 判断是 _editable 还是 _select（_first_option 使用全局硬编码，不需要推导）
+    is_editable = field_name.endswith('_editable')
+    is_select = field_name.endswith('_select')
+
+    if not (is_editable or is_select):
+        return False
+
+    # 提取 _expand 验证后的 XPath（去掉 xpath= 前缀）
+    expand_xpath = expand_verified_locator.replace('xpath=', '', 1) if expand_verified_locator.startswith('xpath=') else expand_verified_locator
+
+    # 调试日志：打印 expand locator 的实际格式
+    print(f"    [DEBUG-DERIVE] field={field_name}, is_editable={is_editable}, is_select={is_select}")
+    print(f"    [DEBUG-DERIVE] expand_xpath[:120]: {expand_xpath[:120]}")
+
+    # 替换规则：将 //div[contains(@class,'el-select') ...] 替换为 //input[...]
+    # 实际 locator 包含深层嵌套括号（如 not(ancestor-or-self::*[contains(@class,'is-hidden')])）
+    # 正则无法处理嵌套括号，改用括号深度解析器精确匹配
+    #
+    # 示例 expand xpath:
+    #   (//label[...]//following-sibling::*[...]//div[contains(@class,'el-select') and not(contains(@class,'el-select-dropdown')) and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]
+    # 目标：找到 //div[ 开始，追踪括号深度到匹配的 ]，替换为 //input[...]
+
+    derived_xpath = expand_xpath
+    replaced = False
+
+    # 查找 //div[contains(@class,'el-select') 或 //div[contains(@class,'ant-select')
+    matched_marker = None
+    for marker in ["//div[contains(@class,'el-select')", "//div[contains(@class,'ant-select')"]:
+        idx = derived_xpath.find(marker)
+        if idx < 0:
+            continue
+
+        matched_marker = marker
+        # 找到 //div[ 中 [ 的位置
+        bracket_start = idx + len("//div")  # 指向 [
+
+        # 追踪括号深度，找到匹配的 ]
+        depth = 0
+        end_idx = -1
+        for j in range(bracket_start, len(derived_xpath)):
+            if derived_xpath[j] == '[':
+                depth += 1
+            elif derived_xpath[j] == ']':
+                depth -= 1
+                if depth == 0:
+                    end_idx = j
+                    break
+
+        if end_idx < 0:
+            print(f"    [WARN] Bracket depth parsing failed for {field_name}")
+            continue
+
+        # 根据匹配的 marker 选择对应的替换模式（框架感知）
+        # Element UI: el-input__inner + not(@readonly)
+        # Ant Design: ant-select-selection-search-input + not(@disabled)
+        is_antd = 'ant-select' in matched_marker
+        if is_antd:
+            if is_editable:
+                new_part = "//input[contains(@class,'ant-select-selection-search-input') and not(@disabled)]"
+            else:  # is_select
+                new_part = "//input[contains(@class,'ant-select-selection-search-input')]"
+        else:  # element-ui (default)
+            if is_editable:
+                new_part = "//input[contains(@class,'el-input__inner') and not(@readonly)]"
+            else:  # is_select
+                new_part = "//input[contains(@class,'el-input__inner')]"
+
+        matched_part = derived_xpath[idx:end_idx + 1]
+        derived_xpath = derived_xpath[:idx] + new_part + derived_xpath[end_idx + 1:]
+        replaced = True
+        print(f"    [DEBUG-DERIVE] framework={'ant-design' if is_antd else 'element-ui'}, bracket parser matched {len(matched_part)} chars")
+        break
+
+    if not replaced:
+        print(f"    [WARN] Cannot derive {field_name}: no el-select/ant-select pattern found in _expand locator")
+        print(f"    [DEBUG-DERIVE] Full expand_xpath: {expand_xpath}")
+        return False
+
+    # 更新 sub 的 locator（直接修改 params）
+    new_locator = f"xpath={derived_xpath}"
+    params['locator'] = new_locator
+
+    print(f"    [TRACE-P6] Derived {field_name} from _expand: {derived_xpath[:80]}")
+    return True
 
 
 def _execute_direct(page, step, pages_dict, data_dict):
@@ -194,12 +346,15 @@ def _process_if_element_visible(page, step, pages_dict, data_dict,
                                  steps_so_far, case_discovery,
                                  verified_locators, project_dir,
                                  is_new_page_context, container_context,
-                                 el_select_mode=False):
+                                 el_select_mode=False,
+                                 expand_verified_locator=None):
     """处理 if_element_visible 条件分支（支持嵌套递归 + el-select 模式）。
 
     Args:
         el_select_mode: 若为 True，子步骤走 _execute_direct()（Phase 9 模式），
                         不做类型推断/KB/VLC。仅用于 el-select 三步法的子步骤。
+        expand_verified_locator: 若 el_select_mode=True，此参数为 _expand 步骤验证后的 locator，
+                                 用于推导 _editable/_select 的 locator（无需重新探测）
 
     Returns: (verified_count_delta, fallback_count_delta, total_steps_delta, container_context)
     """
@@ -292,13 +447,17 @@ def _process_if_element_visible(page, step, pages_dict, data_dict,
                 page, sub, pages_dict, data_dict, steps_so_far,
                 case_discovery, verified_locators, project_dir,
                 is_new_page_context, container_context,
-                el_select_mode=el_select_mode
+                el_select_mode=el_select_mode,
+                expand_verified_locator=expand_verified_locator
             )
             v_verified += _dv
             v_fallback += _df
             v_total_steps += _dt
         elif el_select_mode:
-            # el-select 子步骤：直接执行（Phase 9 模式），不做类型推断/KB/VLC
+            # el-select 子步骤：基于 _expand 验证结果推导 locator，然后直接执行
+            # _editable/_select 的 locator 从 _expand 推导而来（不依赖 pages YAML 中可能错误的值）
+            if expand_verified_locator:
+                _derive_el_select_substep_locator(sub, expand_verified_locator, pages_dict)
             _success = _execute_direct(page, sub, pages_dict, data_dict)
             if _success:
                 v_verified += 1
@@ -311,18 +470,21 @@ def _process_if_element_visible(page, step, pages_dict, data_dict,
                 is_new_page_context=is_new_page_context,
                 container_context=container_context
             )
-            if v_ct:
-                container_context = v_ct
-            elif (v_ct is None and not v_skip
-                  and sub.get('keyword', '') in ('click_element', 'click')):
-                if container_context:
-                    current_containers = detect_visible_containers(page)
-                    if container_context not in current_containers:
-                        old_ct = container_context
-                        container_context = None
-                        print(f"    [CONTEXT] 容器 {old_ct} 已关闭，清除上下文")
-                    else:
-                        print(f"    [CONTEXT] 容器 {container_context} 仍然存在，保持上下文")
+            # 容器上下文更新：仅按钮点击触发（新容器/不变/容器消失 3 种判断）
+            # 非按钮点击（下拉框展开、选项选择等）不触发，容器上下文保持不变
+            if not _is_non_button_click(sub):
+                if v_ct:
+                    container_context = v_ct
+                elif (v_ct is None and not v_skip
+                      and sub.get('keyword', '') in ('click_element', 'click')):
+                    if container_context:
+                        current_containers = detect_visible_containers(page)
+                        if container_context not in current_containers:
+                            old_ct = container_context
+                            container_context = None
+                            print(f"    [CONTEXT] 容器 {old_ct} 已关闭，清除上下文")
+                        else:
+                            print(f"    [CONTEXT] 容器 {container_context} 仍然存在，保持上下文")
             if v_loc:
                 _marker = (_AI_MARKER_MAP.get(v_src) if _HAS_AI_PROBE and v_src else None)
                 _store_verified_locator(
@@ -623,6 +785,7 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
             prev_step_url = ''  # Plan B: 上一步执行后的 URL，用于逐步比较
             container_context = None  # 容器上下文：跟踪上一个步骤检测到的容器类型
             _el_select_context = False  # el-select 上下文：检测 expand 步骤，传递给后续 if_element_visible
+            _expand_verified_locator = None  # _expand 验证后的 locator，传递给衍生步骤推导
             pages_count_before = len(page.context.pages)  # 新 Tab 检测：记录当前 tab 数量
 
             for step_idx, step in enumerate(steps):
@@ -645,12 +808,14 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                         page, step, pages_dict, data_dict, steps_so_far,
                         case_discovery, verified_locators, project_dir,
                         is_new_page_context, container_context,
-                        el_select_mode=_el_select_context
+                        el_select_mode=_el_select_context,
+                        expand_verified_locator=_expand_verified_locator
                     )
                     verified_count += _dv
                     fallback_count += _df
                     total_steps += _dt
                     _el_select_context = False  # 重置上下文
+                    _expand_verified_locator = None  # 重置 _expand 验证结果
                     continue
 
                 # P2-3: l3_call expansion
@@ -665,20 +830,21 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                             is_new_page_context=is_new_page_context,
                             container_context=container_context
                         )
-                        # 更新容器上下文
-                        if v_ct:
-                            container_context = v_ct
-                        elif (v_ct is None and not v_skip
-                              and sub.get('keyword', '') in ('click_element', 'click')):
-                            # 双重确认：检测容器是否真的消失了
-                            if container_context:
-                                current_containers = detect_visible_containers(page)
-                                if container_context not in current_containers:
-                                    old_ct = container_context
-                                    container_context = None
-                                    print(f"    [CONTEXT] 容器 {old_ct} 已关闭，清除上下文")
-                                else:
-                                    print(f"    [CONTEXT] 容器 {container_context} 仍然存在，保持上下文")
+                        # 容器上下文更新：仅按钮点击触发（新容器/不变/容器消失 3 种判断）
+                        # 非按钮点击（下拉框展开、选项选择等）不触发，容器上下文保持不变
+                        if not _is_non_button_click(sub):
+                            if v_ct:
+                                container_context = v_ct
+                            elif (v_ct is None and not v_skip
+                                  and sub.get('keyword', '') in ('click_element', 'click')):
+                                if container_context:
+                                    current_containers = detect_visible_containers(page)
+                                    if container_context not in current_containers:
+                                        old_ct = container_context
+                                        container_context = None
+                                        print(f"    [CONTEXT] 容器 {old_ct} 已关闭，清除上下文")
+                                    else:
+                                        print(f"    [CONTEXT] 容器 {container_context} 仍然存在，保持上下文")
                         if v_loc:
                             _marker = (_AI_MARKER_MAP.get(v_src) if _HAS_AI_PROBE and v_src else None)
                             _store_verified_locator(v_loc, v_ct, sub, pages_dict, verified_locators, is_best_guess=v_bg, marker_override=_marker)
@@ -731,20 +897,21 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                             is_new_page_context=is_new_page_context,
                             container_context=container_context
                         )
-                        # 更新容器上下文
-                        if v_ct:
-                            container_context = v_ct
-                        elif (v_ct is None and not v_skip
-                              and sub.get('keyword', '') in ('click_element', 'click')):
-                            # 双重确认：检测容器是否真的消失了
-                            if container_context:
-                                current_containers = detect_visible_containers(page)
-                                if container_context not in current_containers:
-                                    old_ct = container_context
-                                    container_context = None
-                                    print(f"    [CONTEXT] 容器 {old_ct} 已关闭，清除上下文")
-                                else:
-                                    print(f"    [CONTEXT] 容器 {container_context} 仍然存在，保持上下文")
+                        # 容器上下文更新：仅按钮点击触发（新容器/不变/容器消失 3 种判断）
+                        # 非按钮点击（下拉框展开、选项选择等）不触发，容器上下文保持不变
+                        if not _is_non_button_click(sub):
+                            if v_ct:
+                                container_context = v_ct
+                            elif (v_ct is None and not v_skip
+                                  and sub.get('keyword', '') in ('click_element', 'click')):
+                                if container_context:
+                                    current_containers = detect_visible_containers(page)
+                                    if container_context not in current_containers:
+                                        old_ct = container_context
+                                        container_context = None
+                                        print(f"    [CONTEXT] 容器 {old_ct} 已关闭，清除上下文")
+                                    else:
+                                        print(f"    [CONTEXT] 容器 {container_context} 仍然存在，保持上下文")
                         if v_loc:
                             _marker = (_AI_MARKER_MAP.get(v_src) if _HAS_AI_PROBE and v_src else None)
                             _store_verified_locator(v_loc, v_ct, sub, pages_dict, verified_locators, is_best_guess=v_bg, marker_override=_marker)
@@ -791,23 +958,27 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                     print(f"  [TRACE-P6] Step {step_idx+1} result: v_ct={v_ct}, v_skip={v_skip}, "
                           f"v_src={v_src}, container_context_before={container_context}")
 
-                # 更新容器上下文
-                _old_ctx = container_context  # 保存旧值用于日志
-                if v_ct:
-                    container_context = v_ct
-                    if _old_ctx != v_ct:
-                        print(f"  [TRACE-P6] container_context updated: {_old_ctx} → {v_ct}")
-                elif (v_ct is None and not v_skip
-                      and keyword in ('click_element', 'click')):
-                    # 双重确认：检测容器是否真的消失了
-                    if container_context:
-                        current_containers = detect_visible_containers(page)
-                        if container_context not in current_containers:
-                            old_ct = container_context
-                            container_context = None
-                            print(f"  [TRACE-P6] container {old_ct} closed, context cleared")
-                        else:
-                            print(f"  [TRACE-P6] container {container_context} still visible, context kept")
+                # 更新容器上下文：仅按钮点击触发（新容器/不变/容器消失 3 种判断）
+                # 非按钮点击（下拉框展开、选项选择等）不触发，容器上下文保持不变
+                if not _is_non_button_click(step):
+                    _old_ctx = container_context  # 保存旧值用于日志
+                    if v_ct:
+                        container_context = v_ct
+                        if _old_ctx != v_ct:
+                            print(f"  [TRACE-P6] container_context updated: {_old_ctx} → {v_ct}")
+                    elif (v_ct is None and not v_skip
+                          and keyword in ('click_element', 'click')):
+                        # 双重确认：检测容器是否真的消失了
+                        if container_context:
+                            current_containers = detect_visible_containers(page)
+                            if container_context not in current_containers:
+                                old_ct = container_context
+                                container_context = None
+                                print(f"  [TRACE-P6] container {old_ct} closed, context cleared")
+                            else:
+                                print(f"  [TRACE-P6] container {container_context} still visible, context kept")
+                else:
+                    print(f"  [TRACE-P6] non-button click, skip container check: {desc[:40]}")
                 # open_url/refresh 后清除容器上下文（页面跳转）
                 if keyword in ('open_url', 'refresh'):
                     if container_context:
@@ -820,6 +991,10 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                 elif v_loc:
                     _marker = (_AI_MARKER_MAP.get(v_src) if _HAS_AI_PROBE and v_src else None)
                     _store_verified_locator(v_loc, v_ct, step, pages_dict, verified_locators, is_best_guess=v_bg, marker_override=_marker)
+                    # el-select expand 步骤：保存验证后的 locator，传递给后续推导
+                    if keyword == 'click_element' and '下拉框' in desc:
+                        _expand_verified_locator = v_loc
+                        print(f"  [TRACE-P6] el-select expand verified: locator saved for derivation")
                     if v_bg:
                         fallback_count += 1
                         print(f"    [UNVERIFIED] Step {step_idx+1}: {desc}")

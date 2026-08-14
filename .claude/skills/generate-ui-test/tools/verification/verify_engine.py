@@ -2305,6 +2305,61 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                         if src_pattern in frame.url:
                             target_frame = frame
                             break
+                    # XPath 格式匹配（2026-08-07 后 _try_find_in_iframes 返回 XPath）
+                    elif frame_selector.startswith('xpath=//iframe[@id='):
+                        # xpath=//iframe[@id="confirmIframe"]
+                        id_match = _re.search(r'@id="([^"]+)"', frame_selector)
+                        if id_match:
+                            target_id = id_match.group(1)
+                            try:
+                                iframe_el = frame.frame_element()
+                                if iframe_el.get_attribute('id') == target_id:
+                                    target_frame = frame
+                                    break
+                            except Exception:
+                                pass
+                    elif frame_selector.startswith('xpath=//iframe[@name='):
+                        # xpath=//iframe[@name="xxx"]
+                        name_match = _re.search(r'@name="([^"]+)"', frame_selector)
+                        if name_match:
+                            target_name = name_match.group(1)
+                            if frame.name == target_name:
+                                target_frame = frame
+                                break
+                    elif frame_selector.startswith('xpath=//iframe[@class='):
+                        # xpath=//iframe[@class="xxx"]
+                        class_match = _re.search(r'@class="([^"]+)"', frame_selector)
+                        if class_match:
+                            target_class = class_match.group(1)
+                            try:
+                                iframe_el = frame.frame_element()
+                                if iframe_el.get_attribute('class') == target_class:
+                                    target_frame = frame
+                                    break
+                            except Exception:
+                                pass
+                    elif frame_selector.startswith('xpath=//iframe[contains(@src,'):
+                        # xpath=//iframe[contains(@src,"xxx")]
+                        src_match = _re.search(r'contains\(@src,"([^"]+)"\)', frame_selector)
+                        if src_match:
+                            src_pattern = src_match.group(1)
+                            if src_pattern in frame.url:
+                                target_frame = frame
+                                break
+                    elif frame_selector.startswith('xpath=(//iframe)'):
+                        # xpath=(//iframe)[n] - 按位置索引匹配
+                        idx_match = _re.search(r'\[(\d+)\]$', frame_selector)
+                        if idx_match:
+                            target_idx = int(idx_match.group(1))
+                            frame_idx = 0
+                            for f in page.frames:
+                                if f != page.main_frame:
+                                    frame_idx += 1
+                                    if frame_idx == target_idx:
+                                        target_frame = f
+                                        break
+                            if target_frame:
+                                break
 
                 if target_frame:
                     element = target_frame.locator(f'xpath={clean_xpath}')

@@ -498,7 +498,11 @@ def _process_single_module(module_slug, case_list, discovery_dir, output_dir,
         # N4: 使用 append=True 合并而非覆盖 Phase 4 的 pages YAML
         writer.write_pages_yaml(required_fields, pages_path,
                                  module_slug, cn_name, append=True)
-        writer.write_common_elements(pages_path)
+        # 传递 common_elements 动态变体字段（Phase 5 生成，避免 Phase 6 写竞争）
+        extra_fields = generator._common_fields_extra
+        writer.write_common_elements(pages_path, extra_fields=extra_fields)
+        if extra_fields:
+            print(f"[INFO] Common elements: {len(extra_fields)} 个动态变体已写入")
 
         page_url_map = resolver.get_page_url_map()
         if page_url_map:

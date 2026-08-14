@@ -58,7 +58,7 @@ class CaseGenerator:
     )
 
     _BUTTON_TYPES = frozenset({
-        'click_btn', 'click_table_row_btn', 'click_first_in_list',
+        'click_btn', 'click', 'click_table_row_btn', 'click_first_in_list',
         'click_table_action', 'click_more_then', 'click_more_then_click',
         'confirm_dialog', 'confirm_delete',
         'conditional_click_btn', 'conditional_click_row',
@@ -97,6 +97,10 @@ class CaseGenerator:
         self.required_fields = {}  # {(group, field): {locator, label, comment}}
         self._compat_groups_cache = None  # H2: _compat_groups() 内存缓存
         self._compat_groups_mtime = 0  # M5: pages 目录 mtime 缓存
+
+        # common_elements 动态命名：每个使用位置分配唯一 field，避免 Phase 6 写竞争
+        self._common_field_counter = {}   # {'confirm_btn': 2, 'cancel_btn': 1, ...}
+        self._common_fields_extra = {}    # 动态新增的字段 {name: template_value}
 
         # 兼容属性（供外部访问）
         self.field_meta = {}  # (group, field) -> {type, keyword, frame, body}
@@ -1442,10 +1446,28 @@ class CaseGenerator:
         return self.resolver.url_to_page_slug(self._current_page_url)
 
     def _get_common(self, field_name):
-        """获取 common_elements 中的 locator 引用。"""
-        if field_name in COMMON_ELEMENTS:
-            return f"${{common_elements.{field_name}}}"
-        return None
+        """获取 common_elements 中的 locator 引用（动态唯一命名）。
+
+        每个使用位置分配唯一 field name，避免 Phase 6 多步骤回写同一 field 时的写竞争。
+        首次使用返回原始名称（confirm_btn），后续使用追加序号（confirm_btn_2, confirm_btn_3）。
+        初始值全部使用同一无前缀模板，前缀由 Phase 6 探测决定。
+        """
+        if field_name not in COMMON_ELEMENTS:
+            return None
+
+        template_value = COMMON_ELEMENTS[field_name]
+
+        count = self._common_field_counter.get(field_name, 0) + 1
+        self._common_field_counter[field_name] = count
+
+        if count == 1:
+            unique_name = field_name              # confirm_btn
+        else:
+            unique_name = f"{field_name}_{count}"  # confirm_btn_2, confirm_btn_3
+            # 记录额外字段（首次的已在模板中）
+            self._common_fields_extra[unique_name] = template_value
+
+        return f"${{common_elements.{unique_name}}}"
 
     # ─── generate_step 核心 ──────────────────────────────────
 

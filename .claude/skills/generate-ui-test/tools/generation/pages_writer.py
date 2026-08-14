@@ -387,8 +387,13 @@ class PagesWriter:
             print(f"    - {g_name}: {len(g_fields)} fields")
         self._write_yaml_with_comments(output_path, groups, header)
 
-    def write_common_elements(self, output_path):
-        """追加 common_elements 组（固定模板）。"""
+    def write_common_elements(self, output_path, extra_fields=None):
+        """追加 common_elements 组（固定模板 + 动态变体）。
+
+        Args:
+            output_path: 输出 YAML 路径
+            extra_fields: 动态新增的字段 {name: template_value}，来自 CaseGenerator._common_fields_extra
+        """
         if not os.path.exists(output_path):
             return
 
@@ -406,6 +411,11 @@ class PagesWriter:
             for key, locator in self._common_elements.items():
                 scalar = _yaml_scalar(locator)
                 f.write(f'  {key}: {scalar}\n')
+            # 动态变体（来自 Phase 5 生成过程）
+            if extra_fields:
+                for key, locator in extra_fields.items():
+                    scalar = _yaml_scalar(locator)
+                    f.write(f'  {key}: {scalar}\n')
 
     def write_page_urls(self, output_path, page_url_map):
         """追加 page_urls 元数据组（仅多 URL 模块）。幂等保护：已存在则跳过。"""

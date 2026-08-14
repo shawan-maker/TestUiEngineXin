@@ -176,12 +176,11 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
     if not os.path.isdir(pages_dir):
         return
 
-    # BUG-5 + M8: Protect common_elements fields from writeback
-    # M8: confirm_btn/cancel_btn 也纳入保护，防止跨模块 deep_merge 冲突
-    # 不同模块的 common_elements.confirm_btn 会有不同容器前缀（drawer/dialog），
-    # deep_merge 后最后加载的模块覆盖前面的，导致运行时容器定位错误
-    PROTECTED_COMMON_FIELDS = {'success_text', 'error_text', 'loading_mask',
-                                'confirm_btn', 'cancel_btn'}
+    # BUG-5: Protect common_elements fields from writeback
+    # confirm_btn/cancel_btn 不纳入保护，因为它们高度依赖容器上下文（dialog/drawer）
+    # Phase 6 验证后的带前缀 locator 比模板的无前缀 locator 更准确
+    # 每个模块的 pages YAML 是独立的，不会发生 deep_merge 冲突
+    PROTECTED_COMMON_FIELDS = {'success_text', 'error_text', 'loading_mask'}
 
     # BUG-5: Build module-scoped search directory
     if module:

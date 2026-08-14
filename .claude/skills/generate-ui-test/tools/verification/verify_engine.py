@@ -145,16 +145,44 @@ def _try_find_in_iframes(page, locator: str, max_iframes=10):
 
     # 剥离 hidden filter（iframe 内不需要）
     # 兼容旧版 ancestor:: 和新版 ancestor-or-self:: 两种写法
-    xpath = re.sub(r'\s*and\s+not\(ancestor(?:-or-self)?::\*\[contains\(@class,\'is-hidden\'\)\]\)', '', xpath)
-    xpath = re.sub(r'\s*and\s+not\(ancestor(?:-or-self)?::\*\[contains\(@style,\'display:\s*none\'\)\]\)', '', xpath)
+    # 同时兼容单引号 'is-hidden' 和 YAML 双引号 ''is-hidden''
+    xpath = re.sub(r"\s*and\s+not\(ancestor(?:-or-self)?::\*\[contains\(@class,''?is-hidden''?\)\]\)", '', xpath)
+    xpath = re.sub(r"\s*and\s+not\(ancestor(?:-or-self)?::\*\[contains\(@style,''?display:\s*none''?\)\]\)", '', xpath)
 
     # [DEBUG-IFRAME] 剥离 hidden filter 后
     print(f"    [DEBUG-IFRAME] 剥离 hidden filter: {xpath[:120]}")
 
+    # 剥离容器前缀（iframe 是独立页面，没有主页面的抽屉/弹窗容器）
+    # 常见容器：el-dialog, el-drawer, el-message-box, ant-modal, ant-drawer
+    container_prefixes = [
+        r'^\(\s*//div\[contains\(@class,\'el-dialog\'\)\]//',
+        r'^\(\s*//div\[contains\(@class,\'el-drawer\'\)\]//',
+        r'^\(\s*//div\[contains\(@class,\'el-message-box\'\)\]//',
+        r'^\(\s*//div\[contains\(@class,\'ant-modal\'\)\]//',
+        r'^\(\s*//div\[contains\(@class,\'ant-drawer\'\)\]//',
+        r'^//div\[contains\(@class,\'el-dialog\'\)\]//',
+        r'^//div\[contains\(@class,\'el-drawer\'\)\]//',
+        r'^//div\[contains\(@class,\'el-message-box\'\)\]//',
+        r'^//div\[contains\(@class,\'ant-modal\'\)\]//',
+        r'^//div\[contains\(@class,\'ant-drawer\'\)\]//',
+    ]
+    for prefix_pattern in container_prefixes:
+        if re.match(prefix_pattern, xpath):
+            old_xpath = xpath
+            xpath = re.sub(prefix_pattern, '//', xpath)
+            # 剥离容器前缀后，末尾可能残留配对括号 ')' 和尾部索引 '[1]'
+            # 例: (//div...//button[...]))[1] → 剥离后 //button[...])][1] → 去掉 )[1]
+            xpath = re.sub(r'\)\[(\d+)\]\s*$', '', xpath)
+            xpath = re.sub(r'\)\s*$', '', xpath)
+            print(f"    [DEBUG-IFRAME] strip container prefix:")
+            print(f"    [DEBUG-IFRAME]   before: {old_xpath[:120]}")
+            print(f"    [DEBUG-IFRAME]   after:  {xpath[:120]}")
+            break
+
     # 剥离尾部索引 [1]
     xpath = re.sub(r'\)\[(\d+)\]\s*$', ')', xpath)
 
-    # [DEBUG-IFRAME] 剥离索引后
+    # [DEBUG-IFRAME] 最终 XPath
     print(f"    [DEBUG-IFRAME] 最终 XPath: {xpath[:120]}")
 
     # 保存清理后的 xpath，用于后续点击
@@ -225,17 +253,40 @@ def _try_find_in_iframes(page, locator: str, max_iframes=10):
         # [DEBUG-IFRAME] 每个 iframe 扫描前日志
         print(f"    [DEBUG-IFRAME] 扫描 iframe[{scanned}]: name='{frame_name}'")
 
+        frame_selector = None  # 初始化，防止 count=0 时 UnboundLocalError
         try:
             # 尝试在 iframe 内定位
-            frame_locator = frame.locator(f'xpath={xpath}')
+            full_xpath_query = f'xpath={xpath}'
+            # [DEBUG-IFRAME] 完整 XPath（不截断，便于诊断括号问题）
+            print(f"    [DEBUG-IFRAME] FULL XPath for iframe[{scanned}]:")
+            print(f"    [DEBUG-IFRAME]   {full_xpath_query}")
+            # 括号平衡检查
+            _open_sq = full_xpath_query.count('[')
+            _close_sq = full_xpath_query.count(']')
+            _open_paren = full_xpath_query.count('(')
+            _close_paren = full_xpath_query.count(')')
+            _bracket_balanced = (_open_sq == _close_sq) and (_open_paren == _close_paren)
+            print(f"    [DEBUG-IFRAME]   brackets: [={_open_sq} ]={_close_sq} (={_open_paren} )={_close_paren} balanced={_bracket_balanced}")
+
+            frame_locator = frame.locator(full_xpath_query)
             count = frame_locator.count()
 
             # [DEBUG-IFRAME] 每个 iframe 的 count 结果
             print(f"    [DEBUG-IFRAME] iframe '{frame_name}' count={count}")
 
+            # 调试：count=0 时输出 iframe 内容预览
+            if count == 0:
+                print(f"    [DEBUG-IFRAME] [FAIL] iframe '{frame_name}' count=0!")
+                print(f"    [DEBUG-IFRAME]   iframe URL: {frame.url[:120]}")
+                try:
+                    body_text = frame.locator('body').text_content(timeout=2000)
+                    preview = body_text[:300].replace('\n', ' ') if body_text else 'empty'
+                    print(f"    [DEBUG-IFRAME]   iframe body: {preview}")
+                except Exception as txt_err:
+                    print(f"    [DEBUG-IFRAME]   cannot read body: {txt_err}")
+
             if count > 0:
                 print(f"    [TRACE-P6-IFRAME] [OK] iframe '{frame_name}' found {count} matches")
-                print(f"    [DEBUG-IFRAME] 匹配的 XPath: {xpath[:120]}")
 
                 # 生成 frame selector（全 XPath 格式，2026-08-07）
                 # 优先读取 DOM 属性，而非 Playwright frame.name

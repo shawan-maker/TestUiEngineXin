@@ -103,7 +103,10 @@ def _store_verified_locator(v_loc, v_ct, step, pages_dict, verified_locators,
 
     # el-select expand 转换：Phase 5 生成 input 目标，Phase 6 验证后转换为 el-select 容器
     field_name = ref.split('.', 1)[-1] if '.' in ref else ref
-    if field_name.endswith('_expand') and 'input' in v_xpath and 'el-input__inner' in v_xpath:
+    if (field_name.endswith('_expand')
+        and 'input' in v_xpath
+        and 'el-input__inner' in v_xpath
+        and 'contains(@placeholder' not in v_xpath):
         from verification.verify_engine import _convert_input_to_el_select
         converted = _convert_input_to_el_select(v_loc)
         if converted != v_loc:
@@ -126,12 +129,13 @@ def _store_verified_locator(v_loc, v_ct, step, pages_dict, verified_locators,
         print(f"    [TRACE-P6]   orig: {orig_xpath[:80]}{'...' if len(orig_xpath) > 80 else ''}")
         print(f"    [TRACE-P6]   new:  {v_xpath[:80]}{'...' if len(v_xpath) > 80 else ''}")
 
-        # 降级警告（原 PRESERVED-SCOPED 已移除）：允许容器前缀降级
-        # 原设计：强制保留强前缀防止 strict mode violation
-        # 现设计：允许降级，依赖 Phase 6 运行时验证器检测 strict mode violation 并回退
+        # 容器前缀降级：阻止写入，保留 pages YAML 中的原始 locator
+        # 原因：VLC 在抽屉未打开时可能返回裸 div（无容器前缀），
+        #       写入会损坏 pages YAML，导致下次运行时使用错误的裸 locator
         if orig_has_container and not new_has_container:
-            print(f"    [WARN: CONTAINER-DOWNGRADE] '{ref}' — 容器前缀降级: "
+            print(f"    [BLOCKED: CONTAINER-DOWNGRADE] '{ref}' — 容器前缀降级，跳过写入: "
                   f"{orig_xpath[:60]} → {v_xpath[:60]}")
+            return
 
         # M10: 升级方向 — 原 Locator 无前缀，验证通过的有容器前缀
         if not orig_has_container and new_has_container:

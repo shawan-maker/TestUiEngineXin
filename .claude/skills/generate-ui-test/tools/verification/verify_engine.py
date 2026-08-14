@@ -1401,9 +1401,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
     # BUG-3 fix: can now produce 'table-action-button'
     # BUG-5 fix: can now produce 'detail-link'
     # BUG-7 fix: pass locator_ref for _select/_editable suffix detection
-    # 优先读取 step 中预设的 elem_type（如 click_more_then 两步法的 dropdown-menu-item）
-    # 预设值来自 case_generator，避免 Phase 6 重新推断时因 label 歧义导致错误类型
-    elem_type = step.get('elem_type') or _infer_elem_type(keyword, desc, locator_ref=raw_locator_ref)
+    elem_type = _infer_elem_type(keyword, desc, locator_ref=raw_locator_ref)
     # [TRACE-P6] 类型推断结果
     print(f"    [TRACE-P6] infer: label='{label}', elem_type={elem_type}")
 
@@ -1664,9 +1662,15 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
 
             div_locators = []
             for kb_xpath in kb_locators:
+                # ★★★ 修改点 2：过滤 placeholder 模式 ★★★
+                # 原因：placeholder 模式经 _convert_input_to_el_select 转换后会丢失所有 label 约束
+                # 变成裸 div，在抽屉未打开时可能 count=1 被误选
+                if 'contains(@placeholder' in kb_xpath:
+                    print(f"    [TRACE-P6-ELSELECT] Skip placeholder KB pattern: {kb_xpath[:80]}")
+                    continue
+
                 if 'input[@class' in kb_xpath or 'el-input__inner' in kb_xpath:
                     dual_cands = _generate_el_select_candidates(kb_xpath)
-                    # 当原始 locator 索引不是 [1] 时，KB div 候选也要用该索引（修复 bug：只替换尾部索引）
                     if _orig_idx != '1':
                         dual_cands = [_replace_trailing_index(c, _orig_idx) for c in dual_cands]
                         print(f"    [TRACE-P6-ELSELECT] KB div candidates index adjusted: [1] → [{_orig_idx}]")
@@ -1695,7 +1699,6 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
 
             # Step 3: kb input 候选
             for kb_xpath in kb_locators:
-                # 当索引非 [1] 时，KB input 候选也需要调整索引（修复 bug：只替换尾部索引）
                 if _orig_idx != '1':
                     _kb_adj = _replace_trailing_index(kb_xpath, _orig_idx)
                     candidates.append((_kb_adj, 'kb'))

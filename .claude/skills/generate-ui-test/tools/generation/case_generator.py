@@ -1614,18 +1614,69 @@ class CaseGenerator:
             )
             inline_xpath = apply_container_prefix(inline_xpath, self.current_container)
 
-            # ── Step 6: 插入鼠标滚轮步骤（触发虚拟滚动）──
-            # 虚拟滚动的元素在未滚动时不在 DOM 中，需要 CDP 级别的 mouse.wheel 触发
+            # ── Step 6: 插入虚拟滚动步骤（多步分片滚动） ──
+            # 关键策略：
+            # 1. scrollIntoView(start) 让表格顶部对齐视口
+            # 2. 分 5 片滚动（0%, 20%, 40%, 60%, 80%），每片之间 wait_for_time
+            #    让浏览器有时间渲染虚拟滚动行
+            # 3. 不能用 busy-wait 循环，因为 page.evaluate() 阻塞主线程
+            _scroll_init = (
+                "(function() {"
+                "  var label = '" + label + "';"
+                "  var tables = document.querySelectorAll('.el-table');"
+                "  for (var i = 0; i < tables.length; i++) {"
+                "    var header = tables[i].querySelector('.el-table__header-wrapper, thead');"
+                "    if (header && header.textContent.indexOf(label) >= 0) {"
+                "      tables[i].scrollIntoView({block: 'start', behavior: 'instant'});"
+                "      var w = tables[i].querySelector('.el-table__body-wrapper');"
+                "      if (w) { w.scrollTop = 0; }"
+                "      return {found: true, tableIndex: i};"
+                "    }"
+                "  }"
+                "  return {found: false};"
+                "})();"
+            )
             steps.append({
-                'desc': f'滚动页面让{label}选项列表可见（虚拟滚动）',
-                'keyword': 'mouse_wheel',
-                'params': {'delta_y': 300, 'times': 15, 'delay': 200},
+                'desc': f'滚动页面让「{label}」表格可见',
+                'keyword': 'execute_script',
+                'params': {'script': _scroll_init},
             })
-            steps.append({
-                'desc': '等待虚拟滚动渲染',
-                'keyword': 'wait_for_time',
-                'params': {'timeout': 1000},
-            })
+            # 生成 5 片滚动：每片设置 scrollTop 到对应百分比位置
+            _scroll_fractions = [0.2, 0.4, 0.6, 0.8, 1.0]
+            for _frac in _scroll_fractions:
+                _scroll_chunk = (
+                    "(function() {"
+                    "  var label = '" + label + "';"
+                    "  var target = '" + value + "';"
+                    "  /* check if already found */"
+                    "  if (document.body.innerText.indexOf(target) >= 0) {"
+                    "    return {found: true, reason: 'already visible'};"
+                    "  }"
+                    "  var tables = document.querySelectorAll('.el-table');"
+                    "  for (var i = 0; i < tables.length; i++) {"
+                    "    var header = tables[i].querySelector('.el-table__header-wrapper, thead');"
+                    "    if (header && header.textContent.indexOf(label) >= 0) {"
+                    "      var w = tables[i].querySelector('.el-table__body-wrapper');"
+                    "      if (w) {"
+                    "        w.scrollTop = Math.floor(w.scrollHeight * " + str(_frac) + ");"
+                    "        w.dispatchEvent(new Event('scroll', {bubbles: true}));"
+                    "        return {scrolled: true, fraction: " + str(_frac) + "};"
+                    "      }"
+                    "    }"
+                    "  }"
+                    "  return {found: false};"
+                    "})();"
+                )
+                steps.append({
+                    'desc': f'滚动「{label}」表格内部到 {_frac*100:.0f}% 位置',
+                    'keyword': 'execute_script',
+                    'params': {'script': _scroll_chunk},
+                })
+                steps.append({
+                    'desc': '等待虚拟滚动渲染',
+                    'keyword': 'wait_for_time',
+                    'params': {'timeout': 500},
+                })
 
             # ── Step 7: 生成 case step（内联 XPath）──
             steps.append({

@@ -72,6 +72,7 @@ EXECUTE_KEYWORDS = {
     'wait_for_loading_complete', 'wait_for_time',
     'wait_for_element', 'wait_for_element_hidden',
     'check_page_loaded',
+    'execute_script',  # 滚动表格到目标位置（如规格选择），不执行会导致后续点击失败
 }
 
 # 向后兼容别名
@@ -1303,6 +1304,15 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             page.wait_for_timeout(int(_seconds) * 1000)
         except Exception:
             pass
+        return None, None, False, False, None
+
+    if keyword == 'execute_script':
+        script = params.get('script', '') if isinstance(params, dict) else ''
+        if script:
+            try:
+                page.evaluate(script)
+            except Exception as e:
+                print(f"    [WARN] execute_script failed: {str(e)[:80]}")
         return None, None, False, False, None
 
     if keyword == 'wait_for_element':

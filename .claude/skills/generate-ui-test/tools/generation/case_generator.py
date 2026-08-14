@@ -551,6 +551,7 @@ class CaseGenerator:
             'keyword': 'wait_for_time',
             'label': label,
             'params': {'timeout': 1000},
+            '_skip_phase6': True,
         })
 
         # === Step 2: 条件分支 ===
@@ -560,18 +561,21 @@ class CaseGenerator:
                 'keyword': 'fill_value',
                 'label': label,
                 'params': {'locator': select_ref, 'value': search_ref},
+                '_skip_phase6': True,
             },
             {
                 'desc': f"等待「{label}」搜索结果加载",
                 'keyword': 'wait_for_time',
                 'label': label,
                 'params': {'timeout': 1500},
+                '_skip_phase6': True,
             },
             {
                 'desc': f"选择「{label}」 - 选择选项",
                 'keyword': 'click_element',
                 'label': label,
                 'params': {'locator': f'xpath={option_xpath}'},
+                '_skip_phase6': True,
             },
         ]
 
@@ -583,6 +587,7 @@ class CaseGenerator:
                 'keyword': 'click_element',
                 'label': label,
                 'params': {'locator': f'xpath={option_xpath}'},
+                '_skip_phase6': True,
             },
         ]
         else_else_steps = [
@@ -591,6 +596,7 @@ class CaseGenerator:
                 'keyword': 'click_element',
                 'label': label,
                 'params': {'locator': first_option_ref},
+                '_skip_phase6': True,
             },
         ]
         else_steps = [
@@ -1517,6 +1523,7 @@ class CaseGenerator:
                         'params': {
                             'locator': f"xpath={level_xpath}"
                         },
+                        '_skip_phase6': True,
                     })
                 last = levels[-1]
                 last_ref = self.add_data(f'{el["field_prefix"]}_last', last)
@@ -1546,12 +1553,14 @@ class CaseGenerator:
                             'keyword': 'click_element',
                             'label': label,
                             'params': {'locator': checkbox_xpath},
+                            '_skip_phase6': True,
                         }],
                         'else_steps': [{
                             'desc': f'「{label}」 - 点击文本',
                             'keyword': 'click_element',
                             'label': label,
                             'params': {'locator': text_xpath},
+                            '_skip_phase6': True,
                         }],
                     },
                 })
@@ -1640,6 +1649,7 @@ class CaseGenerator:
                 'desc': f'滚动页面让「{label}」表格可见',
                 'keyword': 'execute_script',
                 'params': {'script': _scroll_init},
+                '_skip_phase6': True,
             })
             # 生成 5 片滚动：每片设置 scrollTop 到对应百分比位置
             _scroll_fractions = [0.2, 0.4, 0.6, 0.8, 1.0]
@@ -1671,11 +1681,13 @@ class CaseGenerator:
                     'desc': f'滚动「{label}」表格内部到 {_frac*100:.0f}% 位置',
                     'keyword': 'execute_script',
                     'params': {'script': _scroll_chunk},
+                    '_skip_phase6': True,
                 })
                 steps.append({
                     'desc': '等待虚拟滚动渲染',
                     'keyword': 'wait_for_time',
                     'params': {'timeout': 500},
+                    '_skip_phase6': True,
                 })
 
             # ── Step 7: 生成 case step（内联 XPath）──
@@ -1684,6 +1696,7 @@ class CaseGenerator:
                 'keyword': 'click_element',
                 'label': label,
                 'params': {'locator': f'xpath={inline_xpath}'},
+                '_skip_phase6': True,
             })
 
         elif ptype in ('fill', 'textarea'):
@@ -2171,6 +2184,7 @@ class CaseGenerator:
                         'keyword': 'click_element',
                         'label': label,
                         'params': {'locator': picker_ref},
+                        '_skip_phase6': True,
                     })
                 else:
                     picker_xpath, picker_desc = _build_date_picker_xpath(value)
@@ -2180,6 +2194,7 @@ class CaseGenerator:
                         'keyword': 'click_element',
                         'label': label,
                         'params': {'locator': f"xpath={picker_xpath}"},
+                        '_skip_phase6': True,
                     })
             else:
                 steps.append({
@@ -2358,6 +2373,7 @@ class CaseGenerator:
                     'keyword': 'wait_for_time',
                     'label': '更多',
                     'params': {'timeout': 1000},
+                    '_skip_phase6': True,
                 })
                 option_ref = self._build_dropdown_option_xpath(action)
                 steps.append({
@@ -2366,6 +2382,7 @@ class CaseGenerator:
                     'label': action,
                     'elem_type': 'dropdown-menu-item',
                     'params': {'locator': option_ref},
+                    '_skip_phase6': True,
                 })
             else:
                 more_fallback = self._build_more_button_fallback_xpath()
@@ -2380,6 +2397,7 @@ class CaseGenerator:
                     'keyword': 'wait_for_time',
                     'label': '更多',
                     'params': {'timeout': 1000},
+                    '_skip_phase6': True,
                 })
                 option_ref = self._build_dropdown_option_xpath(action)
                 steps.append({
@@ -2388,6 +2406,7 @@ class CaseGenerator:
                     'label': action,
                     'elem_type': 'dropdown-menu-item',
                     'params': {'locator': option_ref},
+                    '_skip_phase6': True,
                 })
 
         elif ptype == 'click_more_then_click':
@@ -2421,6 +2440,7 @@ class CaseGenerator:
                     'keyword': 'wait_for_time',
                     'label': '更多',
                     'params': {'timeout': 1000},
+                    '_skip_phase6': True,
                 })
                 option_ref = self._build_dropdown_option_xpath(action)
                 steps.append({
@@ -2429,6 +2449,7 @@ class CaseGenerator:
                     'label': action,
                     'elem_type': 'dropdown-menu-item',
                     'params': {'locator': option_ref},
+                    '_skip_phase6': True,
                 })
             else:
                 pending_ref, _ = self.resolver.make_pending_ref(
@@ -2455,6 +2476,7 @@ class CaseGenerator:
                     'keyword': 'wait_for_time',
                     'label': '更多',
                     'params': {'timeout': 1000},
+                    '_skip_phase6': True,
                 })
                 option_ref = self._build_dropdown_option_xpath(action)
                 steps.append({
@@ -2463,6 +2485,7 @@ class CaseGenerator:
                     'label': action,
                     'elem_type': 'dropdown-menu-item',
                     'params': {'locator': option_ref},
+                    '_skip_phase6': True,
                 })
 
         elif ptype == 'click_detail_link':
@@ -2800,6 +2823,7 @@ class CaseGenerator:
                 'desc': picker_desc,
                 'keyword': 'click_element',
                 'params': {'locator': f"xpath={picker_xpath}"},
+                '_skip_phase6': True,
             })
 
         elif ptype == 'click_section':

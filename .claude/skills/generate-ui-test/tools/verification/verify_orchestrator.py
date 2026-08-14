@@ -332,6 +332,15 @@ def _execute_direct(page, step, pages_dict, data_dict):
             print(f"    [OK] {desc}")
             return True
 
+        elif keyword == 'execute_script':
+            script = params.get('script', '')
+            if not script:
+                print(f"    [WARN] execute_script: script is empty")
+                return False
+            page.evaluate(script)
+            print(f"    [OK] {desc}")
+            return True
+
         else:
             # 未知 keyword，降级到 execute_step
             print(f"    [WARN] 未知 keyword（el-select 模式）: {keyword}，降级到 execute_step")
@@ -456,6 +465,15 @@ def _process_if_element_visible(page, step, pages_dict, data_dict,
         elif el_select_mode:
             # el-select 子步骤：基于 _expand 验证结果推导 locator，然后直接执行
             # _editable/_select 的 locator 从 _expand 推导而来（不依赖 pages YAML 中可能错误的值）
+            if expand_verified_locator:
+                _derive_el_select_substep_locator(sub, expand_verified_locator, pages_dict)
+            _success = _execute_direct(page, sub, pages_dict, data_dict)
+            if _success:
+                v_verified += 1
+            else:
+                v_fallback += 1
+        elif sub.get('_skip_phase6'):
+            # _skip_phase6 标记：直接执行，跳过 VLC 探测
             if expand_verified_locator:
                 _derive_el_select_substep_locator(sub, expand_verified_locator, pages_dict)
             _success = _execute_direct(page, sub, pages_dict, data_dict)
@@ -929,6 +947,18 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                     continue
 
                 # Execute step
+                # ★ _skip_phase6 快速通道：多步操作的子步骤直接执行，跳过 VLC 探测
+                if step.get('_skip_phase6'):
+                    _success = _execute_direct(page, step, pages_dict, data_dict)
+                    if _success:
+                        verified_count += 1
+                        print(f"    [DIRECT-EXECUTE] Step {step_idx+1}: {desc}")
+                    else:
+                        fallback_count += 1
+                        print(f"    [DIRECT-FAIL] Step {step_idx+1}: {desc}")
+                    steps_so_far.append(step)
+                    continue
+
                 v_loc, v_ct, v_skip, v_bg, v_src = execute_step(
                     page, step, pages_dict, data_dict, steps_so_far,
                     case_discovery, project_dir=project_dir,

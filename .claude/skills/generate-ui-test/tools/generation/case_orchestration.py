@@ -467,7 +467,7 @@ def _classify_steps_for_report(all_steps, source_map, l3_keywords=None):
 def generate_case_file(case_data, generator, seq, output_dir, module='', project_dir='', l3_patterns=None):
     """为单条用例生成 YAML 文件"""
     case_name = case_data.get('case_name', f'用例{seq}')
-    generator.set_case_context(seq)
+    generator.set_case_context(seq, case_name=case_name)  # 传递 case_name 用于语义化命名
     case_id = case_data.get('case_id', '') or case_name
     raw_steps = case_data.get('steps', [])
 

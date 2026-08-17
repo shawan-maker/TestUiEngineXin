@@ -392,30 +392,51 @@ class PagesWriter:
 
         Args:
             output_path: 输出 YAML 路径
-            extra_fields: 动态新增的字段 {name: template_value}，来自 CaseGenerator._common_fields_extra
+            extra_fields: 动态新增的字段 {name: locator_value}，来自 CaseGenerator._common_fields_extra
+                         locator_value 可以是带容器前缀的完整 XPath 或无前缀模板
         """
         if not os.path.exists(output_path):
             return
 
         # 检查是否已有 common_elements
+        has_common = False
         try:
             with open(output_path, encoding='utf-8') as f:
-                content = f.read()
-            if 'common_elements:' in content:
-                return  # 已有
+                lines = f.readlines()
+                for line in lines:
+                    if line.strip() == 'common_elements:':
+                        has_common = True
+                        break
         except Exception:
             pass
 
-        with open(output_path, 'a', encoding='utf-8') as f:
-            f.write('\ncommon_elements:\n')
-            for key, locator in self._common_elements.items():
-                scalar = _yaml_scalar(locator)
-                f.write(f'  {key}: {scalar}\n')
-            # 动态变体（来自 Phase 5 生成过程）
-            if extra_fields:
-                for key, locator in extra_fields.items():
+        if not has_common:
+            # 首次写入：追加整个 common_elements 组
+            with open(output_path, 'a', encoding='utf-8') as f:
+                f.write('\ncommon_elements:\n')
+                for key, locator in self._common_elements.items():
                     scalar = _yaml_scalar(locator)
                     f.write(f'  {key}: {scalar}\n')
+                # 动态变体（来自 Phase 5 生成过程，语义化命名）
+                if extra_fields:
+                    for key, locator in extra_fields.items():
+                        scalar = _yaml_scalar(locator)
+                        f.write(f'  {key}: {scalar}\n')
+        elif extra_fields:
+            # 幂等追加：检查 extra_fields 中是否有新字段需要追加
+            existing_keys = set()
+            for line in lines:
+                stripped = line.strip()
+                if ':' in stripped and not stripped.startswith('#'):
+                    key_part = stripped.split(':', 1)[0].strip()
+                    existing_keys.add(key_part)
+
+            new_fields = {k: v for k, v in extra_fields.items() if k not in existing_keys}
+            if new_fields:
+                with open(output_path, 'a', encoding='utf-8') as f:
+                    for key, locator in new_fields.items():
+                        scalar = _yaml_scalar(locator)
+                        f.write(f'  {key}: {scalar}\n')
 
     def write_page_urls(self, output_path, page_url_map):
         """追加 page_urls 元数据组（仅多 URL 模块）。幂等保护：已存在则跳过。"""

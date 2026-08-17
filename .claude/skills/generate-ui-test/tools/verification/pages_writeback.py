@@ -158,6 +158,29 @@ def _store_verified_locator(v_loc, v_ct, step, pages_dict, verified_locators,
             }
             print(f"    {marker} '{ref}': 无前缀→{upgrade_ct or '容器'}前缀")
             return
+
+        # [TRACE-P6] 情况③④：两边都有容器 或 两边都无容器
+        if orig_has_container and new_has_container:
+            # 情况③：容器类型变化
+            orig_ct = None
+            new_ct = None
+            for cm in CONTAINER_MARKERS:
+                if cm in orig_xpath:
+                    orig_ct = cm
+                if cm in v_xpath:
+                    new_ct = cm
+            if orig_ct != new_ct:
+                print(f"    [TRACE-P6] 情况③: 容器类型变化 {orig_ct}→{new_ct}")
+                marker = f'[CONTAINER-CHANGE: {orig_ct}→{new_ct}]'
+                verified_locators[ref] = {
+                    'locator': v_loc,
+                    'marker': marker_override or marker,
+                    'container_type': v_ct,
+                }
+                return
+            else:
+                print(f"    [TRACE-P6] 情况③: 容器类型相同 {orig_ct}")
+
         verified_locators[ref] = {
             'locator': v_loc,
             'marker': marker_override or ('[UNVERIFIED]' if is_best_guess else None),
@@ -260,11 +283,35 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
                     field_markers[path][group] = {}
                 field_markers[path][group][field] = marker
 
+    # [DEBUG-WB] 进入 writeback 时，打印所有 common_elements 相关 ref
+    _common_refs = [r for r in verified_locators if 'common_elements' in r]
+    print(f"\n  [DEBUG-WB] === update_pages_yaml START ===")
+    print(f"  [DEBUG-WB] 总 verified_locators: {len(verified_locators)}, common_elements 相关: {len(_common_refs)}")
+    for r in _common_refs:
+        info = verified_locators[r]
+        loc_val = info.get('locator', '')
+        loc_short = loc_val.replace('xpath=', '')[:80] if loc_val else ''
+        print(f"  [DEBUG-WB]   {r}: marker={info.get('marker')}, locator='{loc_short}'")
+
     # Write back
     for filepath, groups in updates.items():
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 lines = f.readlines()
+
+            # [DEBUG-WB] 写回前：打印文件中所有 common_elements 行的当前值
+            print(f"\n  [DEBUG-WB] --- 文件写回前: {os.path.basename(filepath)} ---")
+            for _i, _line in enumerate(lines):
+                _s = _line.strip()
+                if _s.startswith('common_elements:'):
+                    # 打印整个 common_elements 组
+                    print(f"  [DEBUG-WB]   [PRE] Line {_i+1}: {_s}")
+                    for _j in range(_i + 1, min(_i + 20, len(lines))):
+                        _s2 = lines[_j].strip()
+                        if _s2 and not _s2.startswith(' ') and not _s2.startswith('#'):
+                            break
+                        if 'confirm_btn' in _s2 or 'cancel_btn' in _s2:
+                            print(f"  [DEBUG-WB]   [PRE] Line {_j+1}: {_s2}")
 
             for group, fields in groups.items():
                 # 分离新字段和已有字段
@@ -294,6 +341,12 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
                             continue
                         for field, new_locator in existing_fields.items():
                             if stripped.lstrip().startswith(f'{field}:'):
+                                # [DEBUG-WB] 行匹配日志
+                                _old_line = line.strip()
+                                _is_common = group == 'common_elements'
+                                if _is_common or 'confirm_btn' in field or 'cancel_btn' in field:
+                                    print(f"  [DEBUG-WB]   MATCH Line {i+1}: field='{field}', group='{group}'")
+                                    print(f"  [DEBUG-WB]     OLD: {_old_line[:120]}")
                                 # 防御: 拒绝回写 contains(text(),'') 废模板
                                 if isinstance(new_locator, str) and "contains(text(),'')" in new_locator:
                                     print(f"  [WARN] 跳过废模板回写: {field} 包含 contains(text(),'')")
@@ -322,6 +375,8 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
                                 _final_comment = "".join(_parts)
                                 scalar = _escape_yaml_scalar(new_locator)
                                 lines[i] = f"{' ' * indent}{field}: {scalar}{_final_comment}\n"
+                                if _is_common or 'confirm_btn' in field or 'cancel_btn' in field:
+                                    print(f"  [DEBUG-WB]     NEW: {lines[i].strip()[:120]}")
                                 break
 
                 # 追加新字段到 group 末尾
@@ -343,6 +398,14 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.writelines(lines)
             print(f"  [OK] Updated: {filepath}")
+
+            # [DEBUG-WB] 写回后：打印文件中所有 confirm_btn/cancel_btn 行的最终值
+            if filepath:
+                print(f"\n  [DEBUG-WB] --- 文件写回后: {os.path.basename(filepath)} ---")
+                for _i, _line in enumerate(lines):
+                    _s = _line.strip()
+                    if 'confirm_btn' in _s or 'cancel_btn' in _s:
+                        print(f"  [DEBUG-WB]   [POST] Line {_i+1}: {_s[:120]}")
         except Exception as e:
             print(f"  [ERROR] Failed to update {filepath}: {e}")
 
@@ -350,8 +413,30 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
     # These functions were migrated from probe_from_pages.py and need to be called here
     print("\n[Post-processing] Applying hidden filters and cleaning up exclusions...")
 
+    # [DEBUG-WB] 后处理前：打印 common_elements 当前状态
+    print("\n  [DEBUG-WB] --- 后处理前: 读取 YAML 文件中的 common_elements ---")
+
     # Build pages_data and source_files for batch processing
     pages_data = load_pages(project_dir, module)
+
+    # [意见4b] 校验 pages_data 与刚写入的文件是否一致
+    if 'common_elements' in pages_data and isinstance(pages_data['common_elements'], dict):
+        ce = pages_data['common_elements']
+        for ref, info in verified_locators.items():
+            if not ref.startswith('common_elements.'):
+                continue
+            field = ref.split('.', 1)[1]
+            expected = info.get('locator', '')
+            actual = ce.get(field, '')
+            exp_clean = expected.replace('xpath=', '') if expected else ''
+            act_clean = actual.replace('xpath=', '') if isinstance(actual, str) else ''
+            if exp_clean and act_clean and exp_clean != act_clean:
+                print(f"  [WARN-P6] pages_data 与文件不一致: {ref}")
+                print(f"            expected: {exp_clean[:80]}")
+                print(f"            actual:   {act_clean[:80]}")
+                # 修正内存对象，防止后处理覆盖正确值
+                ce[field] = expected
+
     source_files = {}
     for root, dirs, files in os.walk(pages_dir):
         for f in files:
@@ -367,15 +452,54 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
                 except Exception:
                     pass
 
+    # [DEBUG-WB] 后处理前：打印 common_elements 当前状态
+    if 'common_elements' in pages_data:
+        common_data = pages_data['common_elements']
+        if isinstance(common_data, dict):
+            for field in ['confirm_btn', 'confirm_btn_2', 'confirm_btn_3', 'confirm_btn_4', 'confirm_btn_5',
+                          'cancel_btn', 'cancel_btn_2', 'cancel_btn_3', 'cancel_btn_4', 'cancel_btn_5']:
+                if field in common_data:
+                    val = common_data[field]
+                    val_short = val[:80] if isinstance(val, str) else str(val)[:80]
+                    print(f"  [DEBUG-WB]   [PRE-POST] common_elements.{field} = {val_short}")
+
     # Apply hidden filters to all locators
     hidden_count = apply_hidden_filters_to_pages(pages_data, source_files, pages_dir)
     if hidden_count > 0:
         print(f"  R4.11: 补齐 {hidden_count} 个定位器的隐藏过滤属性")
 
+    # [DEBUG-WB] hidden filters 后：打印 common_elements 状态
+    if 'common_elements' in pages_data:
+        common_data = pages_data['common_elements']
+        if isinstance(common_data, dict):
+            print(f"\n  [DEBUG-WB] --- hidden filters 后 ---")
+            for field in ['confirm_btn', 'confirm_btn_2', 'confirm_btn_3', 'confirm_btn_4', 'confirm_btn_5',
+                          'cancel_btn', 'cancel_btn_2', 'cancel_btn_3', 'cancel_btn_4', 'cancel_btn_5']:
+                if field in common_data:
+                    val = common_data[field]
+                    val_short = val[:80] if isinstance(val, str) else str(val)[:80]
+                    print(f"  [DEBUG-WB]   [POST-HIDDEN] common_elements.{field} = {val_short}")
+
     # Strip not(ancestor::) exclusions (R3.14)
     stripped_count = strip_not_ancestor_from_pages(pages_data, source_files, pages_dir)
     if stripped_count > 0:
         print(f"  R3.14: 清除 {stripped_count} 个定位器的 not(ancestor::) 排除")
+
+    # [DEBUG-WB] 后处理完成后：重新读取文件，打印最终状态
+    print(f"\n  [DEBUG-WB] --- 后处理完成后: 重新读取 YAML 文件 ---")
+    if module:
+        module_dir = module.replace('_', '-')
+        final_path = os.path.join(pages_dir, module_dir, 'elements.yaml')
+        if os.path.exists(final_path):
+            try:
+                with open(final_path, 'r', encoding='utf-8') as f:
+                    final_lines = f.readlines()
+                for _i, _line in enumerate(final_lines):
+                    _s = _line.strip()
+                    if 'confirm_btn' in _s or 'cancel_btn' in _s:
+                        print(f"  [DEBUG-WB]   [FINAL] Line {_i+1}: {_s[:120]}")
+            except Exception:
+                pass
 
 
 def _write_iframe_companion_fields(project_dir, iframe_discoveries, module=None):

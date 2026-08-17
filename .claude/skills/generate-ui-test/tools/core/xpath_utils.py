@@ -441,19 +441,24 @@ def apply_hidden_filters_to_pages(pages_data: dict, source_files: dict, pages_di
             lines = f.readlines()
         for old_val, new_val, field_name in changes:
             for i, line in enumerate(lines):
-                # 行级精准替换：只在 YAML 值位置（冒号后）替换，避免污染注释或其他字段
-                if ':' in line and old_val in line:
-                    key_part, sep, val_part = line.partition(':')
-                    # 检查字段名精确匹配（防止后缀重叠的误替换）
-                    if old_val in val_part and key_part.strip() == field_name:
-                        # 提取注释部分（# 之后）
-                        comment_suffix = ""
-                        hash_pos = val_part.find('  #')
-                        if hash_pos > 0:
-                            comment_suffix = val_part[hash_pos:]
-                        # 用 escape_yaml_scalar 重新转义新值，确保引号正确
-                        re_escaped = escape_yaml_scalar(new_val)
-                        lines[i] = f"{key_part}{sep} {re_escaped}{comment_suffix}\n"
+                # 修复：先做字段名精确匹配，避免 old_val 子串误匹配其他字段
+                if ':' not in line:
+                    continue
+                key_part, sep, val_part = line.partition(':')
+                # 字段名精确匹配（去除前后空白）
+                if key_part.strip() != field_name:
+                    continue
+                # 字段名已匹配，再做值子串匹配（只匹配值部分，不含前缀）
+                old_core = old_val.replace('xpath=', '').replace('css=', '')
+                if old_core and old_core in val_part:
+                    # 提取注释部分（# 之后）
+                    comment_suffix = ""
+                    hash_pos = val_part.find('  #')
+                    if hash_pos > 0:
+                        comment_suffix = val_part[hash_pos:]
+                    # 用 escape_yaml_scalar 重新转义新值，确保引号正确
+                    re_escaped = escape_yaml_scalar(new_val)
+                    lines[i] = f"{key_part}{sep} {re_escaped}{comment_suffix}\n"
         with open(filepath, 'w', encoding='utf-8') as f:
             f.writelines(lines)
 
@@ -517,19 +522,24 @@ def strip_not_ancestor_from_pages(pages_data: dict, source_files: dict, pages_di
             lines = f.readlines()
         for old_val, new_val, field_name in changes:
             for i, line in enumerate(lines):
-                # 行级精准替换：只在 YAML 值位置（冒号后）替换，避免污染注释或其他字段
-                if ':' in line and old_val in line:
-                    key_part, sep, val_part = line.partition(':')
-                    # 检查字段名精确匹配（防止后缀重叠的误替换）
-                    if old_val in val_part and key_part.strip() == field_name:
-                        # 提取注释部分（# 之后）
-                        comment_suffix = ""
-                        hash_pos = val_part.find('  #')
-                        if hash_pos > 0:
-                            comment_suffix = val_part[hash_pos:]
-                        # 用 escape_yaml_scalar 重新转义新值，确保引号正确
-                        re_escaped = escape_yaml_scalar(new_val)
-                        lines[i] = f"{key_part}{sep} {re_escaped}{comment_suffix}\n"
+                # 修复：先做字段名精确匹配，避免 old_val 子串误匹配其他字段
+                if ':' not in line:
+                    continue
+                key_part, sep, val_part = line.partition(':')
+                # 字段名精确匹配（去除前后空白）
+                if key_part.strip() != field_name:
+                    continue
+                # 字段名已匹配，再做值子串匹配（只匹配值部分，不含前缀）
+                old_core = old_val.replace('xpath=', '').replace('css=', '')
+                if old_core and old_core in val_part:
+                    # 提取注释部分（# 之后）
+                    comment_suffix = ""
+                    hash_pos = val_part.find('  #')
+                    if hash_pos > 0:
+                        comment_suffix = val_part[hash_pos:]
+                    # 用 escape_yaml_scalar 重新转义新值，确保引号正确
+                    re_escaped = escape_yaml_scalar(new_val)
+                    lines[i] = f"{key_part}{sep} {re_escaped}{comment_suffix}\n"
         with open(filepath, 'w', encoding='utf-8') as f:
             f.writelines(lines)
 

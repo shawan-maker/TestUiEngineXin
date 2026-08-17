@@ -98,9 +98,10 @@ class CaseGenerator:
         self._compat_groups_cache = None  # H2: _compat_groups() 内存缓存
         self._compat_groups_mtime = 0  # M5: pages 目录 mtime 缓存
 
-        # common_elements 动态命名：每个使用位置分配唯一 field，避免 Phase 6 写竞争
-        self._common_field_counter = {}   # {'confirm_btn': 2, 'cancel_btn': 1, ...}
-        self._common_fields_extra = {}    # 动态新增的字段 {name: template_value}
+        # common_elements 语义化命名 + Phase 4 精确 locator
+        self._current_case_name = None       # 当前正在生成的用例名
+        self._discovery_containers = []      # Phase 4 discovery 的 containers 数组
+        self._common_fields_extra = {}       # 动态新增的字段 {name: locator_value}
 
         # 兼容属性（供外部访问）
         self.field_meta = {}  # (group, field) -> {type, keyword, frame, body}
@@ -1270,13 +1271,14 @@ class CaseGenerator:
 
     # ─── 用例上下文 ──────────────────────────────────────────
 
-    def set_case_context(self, case_seq):
+    def set_case_context(self, case_seq, case_name=None):
         self.current_case_prefix = f"case{case_seq:02d}_"
         self.current_container = None
         self.current_tab_scope = None
         self.current_tab_scope_label = None
         self._random_name_counter = 0
         self._current_context = 'list_page'  # 防止上一个 case 的容器上下文泄漏
+        self._current_case_name = case_name  # 用于语义化命名 common_elements
 
     def add_data(self, field, value):
         """添加数据字段，同 case 内同 field 自动添加 _2, _3 后缀避免覆盖"""
@@ -1445,27 +1447,98 @@ class CaseGenerator:
             return None
         return self.resolver.url_to_page_slug(self._current_page_url)
 
-    def _get_common(self, field_name):
-        """获取 common_elements 中的 locator 引用（动态唯一命名）。
+    def _extract_case_context(self):
+        """从当前用例名提取操作描述作为字段名前缀（语义化命名）。
 
-        每个使用位置分配唯一 field name，避免 Phase 6 多步骤回写同一 field 时的写竞争。
-        首次使用返回原始名称（confirm_btn），后续使用追加序号（confirm_btn_2, confirm_btn_3）。
-        初始值全部使用同一无前缀模板，前缀由 Phase 6 探测决定。
+        用例名格式: "交付问题-删除问题" → "删除"
+        直接返回中文操作描述，不做任何映射。
+        去掉常见后缀（"问题"、"功能"等），保持简洁。
+        """
+        case_name = self._current_case_name or ''
+        parts = case_name.split('-', 1)
+        action = parts[1] if len(parts) > 1 else case_name
+        # 去掉常见后缀，保持简洁
+        for suffix in ('问题', '功能', '操作'):
+            if action.endswith(suffix) and len(action) > len(suffix):
+                action = action[:-len(suffix)]
+                break
+        return action or '通用'
+
+    def _find_in_discovery(self, field_name):
+        """从 Phase 4 discovery 查找当前用例对应容器中的 confirm/cancel 按钮。
+
+        匹配逻辑：
+        1. 从用例名提取 trigger 关键词（"交付问题-删除问题" → "删除"）
+        2. 在 discovery containers 中找 trigger 匹配的容器
+        3. 在该容器的 elements 中查找目标按钮
+        4. 返回带容器前缀的完整 locator，未找到返回 None
+        """
+        if not self._discovery_containers:
+            return None
+
+        case_name = self._current_case_name or ''
+        parts = case_name.split('-', 1)
+        action_keyword = parts[1] if len(parts) > 1 else case_name
+        # 去掉后缀得到核心关键词
+        for suffix in ('问题', '功能', '操作'):
+            if action_keyword.endswith(suffix) and len(action_keyword) > len(suffix):
+                action_keyword = action_keyword[:-len(suffix)]
+                break
+
+        # 目标按钮文本映射
+        target_texts = {
+            'confirm_btn': ['确定', '确 定'],
+            'cancel_btn': ['取消', '取 消'],
+        }
+        targets = target_texts.get(field_name)
+        if not targets:
+            # loading_mask/success_text/error_text 不走 discovery
+            return None
+
+        targets_stripped = [t.strip() for t in targets]
+
+        for container in self._discovery_containers:
+            trigger = container.get('trigger', '')
+            # trigger 匹配：用例操作名包含 trigger，或 trigger 包含操作名
+            if not (action_keyword in trigger or trigger in action_keyword):
+                continue
+
+            # 在容器内查找目标按钮
+            for elem in container.get('elements', []):
+                if (elem.get('type') == 'button'
+                        and elem.get('text', '').strip() in targets_stripped
+                        and elem.get('locator')
+                        and elem.get('verified', False)):
+                    return f"xpath={elem['locator']}"
+
+        return None
+
+    def _get_common(self, field_name):
+        """获取 common_elements 中的 locator 引用（语义化命名 + Phase 4 精确值）。
+
+        命名规则: {操作描述}_{field_name}，如 "删除_confirm_btn"
+        值来源: Phase 4 探测结果（带容器前缀）> COMMON_ELEMENTS 模板（无前缀兜底）
         """
         if field_name not in COMMON_ELEMENTS:
             return None
 
-        template_value = COMMON_ELEMENTS[field_name]
+        # 语义化命名
+        context = self._extract_case_context()
+        unique_name = f"{context}_{field_name}"  # 如 "删除_confirm_btn"
 
-        count = self._common_field_counter.get(field_name, 0) + 1
-        self._common_field_counter[field_name] = count
+        # 同一用例内重复使用（如二次确认）追加序号
+        if unique_name in self._common_fields_extra:
+            n = 2
+            while f"{unique_name}_{n}" in self._common_fields_extra:
+                n += 1
+            unique_name = f"{unique_name}_{n}"
 
-        if count == 1:
-            unique_name = field_name              # confirm_btn
+        # 值来源：Phase 4 探测 > 模板兜底
+        disc_locator = self._find_in_discovery(field_name)
+        if disc_locator:
+            self._common_fields_extra[unique_name] = disc_locator
         else:
-            unique_name = f"{field_name}_{count}"  # confirm_btn_2, confirm_btn_3
-            # 记录额外字段（首次的已在模板中）
-            self._common_fields_extra[unique_name] = template_value
+            self._common_fields_extra[unique_name] = COMMON_ELEMENTS[field_name]
 
         return f"${{common_elements.{unique_name}}}"
 

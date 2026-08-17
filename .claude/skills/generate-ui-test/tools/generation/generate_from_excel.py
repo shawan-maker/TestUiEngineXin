@@ -435,6 +435,8 @@ def _process_single_module(module_slug, case_list, discovery_dir, output_dir,
     page_framework = _get_page_framework(disc_data)
     generator = CaseGenerator(resolver, module_slug, project_dir=output_dir,
                               framework=page_framework)
+    # 传递 Phase 4 discovery containers（用于 common_elements 语义化命名 + 精确 locator）
+    generator._discovery_containers = disc_data.get('containers', [])
 
     cases_dir = os.path.join(output_dir, 'cases', module_slug)
     os.makedirs(cases_dir, exist_ok=True)

@@ -161,6 +161,101 @@ def _is_page_changed(prev_url, curr_url):
     return c.path != p.path or c.fragment != p.fragment
 
 
+def _sync_el_select_substeps(expand_ref, expand_new_locator, pages_dict, verified_locators):
+    """在 _expand 验证成功后，立即同步推导 _editable 和 _select 定位器
+
+    核心策略：
+    1. 复用 _derive_el_select_substep_locator 的推导逻辑
+    2. 立即更新 pages_dict，使得后续 if_element_visible 能读取正确值
+    3. 存入 verified_locators，确保 Phase 6 结束时写回 pages YAML
+
+    Args:
+        expand_ref: _expand 的引用，如 '${group.field_expand}'
+        expand_new_locator: _expand 验证后的 locator（含 xpath= 前缀）
+        pages_dict: pages.yaml 数据（会被原地修改）
+        verified_locators: 验证通过的 locator 字典（用于写回）
+    """
+    # 提取 group_name 和 field_base
+    if not expand_ref.startswith('${') or not expand_ref.endswith('}'):
+        return
+
+    ref_inner = expand_ref[2:-1]  # 去掉 ${ 和 }
+    parts = ref_inner.rsplit('.', 1)
+    if len(parts) != 2:
+        return
+
+    group_name, field_name = parts
+    if not field_name.endswith('_expand'):
+        return
+
+    field_base = field_name[:-7]  # 去掉 '_expand'
+
+    # 遍历目标后缀
+    for target_suffix in ['_editable', '_select']:
+        target_field = field_base + target_suffix
+        target_ref = f"{group_name}.{target_field}"
+
+        # 检查 pages_dict 中是否存在该字段
+        group_data = pages_dict.get(group_name, {})
+        if not isinstance(group_data, dict):
+            continue
+
+        old_value = group_data.get(target_field, '')
+        if not isinstance(old_value, str) or not old_value:
+            continue
+
+        # 构造虚拟 step dict，调用现有的推导函数
+        virtual_step = {
+            'params': {
+                'locator': f'${{{target_ref}}}'
+            }
+        }
+
+        # 复用现有的推导逻辑
+        derived = _derive_el_select_substep_locator(
+            virtual_step, expand_new_locator, pages_dict
+        )
+
+        if not derived:
+            continue
+
+        new_locator = virtual_step['params']['locator']
+        old_xpath = old_value.replace('xpath=', '', 1) if old_value.startswith('xpath=') else old_value
+        new_xpath = new_locator.replace('xpath=', '', 1) if new_locator.startswith('xpath=') else new_locator
+
+        # 如果推导结果与旧值相同，跳过（零副作用）
+        if new_xpath == old_xpath:
+            continue
+
+        # 更新内存中的 pages_dict
+        pages_dict[group_name][target_field] = new_locator
+        print(f"  [TRACE-P6] Synced {target_field} locator: {old_xpath[:60]}... → {new_xpath[:60]}...")
+
+        # 存入 verified_locators，确保写回 pages YAML
+        container_type = _extract_container_type(new_xpath)
+        marker = f'[CONTAINER-CHANGE: derived from _expand]'
+        verified_locators[target_ref] = {
+            'locator': new_locator,
+            'marker': marker,
+            'container_type': container_type,
+        }
+
+
+def _extract_container_type(locator):
+    """从 XPath 中提取容器类型
+
+    Args:
+        locator: XPath 字符串
+
+    Returns:
+        str|None: 'dialog', 'drawer', 'message-box', 或 None
+    """
+    for ct in ['el-dialog', 'el-drawer', 'el-message-box']:
+        if f"contains(@class,'{ct}')" in locator:
+            return ct.replace('el-', '')
+    return None
+
+
 def _derive_el_select_substep_locator(sub, expand_verified_locator, pages_dict):
     """基于验证后的 _expand locator 推导 _editable/_select 的 locator
 
@@ -1025,6 +1120,13 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                     if keyword == 'click_element' and '下拉框' in desc:
                         _expand_verified_locator = v_loc
                         print(f"  [TRACE-P6] el-select expand verified: locator saved for derivation")
+                        # 【新增】立即同步推导 _editable 和 _select 并更新 pages_dict
+                        _sync_el_select_substeps(
+                            expand_ref=step['params']['locator'],
+                            expand_new_locator=v_loc,
+                            pages_dict=pages_dict,
+                            verified_locators=verified_locators
+                        )
                     if v_bg:
                         fallback_count += 1
                         print(f"    [UNVERIFIED] Step {step_idx+1}: {desc}")

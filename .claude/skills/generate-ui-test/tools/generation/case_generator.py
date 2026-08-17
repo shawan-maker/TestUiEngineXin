@@ -791,10 +791,12 @@ class CaseGenerator:
         # 类型兼容性映射（与 _discovery_lookup 中的子串搜索保持一致）
         _TYPE_COMPAT = {
             'button': {'button', 'table-action-button', 'close-button', 'search-button'},
-            'input': {'input', 'textarea', 'input-generic', 'textarea-generic'},
+            'input': {'input', 'textarea', 'input-generic', 'textarea-generic',
+                      'date_picker', 'time_picker', 'datetime_picker'},
             'el-select': {'el-select', 'el-cascader'},
             'textarea': {'textarea', 'input', 'textarea-generic', 'input-generic'},
             'el-cascader': {'el-cascader', 'el-select'},
+            'date_picker': {'date_picker', 'time_picker', 'datetime_picker'},
         }
 
         def _type_ok(elem):
@@ -811,31 +813,91 @@ class CaseGenerator:
         ctx = context or self._current_context or 'list_page'
         page_slug = self._get_current_page_slug()
 
+        # 【诊断日志】入口参数
+        _debug_f7(f"  [DEBUG-F7] _lookup_discovery_element 入口:")
+        _debug_f7(f"    label='{label}', context_param='{context}', "
+                  f"current_context='{self._current_context}', effective_ctx='{ctx}', "
+                  f"page_slug='{page_slug}', type_hint='{type_hint}'")
+
         # L1: 多URL精确索引：优先按 page_slug 查找
         if page_slug:
-            elem = self._discovery_page_element_map.get((page_slug, ctx, label))
+            key_l1 = (page_slug, ctx, label)
+            elem = self._discovery_page_element_map.get(key_l1)
+            _debug_f7(f"    L1 查找键 {key_l1}: {elem is not None}")
             if elem and elem.get('locator') and _type_ok(elem):
+                _debug_f7(f"    → L1 匹配成功")
                 return elem
             # 容器回退到 list_page
             if ctx != 'list_page':
-                elem = self._discovery_page_element_map.get((page_slug, 'list_page', label))
+                key_l1_fallback = (page_slug, 'list_page', label)
+                elem = self._discovery_page_element_map.get(key_l1_fallback)
+                _debug_f7(f"    L1 回退查找键 {key_l1_fallback}: {elem is not None}")
                 if elem and elem.get('locator') and _type_ok(elem):
+                    _debug_f7(f"    → L1 回退匹配成功")
                     return elem
 
         # L2: 向后兼容：原有逻辑（无 page_slug 维度）
-        elem = self._discovery_element_map.get((ctx, label))
+        key_l2 = (ctx, label)
+        elem = self._discovery_element_map.get(key_l2)
+        _debug_f7(f"    L2 查找键 {key_l2}: {elem is not None}")
         if elem and elem.get('locator') and _type_ok(elem):
+            _debug_f7(f"    → L2 匹配成功")
             return elem
+
+        # L2b: label 空格归一化回退（discovery "提 交" vs Excel "提交"）
+        # 中文 UI 按钮文本常有空格用于视觉对齐（如 "确 定" vs "确定"）
+        _label_normalized = re.sub(r'\s+', '', label)
+        if _label_normalized != label:
+            # 原 label 本身含空格，用去空格版本搜索
+            for (map_ctx, map_label) in list(self._discovery_element_map.keys()):
+                if map_ctx != ctx:
+                    continue
+                if re.sub(r'\s+', '', map_label) == _label_normalized and map_label != label:
+                    elem = self._discovery_element_map[(map_ctx, map_label)]
+                    if elem and elem.get('locator') and _type_ok(elem):
+                        _debug_f7(f"    → L2b 空格归一化匹配成功: '{map_label}' ≈ '{label}'")
+                        return elem
+        else:
+            # 原 label 无空格，搜索 map 中含空格但去空格后相同的键
+            for (map_ctx, map_label) in list(self._discovery_element_map.keys()):
+                if map_ctx != ctx:
+                    continue
+                if map_label != label and re.sub(r'\s+', '', map_label) == _label_normalized:
+                    elem = self._discovery_element_map[(map_ctx, map_label)]
+                    if elem and elem.get('locator') and _type_ok(elem):
+                        _debug_f7(f"    → L2b 空格归一化匹配成功: '{map_label}' ≈ '{label}'")
+                        return elem
+
         if ctx != 'list_page':
             is_container_ctx = ctx in self._discovery_trigger_map
+            _debug_f7(f"    is_container_ctx={is_container_ctx}")
+
             if is_container_ctx:
                 print(f"    [WARN] '{label}' 在容器 '{ctx}' 中未发现，"
                       f"跳过 list_page 回退（避免无前缀引用）")
+
+                # 【诊断日志】打印该 trigger 下有哪些元素
+                _debug_f7(f"    === 诊断：该 trigger '{ctx}' 下的所有元素 ===")
+                for (map_ctx, map_label), map_elem in self._discovery_element_map.items():
+                    if map_ctx == ctx:
+                        _debug_f7(f"      - label='{map_label}', type='{map_elem.get('type', '?')}'")
+
+                # 【诊断日志】打印所有包含该 label 的键
+                _debug_f7(f"    === 诊断：所有包含 label='{label}' 的键 ===")
+                for (map_ctx, map_label), map_elem in self._discovery_element_map.items():
+                    if map_label == label:
+                        _debug_f7(f"      - context='{map_ctx}', type='{map_elem.get('type', '?')}'")
+
                 return None
+
             elem = self._discovery_element_map.get(('list_page', label))
+            _debug_f7(f"    L2 list_page 回退查找键 ('list_page', '{label}'): {elem is not None}")
             if elem and elem.get('locator') and _type_ok(elem):
+                _debug_f7(f"    → L2 list_page 回退匹配成功")
                 return elem
+
         # L3 已删除：不再做跨 context 全局回退，直接返回 None
+        _debug_f7(f"    → 所有查找失败，返回 None")
         return None
 
     def _discovery_lookup(self, label, context=None, type_hint=None):
@@ -860,10 +922,12 @@ class CaseGenerator:
         # L2: 类型兼容性映射（子串搜索时过滤不兼容类型）
         _TYPE_COMPAT = {
             'button': {'button', 'table-action-button', 'close-button', 'search-button'},
-            'input': {'input', 'textarea'},
+            'input': {'input', 'textarea', 'input-generic', 'textarea-generic',
+                      'date_picker', 'time_picker', 'datetime_picker'},
             'el-select': {'el-select', 'el-cascader'},
-            'textarea': {'textarea', 'input'},
+            'textarea': {'textarea', 'input', 'textarea-generic', 'input-generic'},
             'el-cascader': {'el-cascader', 'el-select'},
+            'date_picker': {'date_picker', 'time_picker', 'datetime_picker'},
         }
 
         def _type_ok(elem):

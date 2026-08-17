@@ -613,19 +613,21 @@ def _strip_container_prefix(raw_xpath):
     return _rewrap_positional(stripped, wrap)
 
 
-def _verify_count_or_first(page, locator):
+def _verify_count_or_first(page, locator, elem_type=None):
     """验证 locator 匹配数，count>1 时自动 [1] 收窄避免 strict mode violation。
 
     与 verify_locator_candidates() 的 count>1 逻辑保持一致：
-    count==1 → 通过；count>1 → 尝试 (xpath)[1] 取首个匹配元素。
+    count==1 → 通过（点击类元素始终 [1] 包裹）；count>1 → 尝试 (xpath)[1] 取首个匹配元素。
 
     Args:
         page: Playwright Page 对象
         locator: 完整 locator 字符串（含 xpath= 前缀）
+        elem_type: 元素类型（用于判断是否需要 [1] 包裹）
 
     Returns:
         str or None: 验证通过的 locator（可能已 [1] 收窄），count==0 返回 None
     """
+    from core.xpath_utils import _unwrap_positional, _rewrap_positional
     if not locator:
         return None
     try:
@@ -633,13 +635,19 @@ def _verify_count_or_first(page, locator):
     except Exception:
         return None
     if count == 1:
+        # 点击类元素：始终 [1] 包裹，防止运行时多匹配导致 strict mode violation
+        if elem_type in CLICK_EXPAND_TYPES:
+            raw = locator[6:] if locator.startswith('xpath=') else locator
+            inner, wrap = _unwrap_positional(raw)
+            if not wrap:  # 没有已有 positional 包裹
+                wrapped = f"({raw})[1]"
+                locator = inject_hidden_filter(f"xpath={wrapped}", elem_type=elem_type)
         return locator
     if count > 1:
         # 多匹配 → [1] 收窄（与 verify_locator_candidates 的 [1] fallback 一致）
         raw = locator[6:] if locator.startswith('xpath=') else locator
 
         # 防止双重包裹：如果已有 (xpath)[N] 外层，先解包再用 [1] 重新包裹
-        from core.xpath_utils import _unwrap_positional, _rewrap_positional
         inner, _ = _unwrap_positional(raw)
         narrowed_raw = f"({inner})[1]"
 
@@ -742,6 +750,13 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
                               f"(orig_had_prefix={_orig_had_prefix}): "
                               f"{full_xpath[:120]}{'...' if len(full_xpath) > 120 else ''}")
                         if count == 1:
+                            # 点击类元素：始终 [1] 包裹，防止运行时多匹配导致 strict mode violation
+                            if elem_type in CLICK_EXPAND_TYPES:
+                                inner, wrap = _unwrap_positional(test_xpath)
+                                if not wrap:  # 没有已有 positional 包裹
+                                    wrapped_test_xpath = f"({test_xpath})[1]"
+                                    full_xpath = inject_hidden_filter(f"xpath={wrapped_test_xpath}", elem_type=elem_type)
+                                    print(f"    [TRACE-P6]     [1] wrapped for click type: {full_xpath[:120]}")
                             return _ret(full_xpath, test_prefix, count, candidate_index)
                         if count > 1:
                             # 第一轮：跳过所有收窄，继续尝试其他候选
@@ -1977,7 +1992,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 print(f"    [TRACE-P6]   strategy={fb.get('strategy', 'unknown')}")
                 print(f"    [TRACE-P6]   fb_locator={fb['locator'][:100]}{'...' if len(fb['locator']) > 100 else ''}")
                 fb_locator = inject_hidden_filter(fb['locator'], elem_type=elem_type)
-                _fb_result = _verify_count_or_first(page, fb_locator)
+                _fb_result = _verify_count_or_first(page, fb_locator, elem_type=elem_type)
                 print(f"    [TRACE-P6]   _verify_count_or_first: result={'passed' if _fb_result else 'failed'}")
                 if _fb_result:
                     verified_locator = _fb_result
@@ -1991,7 +2006,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 fb_cross = kb_fallback(_cross_type, label, label, framework=_framework)
                 if fb_cross and fb_cross.get('locator'):
                     fb_locator = inject_hidden_filter(fb_cross['locator'], elem_type=_cross_type)
-                    _fb_result = _verify_count_or_first(page, fb_locator)
+                    _fb_result = _verify_count_or_first(page, fb_locator, elem_type=_cross_type)
                     if _fb_result:
                         verified_locator = _fb_result
                         print(f"    [KB-FALLBACK] '{desc}' → {_cross_type} "
@@ -2010,7 +2025,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                     fallback_xpath = f"//div[contains(@class,'el-dialog')]//button[contains(.,'{label}')]"
                 fallback_xpath = inject_hidden_filter(f"xpath={fallback_xpath}", elem_type='button')
                 print(f"    [TRACE-P6]   D1 dialog-confirm: {fallback_xpath[:100]}")
-                _fb_result = _verify_count_or_first(page, fallback_xpath)
+                _fb_result = _verify_count_or_first(page, fallback_xpath, elem_type='button')
                 print(f"    [TRACE-P6]   D1 result: {'passed' if _fb_result else 'failed'}")
                 if _fb_result:
                     verified_locator = _fb_result
@@ -2028,7 +2043,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                         fallback_xpath = inject_hidden_filter(
                             f"xpath={_fallback_prefix_str}{kb_loc}", elem_type=elem_type)
                         print(f"    [TRACE-P6]     M11[{i}]: {fallback_xpath[:100]}")
-                        _fb_result = _verify_count_or_first(page, fallback_xpath)
+                        _fb_result = _verify_count_or_first(page, fallback_xpath, elem_type=elem_type)
                         print(f"    [TRACE-P6]     M11[{i}] result: {'passed' if _fb_result else 'failed'}")
                         if _fb_result:
                             verified_locator = _fb_result
@@ -2043,7 +2058,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                             for kb_loc in cross_kb_locators:
                                 fallback_xpath = inject_hidden_filter(
                                     f"xpath={_fallback_prefix_str}{kb_loc}", elem_type=_cross_type)
-                                _fb_result = _verify_count_or_first(page, fallback_xpath)
+                                _fb_result = _verify_count_or_first(page, fallback_xpath, elem_type=_cross_type)
                                 if _fb_result:
                                     verified_locator = _fb_result
                                     print(f"    [FALLBACK] '{desc}' → KB-{_cross_type} "
@@ -2063,7 +2078,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                         fallback_xpath = inject_hidden_filter(
                             f"xpath={_fallback_prefix_str}{first_kb_candidate}", elem_type=elem_type)
                         print(f"    [TRACE-P6]   M11 first-kb-candidate: {fallback_xpath[:100]}")
-                        _fb_result = _verify_count_or_first(page, fallback_xpath)
+                        _fb_result = _verify_count_or_first(page, fallback_xpath, elem_type=elem_type)
                         print(f"    [TRACE-P6]   M11 first-kb-candidate result: {'passed' if _fb_result else 'failed'}")
                         if _fb_result:
                             verified_locator = _fb_result
@@ -2090,7 +2105,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 # 防御性：count>1 时自动 [1] 收窄（与 M11/R5 兜底路径一致）
                 # 场景：discovery 已验证 count=1，但 Phase 6 验证时因表格异步
                 # 加载等原因 count>1，运行时可能仍多匹配
-                _preserved_narrowed = _verify_count_or_first(page, _preserved_locator)
+                _preserved_narrowed = _verify_count_or_first(page, _preserved_locator, elem_type=elem_type)
                 if _preserved_narrowed:
                     verified_locator = _preserved_narrowed
                     is_best_guess = True
@@ -2105,10 +2120,15 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                     _raw = (_preserved_locator.replace('xpath=', '', 1)
                             if _preserved_locator.startswith('xpath=')
                             else _preserved_locator)
-                    verified_locator = f"xpath=({_raw})[1]"
+                    # 防止重复包裹：检查是否已有 (xpath)[N] 形式
+                    inner, wrap = _unwrap_positional(_raw)
+                    if not wrap:  # 没有已有 positional 包裹
+                        verified_locator = f"xpath=({_raw})[1]"
+                    else:
+                        verified_locator = _preserved_locator  # 已有包裹，不重复添加
                     is_best_guess = True
                     print(f"    [PRESERVED] '{desc}' → 保留 Phase 5 原始 locator "
-                          f"(discovery verified, count=0, [1] 防御)")
+                          f"(discovery verified, count=0, [1] 防御{', 已有包裹跳过' if wrap else ''})")
 
         # ── iframe 探测：当主页面所有候选都 count=0 时，尝试在 iframe 中查找 ──
         if not verified_locator and locator and 'xpath=' in locator:
@@ -2146,9 +2166,17 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                     print(f"    [IFRAME-DISCOVERY]   locator_ref={_raw_locator_ref}")
                     # 使用 iframe 内的 locator（不添加容器前缀）
                     verified_locator = iframe_search_locator
+                    # 点击类元素：始终 [1] 包裹，防止运行时多匹配导致 strict mode violation
+                    if elem_type in CLICK_EXPAND_TYPES:
+                        raw = verified_locator[6:] if verified_locator.startswith('xpath=') else verified_locator
+                        inner, wrap = _unwrap_positional(raw)
+                        if not wrap:  # 没有已有 positional 包裹
+                            wrapped = f"({raw})[1]"
+                            verified_locator = inject_hidden_filter(f"xpath={wrapped}", elem_type=elem_type)
                     hit_source = 'iframe'
                     is_best_guess = True
-                    print(f"    [TRACE-P6]   iframe discovery success, return raw locator (no container prefix needed in iframe)")
+                    _wrap_note = '[1] wrapped' if elem_type in CLICK_EXPAND_TYPES else 'raw'
+                    print(f"    [TRACE-P6]   iframe discovery success, return {_wrap_note} locator (no container prefix needed in iframe)")
 
         # 存储 iframe discovery 到模块级变量（供 verify_orchestrator 读取）
         # global 声明已在函数开头（行1082）
@@ -2199,7 +2227,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 # 防御性：count>1 时自动 [1] 收窄（与 M11 兜底路径一致）
                 # 场景：表格异步加载未完成时 count=0，加载完 count>1（行按钮等）
                 # 若不做 [1] 收窄，Phase 9 运行时 strict mode violation
-                _bg_narrowed = _verify_count_or_first(page, _bg_locator)
+                _bg_narrowed = _verify_count_or_first(page, _bg_locator, elem_type=elem_type)
                 if _bg_narrowed:
                     # count==1 或 count>1 已收窄 → 使用收窄后的 locator
                     verified_locator = _bg_narrowed
@@ -2211,8 +2239,14 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                     _raw = (_bg_locator.replace('xpath=', '', 1)
                             if _bg_locator.startswith('xpath=')
                             else _bg_locator)
-                    verified_locator = f"xpath=({_raw})[1]"
-                    _bg_note = 'count=0, [1] 防御'
+                    # 防止重复包裹：检查是否已有 (xpath)[N] 形式
+                    inner, wrap = _unwrap_positional(_raw)
+                    if not wrap:  # 没有已有 positional 包裹
+                        verified_locator = f"xpath=({_raw})[1]"
+                        _bg_note = 'count=0, [1] 防御'
+                    else:
+                        verified_locator = _bg_locator  # 已有包裹，不重复添加
+                        _bg_note = 'count=0, 已有包裹跳过'
                 is_best_guess = True
                 print(f"    [UNVERIFIED] '{desc}' → {_bg_source} "
                       f"({_bg_note}, 兜底回写)")

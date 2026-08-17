@@ -234,7 +234,13 @@ def _load_all_suite_refs(suites_dir: Path) -> set[str]:
 
             case_refs = data.get('case_refs', [])
             if isinstance(case_refs, list):
-                refs.update(case_refs)
+                for item in case_refs:
+                    if isinstance(item, dict):
+                        case_id = item.get('case_id')
+                        if case_id:
+                            refs.add(case_id)
+                    elif isinstance(item, str):
+                        refs.add(item)
 
         except Exception as e:
             print(f"⚠️  无法加载 {yaml_file}: {e}")

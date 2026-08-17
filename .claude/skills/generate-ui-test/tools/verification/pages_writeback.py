@@ -227,6 +227,7 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
     for ref, info in verified_locators.items():
         parts = ref.split('.', 1)
         if len(parts) != 2:
+            print(f"  [DEBUG-WB-BUILD] SKIP ref='{ref}': not group.field format")
             continue
         group, field = parts
         locator = info.get('locator', '')
@@ -235,7 +236,7 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
 
         # BUG-5: Protect common_elements fields from writeback
         if group == 'common_elements' and field in PROTECTED_COMMON_FIELDS:
-            print(f"  [SKIP] Protected field common_elements.{field} — writeback not allowed")
+            print(f"  [DEBUG-WB-BUILD] SKIP {ref}: protected field")
             continue
 
         # Find which YAML file contains this group
@@ -253,12 +254,20 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
                             matching_files.append(path)
                     except Exception:
                         pass
+
+        if not matching_files:
+            print(f"  [DEBUG-WB-BUILD] SKIP {ref}: group '{group}' not found in any YAML file")
+            print(f"                   search_root={search_root}")
+            continue
+
         if len(matching_files) > 1:
             # H6: 排序确保非 _ 前缀文件优先（elements.yaml > _fallback.yaml）
             matching_files.sort(key=lambda p: (0 if not os.path.basename(p).startswith('_') else 1, p))
             print(f"  [WARN] F8: group '{group}' found in {len(matching_files)} files: "
                   f"{[os.path.basename(p) for p in matching_files]}")
             print(f"         Using: {matching_files[0]} (non-underscore preferred)")
+
+        print(f"  [DEBUG-WB-BUILD] ADD {ref}: file={os.path.basename(matching_files[0])}, is_new={is_new_field}")
         for path in matching_files[:1]:  # use first match only
             if path not in updates:
                 updates[path] = {}
@@ -283,15 +292,24 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
                     field_markers[path][group] = {}
                 field_markers[path][group][field] = marker
 
-    # [DEBUG-WB] 进入 writeback 时，打印所有 common_elements 相关 ref
-    _common_refs = [r for r in verified_locators if 'common_elements' in r]
+    # [DEBUG-WB] 进入 writeback 时，打印所有 verified_locators
     print(f"\n  [DEBUG-WB] === update_pages_yaml START ===")
-    print(f"  [DEBUG-WB] 总 verified_locators: {len(verified_locators)}, common_elements 相关: {len(_common_refs)}")
-    for r in _common_refs:
-        info = verified_locators[r]
+    print(f"  [DEBUG-WB] 总 verified_locators: {len(verified_locators)}")
+    for r, info in verified_locators.items():
         loc_val = info.get('locator', '')
         loc_short = loc_val.replace('xpath=', '')[:80] if loc_val else ''
-        print(f"  [DEBUG-WB]   {r}: marker={info.get('marker')}, locator='{loc_short}'")
+        marker = info.get('marker', '')
+        is_new = info.get('is_new_field', False)
+        print(f"  [DEBUG-WB]   {r}: marker={marker}, is_new={is_new}, locator='{loc_short}'")
+
+    # [DEBUG-WB] 打印 updates 字典构建结果
+    print(f"\n  [DEBUG-WB] === updates dict ===")
+    for filepath, groups in updates.items():
+        print(f"  [DEBUG-WB] File: {os.path.basename(filepath)}")
+        for group, fields in groups.items():
+            print(f"  [DEBUG-WB]   Group '{group}': {len(fields)} fields")
+            for field in fields:
+                print(f"  [DEBUG-WB]     - {field}")
 
     # Write back
     for filepath, groups in updates.items():
@@ -324,6 +342,12 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
                         new_fields[field] = new_locator
                     else:
                         existing_fields[field] = new_locator
+                # [DEBUG-WB] 记录分组处理详情
+                print(f"  [DEBUG-WB] Processing group '{group}': {len(existing_fields)} existing, {len(new_fields)} new")
+                if existing_fields:
+                    print(f"  [DEBUG-WB]   existing_fields: {list(existing_fields.keys())}")
+                if new_fields:
+                    print(f"  [DEBUG-WB]   new_fields: {list(new_fields.keys())}")
 
                 # 替换已有字段
                 in_group = False
@@ -341,12 +365,12 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
                             continue
                         for field, new_locator in existing_fields.items():
                             if stripped.lstrip().startswith(f'{field}:'):
-                                # [DEBUG-WB] 行匹配日志
+                                # [DEBUG-WB] 行匹配日志 - 扩展为所有字段
                                 _old_line = line.strip()
                                 _is_common = group == 'common_elements'
-                                if _is_common or 'confirm_btn' in field or 'cancel_btn' in field:
-                                    print(f"  [DEBUG-WB]   MATCH Line {i+1}: field='{field}', group='{group}'")
-                                    print(f"  [DEBUG-WB]     OLD: {_old_line[:120]}")
+                                # 记录所有字段的匹配，不仅仅是 common_elements
+                                print(f"  [DEBUG-WB]   MATCH Line {i+1}: field='{field}', group='{group}'")
+                                print(f"  [DEBUG-WB]     OLD: {_old_line[:120]}")
                                 # 防御: 拒绝回写 contains(text(),'') 废模板
                                 if isinstance(new_locator, str) and "contains(text(),'')" in new_locator:
                                     print(f"  [WARN] 跳过废模板回写: {field} 包含 contains(text(),'')")
@@ -375,8 +399,8 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
                                 _final_comment = "".join(_parts)
                                 scalar = _escape_yaml_scalar(new_locator)
                                 lines[i] = f"{' ' * indent}{field}: {scalar}{_final_comment}\n"
-                                if _is_common or 'confirm_btn' in field or 'cancel_btn' in field:
-                                    print(f"  [DEBUG-WB]     NEW: {lines[i].strip()[:120]}")
+                                # 记录所有字段的新值
+                                print(f"  [DEBUG-WB]     NEW: {lines[i].strip()[:120]}")
                                 break
 
                 # 追加新字段到 group 末尾

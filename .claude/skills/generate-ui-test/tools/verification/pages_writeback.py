@@ -95,9 +95,14 @@ def _store_verified_locator(v_loc, v_ct, step, pages_dict, verified_locators,
         is_best_guess: R5 — True when locator is KB best-guess (count=0), sets [UNVERIFIED] marker
     """
     ref = _extract_locator_ref(step)
+    # [DEBUG] 早期退出点 1: ref 提取
+    _debug_locator_param = step.get('params', {}).get('locator', '') if isinstance(step.get('params', {}), dict) else ''
     if not ref:
+        print(f"    [DEBUG-STORE] ref=None, raw_locator='{_debug_locator_param[:80]}', step_desc='{step.get('desc','')[:40]}'")
         return
     orig_xpath = _get_original_xpath(ref, pages_dict)
+    # [DEBUG] orig_xpath 提取
+    print(f"    [DEBUG-STORE] ref='{ref}', orig_xpath='{orig_xpath[:80] if orig_xpath else '(empty)'}'")
     # 提取 verified locator 的 xpath 部分（去掉 xpath= 前缀）
     v_xpath = v_loc.replace('xpath=', '') if isinstance(v_loc, str) and v_loc.startswith('xpath=') else v_loc
 

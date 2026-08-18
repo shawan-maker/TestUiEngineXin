@@ -142,7 +142,7 @@
           "select": {
             "desc": "选择匹配选项",
             "patterns": [
-              "(//div[@x-placement and not(@x-placement='')]//li[contains(.,'{option_text}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
+              "(//div[@x-placement and not(@x-placement='')]//li[contains(@class,'el-select-dropdown__item') and contains(.,'{option_text}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
             ]
           },
           "editable-check": {

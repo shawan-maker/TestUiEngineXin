@@ -536,7 +536,8 @@ class CaseGenerator:
             # Element UI (默认): 使用 x-placement + el-select-dropdown__item
             option_xpath = (
                 f"(//div[@x-placement and not(@x-placement='')]//li"
-                f"[contains(.,'{option_ref}')"
+                f"[contains(@class,'el-select-dropdown__item')"
+                f" and contains(.,'{option_ref}')"
                 f" and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
                 f" and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
             )

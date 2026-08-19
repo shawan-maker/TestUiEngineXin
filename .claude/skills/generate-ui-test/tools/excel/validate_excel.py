@@ -1729,7 +1729,7 @@ class ExcelValidator:
             'click_first_in_list': '点击XX第一个"YY"按钮',
             'click_navigate': '点击"XX"可以跳转',
             'click_section': '点击XX部分/区域',
-            'click_more_then': '点击"更多"...选择XX',
+            'click_more_then': '点击"更多"...选择XX 或 点击第N条记录的"更多"按钮，点击"XX"',
             'conditional_click_btn': '如果"XX"中数量大于0则点击"YY"按钮',
             'conditional_click_tab': '如果"XX"中数量大于0则点击"YY"tab',
             'conditional_click_row': '如果"XX"中数量大于0则点击第N条',

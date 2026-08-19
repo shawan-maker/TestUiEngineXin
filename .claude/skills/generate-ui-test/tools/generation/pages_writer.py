@@ -385,6 +385,13 @@ class PagesWriter:
         print(f"  [TRACE] 准备写入: {len(groups)} groups, {total_fields} fields")
         for g_name, g_fields in groups.items():
             print(f"    - {g_name}: {len(g_fields)} fields")
+
+        # [DEBUG-PAGES] 追踪 el-select 相关 group
+        print(f"  [DEBUG-PAGES] el-select groups in required_fields:")
+        for g_name, g_fields in groups.items():
+            if any('_expand' in f or '_editable' in f or '_select' in f for f in g_fields.keys()):
+                print(f"    {g_name}: {list(g_fields.keys())}")
+
         self._write_yaml_with_comments(output_path, groups, header)
 
     def write_common_elements(self, output_path, extra_fields=None):

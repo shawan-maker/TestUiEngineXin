@@ -81,8 +81,7 @@ STEP_TO_KB = {
     'click_detail_link': 'detail-link',
     'confirm_dialog': 'button',
     'confirm_delete': 'button',
-    'click_more_then': 'table-action-button',        # Fix-2a: 更多按钮 = 行操作触发器
-    'click_more_then_click': 'table-action-button',   # Fix-2a: 同上（带行号前缀变体）
+    'click_more_then': 'table-action-button',        # Fix-2a: 更多按钮 = 行操作触发器（合并 click_more_then_click）
     # ── RESERVED: iframe ──
     'frame_fill': 'rich_text',
 }

@@ -59,7 +59,7 @@ class CaseGenerator:
 
     _BUTTON_TYPES = frozenset({
         'click_btn', 'click', 'click_table_row_btn', 'click_first_in_list',
-        'click_table_action', 'click_more_then', 'click_more_then_click',
+        'click_table_action', 'click_more_then',
         'confirm_dialog', 'confirm_delete',
         'conditional_click_btn', 'conditional_click_row',
         'conditional_click', 'conditional_click_tab',
@@ -177,7 +177,7 @@ class CaseGenerator:
     def _build_dropdown_option_xpath(self, action):
         """构建下拉菜单选项的 XPath（使用 framework_registry）
 
-        用于 click_more_then 和 click_more_then_click 分支。
+        用于 click_more_then 分支（已合并 click_more_then_click）。
 
         Args:
             action: 菜单项文本
@@ -420,16 +420,23 @@ class CaseGenerator:
         # 2. 确定 group（复用现有容器上下文逻辑）
         #    self._current_context = 打开容器的按钮标签（如 "新增"），
         #    由 _update_container_context_post() 在上一步按钮点击后设置
+        _page_slug = self._get_current_page_slug()
         group = self.resolver.get_group_name(
             self.module,
-            page_slug=self._get_current_page_slug(),
+            page_slug=_page_slug,
             container_type=self.current_container,
             trigger=self._current_context)
         if not group:
             group = self.resolver.construct_pending_group(
                 self.current_container, self.module,
-                page_slug=self._get_current_page_slug(),
+                page_slug=_page_slug,
                 trigger=self._current_context)
+
+        # [DEBUG-ELSELECT] 追踪 el-select group 名生成
+        print(f"    [DEBUG-ELSELECT] label='{label}', field='{field}'")
+        print(f"      module='{self.module}', page_slug='{_page_slug}'")
+        print(f"      container_type={self.current_container}, trigger='{self._current_context}'")
+        print(f"      → group='{group}'")
 
         # 3. KB 标准 XPath（来自 probe_knowledge.json el-select multi_step）
         # L3: 根据框架选择不同的 XPath 模式
@@ -1014,7 +1021,7 @@ class CaseGenerator:
         if ptype in (
             'click_btn', 'click_table_row_btn', 'click_detail_link',
             'if_visible',
-            'click_more_then_click', 'click_more_then',
+            'click_more_then',
             'click_table_action', 'conditional_click_btn',
         ):
             return args[0]
@@ -2521,6 +2528,7 @@ class CaseGenerator:
                     '更多', 'table_action',
                     container_type=self.current_container,
                     module_slug=self.module)
+            option_ref = self._build_dropdown_option_xpath(action)
             if more_ref:
                 steps.append({
                     'desc': "点击更多按钮",
@@ -2529,82 +2537,22 @@ class CaseGenerator:
                     'params': {'locator': more_ref},
                 })
                 steps.append({
-                    'desc': "等待下拉菜单",
+                    'desc': "等待下拉菜单动画启动",
                     'keyword': 'wait_for_time',
                     'label': '更多',
-                    'params': {'timeout': 1000},
+                    'params': {'timeout': 500},
                     '_skip_phase6': True,
                 })
-                option_ref = self._build_dropdown_option_xpath(action)
+                steps.append({
+                    'desc': f'等待「{action}」菜单项可见',
+                    'keyword': 'wait_for_element',
+                    'label': action,
+                    'elem_type': 'dropdown-menu-item',
+                    'params': {'locator': option_ref, 'timeout': 3000},
+                    '_skip_phase6': True,
+                })
                 steps.append({
                     'desc': f'选择「{action}」',
-                    'keyword': 'click_element',
-                    'label': action,
-                    'elem_type': 'dropdown-menu-item',
-                    'params': {'locator': option_ref},
-                    '_skip_phase6': True,
-                })
-            else:
-                more_fallback = self._build_more_button_fallback_xpath()
-                steps.append({
-                    'desc': "[待确认] 点击更多按钮",
-                    'keyword': 'click_element',
-                    'label': '更多',
-                    'params': {'locator': more_fallback},
-                })
-                steps.append({
-                    'desc': "等待下拉菜单",
-                    'keyword': 'wait_for_time',
-                    'label': '更多',
-                    'params': {'timeout': 1000},
-                    '_skip_phase6': True,
-                })
-                option_ref = self._build_dropdown_option_xpath(action)
-                steps.append({
-                    'desc': f'[待确认] 选择「{action}」',
-                    'keyword': 'click_element',
-                    'label': action,
-                    'elem_type': 'dropdown-menu-item',
-                    'params': {'locator': option_ref},
-                    '_skip_phase6': True,
-                })
-
-        elif ptype == 'click_more_then_click':
-            action = args[0].strip()
-            groups = self._compat_groups()
-            # Fix-More: 三层查找链，类型守卫防止 discovery 类型污染
-            # ptype='click_more_then_click' 已知类型为 table-action-button，
-            # 不依赖 discovery 的 type 字段决定后缀
-            more_ref = _find_table_action(groups, '更多')
-            if not more_ref:
-                _btn_elem = self.find_button('更多', preferred_container=self.current_container)
-                if _btn_elem:
-                    # 类型守卫：只接受按钮类后缀，拦截 _select/_editable 等
-                    _btn_field = _btn_elem.split('.', 1)[1].rstrip('}')
-                    if _btn_field.endswith(('_btn', '_btn_row', '_link')):
-                        more_ref = _btn_elem
-            if not more_ref:
-                more_ref, _ = self.resolver.make_pending_ref(
-                    '更多', 'table_action',
-                    container_type=self.current_container,
-                    module_slug=self.module)
-            if more_ref:
-                steps.append({
-                    'desc': "点击第一条记录的更多按钮",
-                    'keyword': 'click_element',
-                    'label': '更多',
-                    'params': {'locator': more_ref},
-                })
-                steps.append({
-                    'desc': "等待下拉菜单展开",
-                    'keyword': 'wait_for_time',
-                    'label': '更多',
-                    'params': {'timeout': 1000},
-                    '_skip_phase6': True,
-                })
-                option_ref = self._build_dropdown_option_xpath(action)
-                steps.append({
-                    'desc': f'点击「{action}」',
                     'keyword': 'click_element',
                     'label': action,
                     'elem_type': 'dropdown-menu-item',
@@ -2618,7 +2566,7 @@ class CaseGenerator:
                     module_slug=self.module)
                 if pending_ref:
                     steps.append({
-                        'desc': "[待确认] 点击第一条记录的更多按钮",
+                        'desc': "[待确认] 点击更多按钮",
                         'keyword': 'click_element',
                         'label': '更多',
                         'params': {'locator': pending_ref},
@@ -2632,15 +2580,22 @@ class CaseGenerator:
                         'params': {'locator': more_fallback},
                     })
                 steps.append({
-                    'desc': "等待下拉菜单展开",
+                    'desc': "等待下拉菜单动画启动",
                     'keyword': 'wait_for_time',
                     'label': '更多',
-                    'params': {'timeout': 1000},
+                    'params': {'timeout': 500},
                     '_skip_phase6': True,
                 })
-                option_ref = self._build_dropdown_option_xpath(action)
                 steps.append({
-                    'desc': f'点击「{action}」',
+                    'desc': f'等待「{action}」菜单项可见',
+                    'keyword': 'wait_for_element',
+                    'label': action,
+                    'elem_type': 'dropdown-menu-item',
+                    'params': {'locator': option_ref, 'timeout': 3000},
+                    '_skip_phase6': True,
+                })
+                steps.append({
+                    'desc': f'[待确认] 选择「{action}」',
                     'keyword': 'click_element',
                     'label': action,
                     'elem_type': 'dropdown-menu-item',

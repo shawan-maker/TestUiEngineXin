@@ -263,6 +263,13 @@ def step_filter_pages(output_dir):
             group, field = parts
             used_by_group.setdefault(group, set()).add(field)
 
+    # [DEBUG-FILTER] 追踪 el-select 相关引用
+    print(f"  [DEBUG-FILTER] el-select refs in cases/data:")
+    for group, fields in sorted(used_by_group.items()):
+        el_fields = [f for f in fields if '_expand' in f or '_editable' in f or '_select' in f or '_first_option' in f]
+        if el_fields:
+            print(f"    {group}: {sorted(el_fields)}")
+
     total_removed = 0
     for root, _, files in os.walk(pages_dir):
         for fname in files:

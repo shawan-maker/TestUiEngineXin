@@ -1075,6 +1075,7 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                             'field': _ref_match.group(2),
                             'frame_selector': iframe_disc.get('frame_selector', ''),
                             'keyword': iframe_disc.get('keyword', ''),
+                            'clean_xpath': iframe_disc.get('clean_xpath', ''),
                         })
                         print(f"  [IFRAME] Step {step_idx+1}: 发现 iframe 元素，frame={iframe_disc.get('frame_selector')}")
 

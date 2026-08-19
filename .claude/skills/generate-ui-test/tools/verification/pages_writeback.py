@@ -590,6 +590,7 @@ def _write_iframe_companion_fields(project_dir, iframe_discoveries, module=None)
             'group': group,
             'field': field,
             'frame_selector': frame_selector,
+            'clean_xpath': disc.get('clean_xpath', ''),
         })
 
     # 逐个文件处理
@@ -611,6 +612,70 @@ def _write_iframe_companion_fields(project_dir, iframe_discoveries, module=None)
                     if line.strip().startswith(f'{iframe_field}:'):
                         iframe_exists = True
                         break
+
+                # 回写 iframe 内 locator 到原始字段（2026-08-19）
+                # 必须在 iframe_exists 检查之前，因为即使 _iframe 字段已存在，原始字段可能仍缺失
+                clean_xpath = update.get('clean_xpath')
+                if clean_xpath:
+                    # 查找原始字段是否已存在
+                    original_exists = False
+                    for line in lines:
+                        if line.strip().startswith(f'{field}:'):
+                            original_exists = True
+                            break
+
+                    if not original_exists:
+                        # 原始字段不存在，在 _iframe 字段后插入（或在 group 末尾）
+                        original_value = f'xpath={clean_xpath}'
+                        original_scalar = _escape_yaml_scalar(original_value)
+
+                        # 找到 _iframe 字段位置或 group 末尾
+                        original_insert_pos = None
+                        original_indent = None
+                        in_target_group = False
+                        for i, line in enumerate(lines):
+                            stripped = line.strip()
+
+                            # 进入目标 group
+                            if stripped.startswith(f'{group}:'):
+                                in_target_group = True
+                                continue
+
+                            # 离开 group（遇到新的顶层 key）
+                            if in_target_group and stripped and not line.startswith(' ') and ':' in stripped:
+                                original_insert_pos = i
+                                original_indent = 2  # 默认缩进
+                                break
+
+                            # 找到 _iframe 字段，在它后面插入
+                            if in_target_group and stripped.startswith(f'{iframe_field}:'):
+                                original_insert_pos = i + 1
+                                original_indent = len(line) - len(line.lstrip())
+                                break
+
+                        # 如果没找到 _iframe 字段，在 group 末尾插入
+                        if original_insert_pos is None and in_target_group:
+                            # 找到 group 的最后一个字段
+                            for j in range(len(lines) - 1, -1, -1):
+                                if lines[j].strip().startswith(f'{group}:'):
+                                    original_insert_pos = j + 1
+                                    original_indent = 2
+                                    break
+                                elif lines[j].strip() and lines[j].startswith(' '):
+                                    # 找到 group 内的最后一个字段
+                                    original_insert_pos = j + 1
+                                    original_indent = len(lines[j]) - len(lines[j].lstrip())
+                                    break
+
+                        if original_insert_pos is not None:
+                            indent_str = ' ' * original_indent
+                            original_line = f'{indent_str}{field}: {original_scalar}  # iframe 内元素（自动发现）\n'
+                            lines.insert(original_insert_pos, original_line)
+                            print(f"  [OK] {group}.{field} = {original_value[:80]}")
+                        else:
+                            print(f"  [WARN] 无法找到插入位置: {group}.{field}")
+                    else:
+                        print(f"  [SKIP] {group}.{field} 已存在")
 
                 if iframe_exists:
                     print(f"  [SKIP] {group}.{iframe_field} 已存在")
@@ -640,8 +705,37 @@ def _write_iframe_companion_fields(project_dir, iframe_discoveries, module=None)
                         break
 
                 if insert_pos is None:
-                    print(f"  [WARN] 未在 {filepath} 中找到 {group}.{field}")
-                    continue
+                    # field 未找到，尝试在空 group 中追加
+                    group_pos = None
+                    group_indent = None
+                    for i, line in enumerate(lines):
+                        stripped = line.strip()
+                        if stripped.startswith(f'{group}:'):
+                            group_pos = i
+                            group_indent = len(line) - len(line.lstrip())
+                            # 检查 group 是否为空（下一行是顶层 key 或文件结尾）
+                            if i + 1 >= len(lines) or (lines[i+1].strip() and not lines[i+1].startswith(' ')):
+                                # 空 group，在 group 声明后插入
+                                insert_pos = i + 1
+                                field_indent = group_indent + 2  # 子字段缩进
+                                break
+                            else:
+                                # 非空 group，找到最后一个子字段后插入
+                                for j in range(i + 1, len(lines)):
+                                    if lines[j].strip() and not lines[j].startswith(' '):
+                                        # 遇到顶层 key，在它之前插入
+                                        insert_pos = j
+                                        field_indent = group_indent + 2
+                                        break
+                                    elif lines[j].strip().startswith(f'{field}:'):
+                                        # 已存在该 field，跳过
+                                        insert_pos = None
+                                        break
+                                break
+
+                    if insert_pos is None:
+                        print(f"  [WARN] 未在 {filepath} 中找到 {group}.{field}")
+                        continue
 
                 # 插入 _iframe 伴侣字段（全 XPath 格式，2026-08-07）
                 indent = ' ' * (field_indent if field_indent else 2)

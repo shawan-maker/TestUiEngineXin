@@ -1697,24 +1697,48 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                                 break
 
                         # 第二次: 在菜单浮层中搜索目标并点击
-                        page.evaluate(_with_fw(f"""
+                        # TRACE-P4: 记录菜单项文本匹配过程
+                        print(f"    [TRACE-P4] from_expand click: btn_text='{btn_text}', row_idx={row_idx}")
+                        _click_result = page.evaluate(_with_fw(f"""
                             (() => {{
                                 let target = null;
                                 const menuSelectors = fwSelectors.dropdownMenu.split(', ');
+                                const allTexts = [];
                                 for (const sel of menuSelectors) {{
                                     if (target) break;
                                     document.querySelectorAll(sel).forEach(el => {{
                                         if (target) return;
                                         const t = (el.textContent || '').trim();
+                                        allTexts.push(t.slice(0, 40));
                                         if (t === {json.dumps(btn_text, ensure_ascii=False)}) {{
                                             target = el;
                                         }}
                                     }});
                                 }}
+                                // Fallback: 用第一个 TEXT_NODE 匹配（与发现阶段一致）
+                                if (!target) {{
+                                    for (const sel of menuSelectors) {{
+                                        if (target) break;
+                                        document.querySelectorAll(sel).forEach(el => {{
+                                            if (target) return;
+                                            let firstText = '';
+                                            for (const node of el.childNodes) {{
+                                                if (node.nodeType === 3) {{
+                                                    const t = node.textContent.trim();
+                                                    if (t) {{ firstText = t; break; }}
+                                                }}
+                                            }}
+                                            if (firstText === {json.dumps(btn_text, ensure_ascii=False)}) {{
+                                                target = el;
+                                            }}
+                                        }});
+                                    }}
+                                }}
                                 if (target) target.click();
-                                return !!target;
+                                return {{ clicked: !!target, allTexts: allTexts.slice(0, 25) }};
                             }})()
                         """))
+                        print(f"    [TRACE-P4] click_result: clicked={_click_result.get('clicked')}, allTexts={_click_result.get('allTexts', [])}")
                     else:
                         # ── 普通行按钮路径（原有逻辑，单次 evaluate） ──
                         page.evaluate(_with_fw(f"""
@@ -1813,6 +1837,10 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
 
             # Smart wait (§9.2 P2: 8s timeout + 1s animation + second-pass)
             wait_for_stable(page, url)
+            # TRACE-P4: wait_for_stable 后的页面 URL 和容器状态
+            _trace_url = page.url
+            _trace_vc = detect_visible_containers(page)
+            print(f"    [TRACE-P4] after wait_for_stable: url={_trace_url}, visible_containers={_trace_vc}")
 
             # ===== 新 Tab 检测 =====
             # 检查是否打开了新标签页

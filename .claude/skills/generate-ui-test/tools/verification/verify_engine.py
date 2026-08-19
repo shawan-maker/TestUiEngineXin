@@ -1363,7 +1363,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         if isinstance(params, dict):
             _seconds = params.get('seconds', params.get('duration', 1))
         elif desc:
-            _m = _re.search(r'(\d+)', desc)
+            _m = re.search(r'(\d+)', desc)
             if _m:
                 _seconds = int(_m.group(1))
         try:
@@ -1498,103 +1498,116 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         elif frame_selector.startswith('css='):
             frame_selector = frame_selector[4:]
 
-        print(f"    [TRACE-P6] iframe 快速通道: frame='{frame_selector}', locator='{locator[:80]}'")
+        # 降级检查：如果 frame_selector 或 locator 解析为空，说明变量未定义，跳过快速通道
+        # 让后续的正常流程（包括 iframe 探测）处理
+        # locator 为空时：快速通道无法操作（Playwright 不接受空 locator），
+        # 必须降级到正常流程，让基于 label 的 iframe 探测（行2139+）触发回写
+        if not frame_selector:
+            print(f"    [TRACE-P6] iframe 快速通道: frame_selector 为空（变量未定义），降级到正常流程")
+            # 不 return，让代码继续执行后续的正常逻辑（包括 iframe 探测）
+        elif not locator:
+            print(f"    [TRACE-P6] iframe 快速通道: locator 为空（原始字段未写入），降级到正常流程")
+            print(f"    [TRACE-P6]   frame_selector='{frame_selector}' 有效，但 locator 为空")
+            print(f"    [TRACE-P6]   将由基于 label 的 iframe 探测回写原始字段")
+            # 不 return，让代码继续执行后续的正常逻辑（包括 iframe 探测）
+        else:
+            print(f"    [TRACE-P6] iframe 快速通道: frame='{frame_selector}', locator='{locator[:80]}'")
 
-        # 提取纯 XPath（用于回退扫描）
-        _iframe_xpath = locator.replace('xpath=', '', 1) if locator.startswith('xpath=') else locator
+            # 提取纯 XPath（用于回退扫描）
+            _iframe_xpath = locator.replace('xpath=', '', 1) if locator.startswith('xpath=') else locator
 
-        # ── 策略 1: 用指定选择器尝试 ──
-        _frame_found = False
-        try:
-            page.wait_for_selector(frame_selector, state='attached', timeout=10000)
-            page.wait_for_timeout(1000)
-            _frame_found = True
-        except Exception:
-            print(f"    [TRACE-P6] iframe 选择器 '{frame_selector}' 未找到，回退扫描所有 iframe")
-
-        if _frame_found:
+            # ── 策略 1: 用指定选择器尝试 ──
+            _frame_found = False
             try:
-                frame_loc = page.frame_locator(frame_selector)
-                element_loc = frame_loc.locator(locator)
+                page.wait_for_selector(frame_selector, state='attached', timeout=10000)
+                page.wait_for_timeout(1000)
+                _frame_found = True
+            except Exception:
+                print(f"    [TRACE-P6] iframe 选择器 '{frame_selector}' 未找到，回退扫描所有 iframe")
 
-                count = 0
-                for retry in range(5):
-                    count = element_loc.count()
+            if _frame_found:
+                try:
+                    frame_loc = page.frame_locator(frame_selector)
+                    element_loc = frame_loc.locator(locator)
+
+                    count = 0
+                    for retry in range(5):
+                        count = element_loc.count()
+                        if count > 0:
+                            break
+                        print(f"    [TRACE-P6] iframe element count=0, retry {retry+1}/5...")
+                        page.wait_for_timeout(1000)
+
+                    print(f"    [TRACE-P6] iframe element count={count}")
                     if count > 0:
-                        break
-                    print(f"    [TRACE-P6] iframe element count=0, retry {retry+1}/5...")
-                    page.wait_for_timeout(1000)
+                        # 修改 9: 验证 frame_selector 在 DOM 中真实存在
+                        # 如果 DOM 中找不到，说明当前 selector 有误，需要触发回写
+                        try:
+                            dom_count = page.locator(frame_selector).count()
+                            if dom_count == 0:
+                                print(f"    [TRACE-P6] ⚠️ frame_selector '{frame_selector}' 在 DOM 中不存在，触发回写")
+                                # 调用 _try_find_in_iframes() 获取正确的 selector
+                                iframe_result = _try_find_in_iframes(page, locator)
+                                if iframe_result and iframe_result.get('count', 0) > 0:
+                                    # 设置 _iframe_discovery 触发回写
+                                    _last_iframe_discovery = {
+                                        'frame_selector': iframe_result['frame_selector'],
+                                        'frame_name': iframe_result['frame_name'],
+                                        'clean_xpath': iframe_result['clean_xpath'],
+                                        'count': iframe_result['count'],
+                                        'locator_ref': locator,
+                                        'keyword': keyword,
+                                    }
+                                    # 用新的 selector 重试
+                                    new_frame_selector = iframe_result['frame_selector']
+                                    if new_frame_selector.startswith('xpath='):
+                                        new_frame_selector = new_frame_selector[6:]
+                                    elif new_frame_selector.startswith('css='):
+                                        new_frame_selector = new_frame_selector[4:]
+                                    frame_selector = new_frame_selector
+                                    frame_loc = page.frame_locator(frame_selector)
+                                    element_loc = frame_loc.locator(locator)
+                                    count = element_loc.count()
+                                    print(f"    [TRACE-P6] 使用新 selector: {frame_selector}, count={count}")
+                        except Exception as dom_err:
+                            print(f"    [TRACE-P6] DOM 验证异常: {dom_err}")
 
-                print(f"    [TRACE-P6] iframe element count={count}")
-                if count > 0:
-                    # 修改 9: 验证 frame_selector 在 DOM 中真实存在
-                    # 如果 DOM 中找不到，说明当前 selector 有误，需要触发回写
-                    try:
-                        dom_count = page.locator(frame_selector).count()
-                        if dom_count == 0:
-                            print(f"    [TRACE-P6] ⚠️ frame_selector '{frame_selector}' 在 DOM 中不存在，触发回写")
-                            # 调用 _try_find_in_iframes() 获取正确的 selector
-                            iframe_result = _try_find_in_iframes(page, locator)
-                            if iframe_result and iframe_result.get('count', 0) > 0:
-                                # 设置 _iframe_discovery 触发回写
-                                _last_iframe_discovery = {
-                                    'frame_selector': iframe_result['frame_selector'],
-                                    'frame_name': iframe_result['frame_name'],
-                                    'clean_xpath': iframe_result['clean_xpath'],
-                                    'count': iframe_result['count'],
-                                    'locator_ref': locator,
-                                    'keyword': keyword,
-                                }
-                                # 用新的 selector 重试
-                                new_frame_selector = iframe_result['frame_selector']
-                                if new_frame_selector.startswith('xpath='):
-                                    new_frame_selector = new_frame_selector[6:]
-                                elif new_frame_selector.startswith('css='):
-                                    new_frame_selector = new_frame_selector[4:]
-                                frame_selector = new_frame_selector
-                                frame_loc = page.frame_locator(frame_selector)
-                                element_loc = frame_loc.locator(locator)
-                                count = element_loc.count()
-                                print(f"    [TRACE-P6] 使用新 selector: {frame_selector}, count={count}")
-                    except Exception as dom_err:
-                        print(f"    [TRACE-P6] DOM 验证异常: {dom_err}")
+                        verified_locator = locator
+                        return _iframe_execute_action(keyword, element_loc, verified_locator,
+                                                      page, params, data_dict, desc)
+                except Exception as e:
+                    print(f"    [TRACE-P6] 指定 iframe 操作失败: {str(e)[:80]}，回退扫描")
 
-                    verified_locator = locator
-                    return _iframe_execute_action(keyword, element_loc, verified_locator,
-                                                  page, params, data_dict, desc)
-            except Exception as e:
-                print(f"    [TRACE-P6] 指定 iframe 操作失败: {str(e)[:80]}，回退扫描")
+            # ── 策略 2: 回退 — 扫描所有 iframe 查找目标元素 ──
+            _iframe_result = _try_find_in_iframes(page, locator)
+            if _iframe_result and _iframe_result.get('count', 0) > 0:
+                _fb_selector = _iframe_result['frame_selector']
+                _frame_name = _iframe_result.get('frame_name', '')
+                _clean_xpath = _iframe_result.get('clean_xpath', '')
+                print(f"    [TRACE-P6] iframe 回退成功: selector='{_fb_selector}', name='{_frame_name}', clean_xpath='{_clean_xpath[:60]}'")
+                verified_locator = locator
 
-        # ── 策略 2: 回退 — 扫描所有 iframe 查找目标元素 ──
-        _iframe_result = _try_find_in_iframes(page, locator)
-        if _iframe_result and _iframe_result.get('count', 0) > 0:
-            _fb_selector = _iframe_result['frame_selector']
-            _frame_name = _iframe_result.get('frame_name', '')
-            _clean_xpath = _iframe_result.get('clean_xpath', '')
-            print(f"    [TRACE-P6] iframe 回退成功: selector='{_fb_selector}', name='{_frame_name}', clean_xpath='{_clean_xpath[:60]}'")
-            verified_locator = locator
+                # 关键修复：用 page.frame(name=...) 直接获取 Frame 对象，而不是 frame_locator(css)
+                # 因为 confirmIframe 在 DOM 中不可达（CSS 选择器找不到），但 page.frames 能按 name 找到
+                frame_obj = None
+                if _frame_name:
+                    frame_obj = page.frame(name=_frame_name)
+                    print(f"    [TRACE-P6] 使用 page.frame(name='{_frame_name}') 获取 Frame 对象")
 
-            # 关键修复：用 page.frame(name=...) 直接获取 Frame 对象，而不是 frame_locator(css)
-            # 因为 confirmIframe 在 DOM 中不可达（CSS 选择器找不到），但 page.frames 能按 name 找到
-            frame_obj = None
-            if _frame_name:
-                frame_obj = page.frame(name=_frame_name)
-                print(f"    [TRACE-P6] 使用 page.frame(name='{_frame_name}') 获取 Frame 对象")
+                if not frame_obj:
+                    # 回退：尝试用 frame_locator
+                    frame_obj = page.frame_locator(_fb_selector)
+                    print(f"    [TRACE-P6] 回退使用 frame_locator('{_fb_selector}')")
 
-            if not frame_obj:
-                # 回退：尝试用 frame_locator
-                frame_obj = page.frame_locator(_fb_selector)
-                print(f"    [TRACE-P6] 回退使用 frame_locator('{_fb_selector}')")
+                # 使用清理后的 XPath（去掉 hidden filter 和 [1] 索引），避免 iframe 内定位失败
+                _fb_locator = f'xpath={_clean_xpath}' if _clean_xpath else locator
+                element_loc = frame_obj.locator(_fb_locator)
+                return _iframe_execute_action(keyword, element_loc, verified_locator,
+                                              page, params, data_dict, desc)
 
-            # 使用清理后的 XPath（去掉 hidden filter 和 [1] 索引），避免 iframe 内定位失败
-            _fb_locator = f'xpath={_clean_xpath}' if _clean_xpath else locator
-            element_loc = frame_obj.locator(_fb_locator)
-            return _iframe_execute_action(keyword, element_loc, verified_locator,
-                                          page, params, data_dict, desc)
-
-        print(f"    [ERROR] iframe 内未找到元素: '{desc}'")
-        print(f"    [ERROR]   frame='{frame_selector}', locator='{locator[:100]}'")
-        return None, None, False, False, None
+            print(f"    [ERROR] iframe 内未找到元素: '{desc}'")
+            print(f"    [ERROR]   frame='{frame_selector}', locator='{locator[:100]}'")
+            return None, None, False, False, None
 
     # Fix-2b-A: 类型推断 + discovery 交叉验证
     # _infer_elem_type 是纯函数（不依赖 discovery），对"编辑/删除/查看/详情"
@@ -2131,52 +2144,67 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                           f"(discovery verified, count=0, [1] 防御{', 已有包裹跳过' if wrap else ''})")
 
         # ── iframe 探测：当主页面所有候选都 count=0 时，尝试在 iframe 中查找 ──
-        if not verified_locator and locator and 'xpath=' in locator:
+        # 构建 iframe 搜索用的 locator：
+        #   1. locator 有值且含 xpath= 且非占位符 → 直接用
+        #   2. locator 为 None 或 [待确认] → 用 KB candidates 构建搜索 XPath
+        _iframe_search_locator = None
+        if not verified_locator:
+            if locator and 'xpath=' in locator and '[待确认]' not in locator:
+                _iframe_search_locator = locator
+            elif candidates:
+                # locator 为 None 或 [待确认]，用第一个 KB 候选作为搜索 XPath
+                kb_xpath = next((c[0] for c in candidates if c[1] == 'kb'), None)
+                if kb_xpath is None and candidates:
+                    kb_xpath = candidates[0][0]
+                if kb_xpath:
+                    _iframe_search_locator = f"xpath={kb_xpath}"
+                    print(f"    [DEBUG-IFRAME] locator={'None' if locator is None else 'placeholder'}, "
+                          f"using KB candidate for iframe search: {kb_xpath[:80]}")
+            elif label:
+                # 无 candidates 也无 locator，用 KB 生成一个搜索 XPath
+                kb_locs = _get_kb_locators(elem_type, label, _framework)
+                if kb_locs:
+                    _iframe_search_locator = f"xpath={kb_locs[0]}"
+                    print(f"    [DEBUG-IFRAME] no candidates, using KB-generated xpath: {kb_locs[0][:80]}")
+
+        if not verified_locator and _iframe_search_locator:
             print(f"    [TRACE-P6]   iframe 探测: 主页面所有候选 count=0，尝试 iframe")
-
-            # 修复：如果 locator 是 [待确认] 占位符，用 KB 候选替代
-            iframe_search_locator = locator
-            if '[待确认]' in locator:
-                if candidates:
-                    # 使用第一个 KB 候选的 XPath（优先 kb 来源，否则第一个候选）
-                    kb_xpath = next((c[0] for c in candidates if c[1] == 'kb'), candidates[0][0])
-                    iframe_search_locator = f"xpath={kb_xpath}"
-                    print(f"    [DEBUG-IFRAME] locator 是占位符，替换为 KB 候选: {kb_xpath[:80]}")
-                else:
-                    print(f"    [DEBUG-IFRAME] locator 是占位符且无 KB 候选，跳过 iframe 探测")
-                    iframe_search_locator = None
-
-            if iframe_search_locator:
-                print(f"    [DEBUG-IFRAME] 触发条件: desc='{desc}', locator='{iframe_search_locator[:80]}...'")
-                iframe_result = _try_find_in_iframes(page, iframe_search_locator)
-                if iframe_result:
-                    # 提取 locator_ref（用于 writeback）
-                    _raw_locator_ref = _extract_locator_ref(step)
-                    _iframe_discovery = {
-                        'frame_selector': iframe_result['frame_selector'],
-                        'frame_name': iframe_result['frame_name'],
-                        'clean_xpath': iframe_result['clean_xpath'],
-                        'count': iframe_result['count'],
-                        'locator': iframe_search_locator,
-                        'locator_ref': _raw_locator_ref,  # ${group.field} 格式
-                        'keyword': keyword,
-                        'desc': desc,
-                    }
-                    print(f"    [IFRAME-DISCOVERY] [OK] Found element in iframe '{iframe_result['frame_name']}'")
-                    print(f"    [IFRAME-DISCOVERY]   locator_ref={_raw_locator_ref}")
-                    # 使用 iframe 内的 locator（不添加容器前缀）
-                    verified_locator = iframe_search_locator
-                    # 点击类元素：始终 [1] 包裹，防止运行时多匹配导致 strict mode violation
-                    if elem_type in CLICK_EXPAND_TYPES:
-                        raw = verified_locator[6:] if verified_locator.startswith('xpath=') else verified_locator
-                        inner, wrap = _unwrap_positional(raw)
-                        if not wrap:  # 没有已有 positional 包裹
-                            wrapped = f"({raw})[1]"
-                            verified_locator = inject_hidden_filter(f"xpath={wrapped}", elem_type=elem_type)
-                    hit_source = 'iframe'
-                    is_best_guess = True
-                    _wrap_note = '[1] wrapped' if elem_type in CLICK_EXPAND_TYPES else 'raw'
-                    print(f"    [TRACE-P6]   iframe discovery success, return {_wrap_note} locator (no container prefix needed in iframe)")
+            print(f"    [DEBUG-IFRAME] 触发条件: desc='{desc}', locator='{_iframe_search_locator[:80]}...'")
+            iframe_result = _try_find_in_iframes(page, _iframe_search_locator)
+            print(f"    [DEBUG-IFRAME] _try_find_in_iframes 返回: {iframe_result is not None}")
+            if iframe_result:
+                print(f"    [DEBUG-IFRAME] 返回内容: count={iframe_result.get('count')}, "
+                      f"frame_name={iframe_result.get('frame_name')}, "
+                      f"frame_selector={iframe_result.get('frame_selector', '')[:80]}")
+                # 提取 locator_ref（用于 writeback）
+                _raw_locator_ref = _extract_locator_ref(step)
+                _iframe_discovery = {
+                    'frame_selector': iframe_result['frame_selector'],
+                    'frame_name': iframe_result['frame_name'],
+                    'clean_xpath': iframe_result['clean_xpath'],
+                    'count': iframe_result['count'],
+                    'locator': _iframe_search_locator,
+                    'locator_ref': _raw_locator_ref,  # ${group.field} 格式
+                    'keyword': keyword,
+                    'desc': desc,
+                }
+                print(f"    [IFRAME-DISCOVERY] [OK] Found element in iframe '{iframe_result['frame_name']}'")
+                print(f"    [IFRAME-DISCOVERY]   locator_ref={_raw_locator_ref}")
+                # 使用 iframe 内的 locator（不添加容器前缀）
+                verified_locator = _iframe_search_locator
+                # 点击类元素：始终 [1] 包裹，防止运行时多匹配导致 strict mode violation
+                if elem_type in CLICK_EXPAND_TYPES:
+                    raw = verified_locator[6:] if verified_locator.startswith('xpath=') else verified_locator
+                    inner, wrap = _unwrap_positional(raw)
+                    if not wrap:  # 没有已有 positional 包裹
+                        wrapped = f"({raw})[1]"
+                        verified_locator = inject_hidden_filter(f"xpath={wrapped}", elem_type=elem_type)
+                hit_source = 'iframe'
+                is_best_guess = True
+                _wrap_note = '[1] wrapped' if elem_type in CLICK_EXPAND_TYPES else 'raw'
+                print(f"    [TRACE-P6]   iframe discovery success, return {_wrap_note} locator (no container prefix needed in iframe)")
+        elif not verified_locator:
+            print(f"    [TRACE-P6]   iframe 探测: 跳过（无可用搜索 locator）")
 
         # 存储 iframe discovery 到模块级变量（供 verify_orchestrator 读取）
         # global 声明已在函数开头（行1082）
@@ -2321,7 +2349,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                         break
                     elif frame_selector.startswith('iframe:nth-of-type('):
                         # 提取索引并匹配
-                        match = _re.search(r'nth-of-type\((\d+)\)', frame_selector)
+                        match = re.search(r'nth-of-type\((\d+)\)', frame_selector)
                         if match:
                             target_idx = int(match.group(1))
                             frame_idx = 0
@@ -2342,7 +2370,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                     # XPath 格式匹配（2026-08-07 后 _try_find_in_iframes 返回 XPath）
                     elif frame_selector.startswith('xpath=//iframe[@id='):
                         # xpath=//iframe[@id="confirmIframe"]
-                        id_match = _re.search(r'@id="([^"]+)"', frame_selector)
+                        id_match = re.search(r'@id="([^"]+)"', frame_selector)
                         if id_match:
                             target_id = id_match.group(1)
                             try:
@@ -2354,7 +2382,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                                 pass
                     elif frame_selector.startswith('xpath=//iframe[@name='):
                         # xpath=//iframe[@name="xxx"]
-                        name_match = _re.search(r'@name="([^"]+)"', frame_selector)
+                        name_match = re.search(r'@name="([^"]+)"', frame_selector)
                         if name_match:
                             target_name = name_match.group(1)
                             if frame.name == target_name:
@@ -2362,7 +2390,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                                 break
                     elif frame_selector.startswith('xpath=//iframe[@class='):
                         # xpath=//iframe[@class="xxx"]
-                        class_match = _re.search(r'@class="([^"]+)"', frame_selector)
+                        class_match = re.search(r'@class="([^"]+)"', frame_selector)
                         if class_match:
                             target_class = class_match.group(1)
                             try:
@@ -2374,7 +2402,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                                 pass
                     elif frame_selector.startswith('xpath=//iframe[contains(@src,'):
                         # xpath=//iframe[contains(@src,"xxx")]
-                        src_match = _re.search(r'contains\(@src,"([^"]+)"\)', frame_selector)
+                        src_match = re.search(r'contains\(@src,"([^"]+)"\)', frame_selector)
                         if src_match:
                             src_pattern = src_match.group(1)
                             if src_pattern in frame.url:
@@ -2382,7 +2410,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                                 break
                     elif frame_selector.startswith('xpath=(//iframe)'):
                         # xpath=(//iframe)[n] - 按位置索引匹配
-                        idx_match = _re.search(r'\[(\d+)\]$', frame_selector)
+                        idx_match = re.search(r'\[(\d+)\]$', frame_selector)
                         if idx_match:
                             target_idx = int(idx_match.group(1))
                             frame_idx = 0
@@ -2438,6 +2466,76 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 _el_count = page.locator(verified_locator).count()
                 if _el_count == 0:
                     print(f"    [ERROR] '{desc}': element not found (count=0), skip click")
+                    print(f"    [DEBUG-COUNT=0] locator: {verified_locator[:150]}")
+                    print(f"    [DEBUG-COUNT=0] current_url: {page.url[:100]}")
+                    # 诊断 el-table 和更多按钮状态
+                    try:
+                        _diag = page.evaluate("""(() => {
+                            const result = {};
+                            result.title = document.title;
+                            result.url = window.location.href;
+
+                            // el-table 状态
+                            const tables = document.querySelectorAll('.el-table');
+                            result.table_count = tables.length;
+                            result.tables = [];
+                            tables.forEach((t, i) => {
+                                const rect = t.getBoundingClientRect();
+                                result.tables.push({
+                                    index: i,
+                                    rect: {w: Math.round(rect.width), h: Math.round(rect.height)},
+                                    hasFixedRight: !!t.querySelector('.el-table__fixed-right')
+                                });
+                            });
+
+                            // el-table__fixed-right 状态
+                            const fixedRights = document.querySelectorAll('.el-table__fixed-right');
+                            result.fixed_right_count = fixedRights.length;
+                            result.fixed_rights = [];
+                            fixedRights.forEach((fr, i) => {
+                                const rows = fr.querySelectorAll('tbody tr');
+                                const rect = fr.getBoundingClientRect();
+                                result.fixed_rights.push({
+                                    index: i,
+                                    row_count: rows.length,
+                                    rect: {w: Math.round(rect.width), h: Math.round(rect.height), top: Math.round(rect.top)}
+                                });
+                            });
+
+                            // 搜索「更多」按钮
+                            const moreEls = [];
+                            document.querySelectorAll('span, button, a, div').forEach(el => {
+                                const t = (el.textContent || '').trim();
+                                if (t === '更多') {
+                                    const rect = el.getBoundingClientRect();
+                                    moreEls.push({
+                                        tag: el.tagName,
+                                        class: (typeof el.className === 'string' ? el.className : '').slice(0, 60),
+                                        rect: {w: Math.round(rect.width), h: Math.round(rect.height)},
+                                        inFixedRight: !!el.closest('.el-table__fixed-right'),
+                                        inBodyWrapper: !!el.closest('.el-table__body-wrapper')
+                                    });
+                                }
+                            });
+                            result.more_elements_count = moreEls.length;
+                            result.more_elements_sample = moreEls.slice(0, 5);
+
+                            return result;
+                        })()""")
+                        print(f"    [DEBUG-COUNT=0] title: {_diag.get('title', 'N/A')}")
+                        print(f"    [DEBUG-COUNT=0] url: {_diag.get('url', 'N/A')[:100]}")
+                        print(f"    [DEBUG-COUNT=0] el-table count: {_diag.get('table_count', 0)}")
+                        for t in _diag.get('tables', []):
+                            print(f"      table[{t['index']}]: rect={t['rect']}, hasFixedRight={t['hasFixedRight']}")
+                        print(f"    [DEBUG-COUNT=0] el-table__fixed-right count: {_diag.get('fixed_right_count', 0)}")
+                        for fr in _diag.get('fixed_rights', []):
+                            print(f"      fixed-right[{fr['index']}]: rows={fr['row_count']}, rect={fr['rect']}")
+                        print(f"    [DEBUG-COUNT=0] 「更多」元素 count: {_diag.get('more_elements_count', 0)}")
+                        for me in _diag.get('more_elements_sample', []):
+                            pos = "FIXED-RIGHT" if me['inFixedRight'] else ("BODY" if me['inBodyWrapper'] else "OTHER")
+                            print(f"      <{me['tag']}> class=\"{me['class']}\" rect={me['rect']} [{pos}]")
+                    except Exception as _diag_err:
+                        print(f"    [DEBUG-COUNT=0] 诊断失败: {str(_diag_err)[:100]}")
                     # 容器探测
                     _fail_ct = detect_visible_containers(page)
                     if _fail_ct:

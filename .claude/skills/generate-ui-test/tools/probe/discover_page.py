@@ -1584,9 +1584,13 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                                 page.wait_for_timeout(500)
                                 continue
 
-                            # 检查行数
+                            # 检查行数：优先用严格选择器（与 hover 扫描对齐），排除 measure-row/placeholder
                             try:
-                                _cur_rows = page.locator(f"{scope_selector} tbody tr, {scope_selector} .ant-table-tbody > tr.ant-table-row").count()
+                                _strict_rows = page.locator(f"{scope_selector} .ant-table-tbody > tr.ant-table-row").count()
+                                if _strict_rows > 0:
+                                    _cur_rows = _strict_rows
+                                else:
+                                    _cur_rows = page.locator(f"{scope_selector} tbody tr.ant-table-row").count()
                             except Exception:
                                 _cur_rows = 0
 

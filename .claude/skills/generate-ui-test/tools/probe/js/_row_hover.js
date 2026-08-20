@@ -1,12 +1,28 @@
-(rowIndex) => {
+(data) => {
+    const rowIndex = typeof data === 'number' ? data : data.rowIndex;
+    const scope = (typeof data === 'object' && data.scope) ? data.scope : '';
     const buttons = [];
     // BUG-11: 搜索双 tbody — fixed-right 优先（操作按钮在这里），主 tbody 补充
     const rowSelectors = [
         fwSelectors.tableFixedRows,
         fwSelectors.tableBodyRows
     ];
+
+    // 日志点 5: JS 层选择器诊断（只在前 3 行打印）
+    const shouldLog = (rowIndex < 3);
+    if (shouldLog) {
+        console.log(`[TRACE-ROW-HOVER-JS] rowIndex=${rowIndex} scope='${scope}'`);
+    }
+
     for (const sel of rowSelectors) {
-        const rows = document.querySelectorAll(sel);
+        const fullSel = scope ? (scope + ' ' + sel) : sel;
+        const rows = document.querySelectorAll(fullSel);
+
+        // 日志点 5: 选择器匹配结果
+        if (shouldLog) {
+            console.log(`[TRACE-ROW-HOVER-JS] selector='${sel}' full='${fullSel}' rows_found=${rows.length}`);
+        }
+
         if (rowIndex >= rows.length) continue;
         const row = rows[rowIndex];
         if (!row) continue;

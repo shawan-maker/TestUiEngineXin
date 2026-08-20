@@ -111,8 +111,21 @@ class IFrameMixin(BaseBrowser):
         # ── 执行点击 ──
         if target_frame:
             element = target_frame.locator(locator)
-            element.click(button=button, timeout=5000)
-            self.log.debug_log(f"iframe 内点击成功: {locator[:80]}")
+            try:
+                element.click(button=button, timeout=5000)
+                self.log.debug_log(f"iframe 内点击成功: {locator[:80]}")
+            except Exception as click_err:
+                err_msg = str(click_err)
+                # 被主页面的全屏 mask 拦截 → 等待 mask 消失后重试
+                if 'intercepts pointer events' in err_msg:
+                    mask_handled = self._wait_for_visible_mask(timeout=10000)
+                    if mask_handled:
+                        element.click(button=button, timeout=5000)  # 重试
+                        self.log.debug_log(f"iframe 内点击成功（mask 重试后）: {locator[:80]}")
+                    else:
+                        raise  # 没有 mask，抛出原始异常
+                else:
+                    raise
         else:
             # 回退：使用 frame_locator 链式定位（原方法）
             self.log.debug_log(f"未找到目标 frame，回退使用 frame_locator")

@@ -31,13 +31,32 @@ class LocatorMixin(BaseBrowser):
         """
         self.log.debug_log(f"正在点击元素:{locator}")
         loc = self.page.locator(locator)
+
         try:
             loc.click(timeout=timeout, force=force)
-        except Exception:
-            # 元素可能在局部滚动容器内，先滚动到视口再重试一次
+            return  # 成功，直接返回
+        except Exception as first_err:
+            err_msg = str(first_err)
+
+            # ── 情况A：被 mask 拦截 → 等待 mask 消失后重试 ──
+            # 解决异步 loading 间隙：上一步操作触发的 mask 可能在 click 执行期间才出现
+            if not force and 'intercepts pointer events' in err_msg:
+                mask_handled = self._wait_for_visible_mask(timeout=10000)
+                if mask_handled:
+                    try:
+                        loc.click(timeout=timeout, force=force)
+                        return  # mask 重试成功
+                    except Exception:
+                        pass  # 重试仍失败，落入后续滚动重试
+
+            # ── 情况B：元素不在视口 → 滚动后重试（原有逻辑）──
             self.log.debug_log(f"元素不在视口内，尝试滚动后重试:{locator}")
-            loc.scroll_into_view_if_needed(timeout=timeout)
-            loc.click(timeout=timeout, force=force)
+            try:
+                loc.scroll_into_view_if_needed(timeout=timeout)
+                loc.click(timeout=timeout, force=force)
+            except Exception:
+                # 滚动后仍失败，抛出原始异常（保留完整错误信息）
+                raise first_err
 
     @KeyWordManager.register("hover", "悬停")
     def hover(self, locator, timeout=3000):

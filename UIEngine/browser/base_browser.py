@@ -179,6 +179,35 @@ class BaseBrowser:
         except Exception:
             pass
 
+    # ── 共享 loading mask 选择器（与 system_workflows.yaml 对齐）──
+    _LOADING_MASK_SELECTORS = [
+        "//div[contains(@class,'el-loading-mask')]",
+        "//p[@class='el-loading-text']",
+        "//div[@ng-show='loading' and not(contains(@class,'ng-hide'))]",
+        "//div[@class='el-loading-spinner']/p[@class='el-loading-text']",
+    ]
+
+    def _wait_for_visible_mask(self, timeout=10000):
+        """检测页面上是否有可见的 loading mask，如果有则等待消失。
+
+        用于 click 失败后的重试策略：当 click 被 mask 拦截时，
+        等待 mask 消失后重试 click，解决异步 loading 间隙问题。
+
+        :param timeout: 等待 mask 消失的最大超时时间（毫秒）
+        :return: True 表示发现并等待了 mask 消失，False 表示未发现 mask
+        """
+        for selector in self._LOADING_MASK_SELECTORS:
+            mask = self.page.locator(f"xpath={selector}")
+            try:
+                if mask.count() > 0 and mask.first.is_visible():
+                    self.log.debug_log(f"[mask-retry] 检测到 loading mask，等待消失: {selector}")
+                    mask.first.wait_for(state="hidden", timeout=timeout)
+                    self.log.debug_log(f"[mask-retry] loading mask 已消失")
+                    return True
+            except Exception:
+                pass
+        return False
+
     def open_new_page(self, tag, timeout=3000):
         """
         打开新页面

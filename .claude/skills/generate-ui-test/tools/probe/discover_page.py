@@ -569,7 +569,7 @@ def deduplicate_buttons(buttons, row_buttons):
 _ROW_HOVER_JS = _load_js('_row_hover.js')
 
 
-def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
+def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30, scope_selector=''):
     """Hover each table row and collect row action buttons (§9.2 P4).
 
     Playwright's native hover() fails on Element UI tables because fixed-column
@@ -594,6 +594,10 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
       - Prefer the first non-disabled occurrence
       - If first occurrence is disabled, upgrade to later non-disabled row
 
+    :param page: Playwright Page object
+    :param hover_delay_ms: delay after hover for UI animation
+    :param max_rows: maximum rows to scan
+    :param scope_selector: CSS selector to scope row scanning (for tab-scoped discovery)
     :returns: list of unique row button dicts with 'row_index' field
     """
     all_row_buttons = []
@@ -603,20 +607,55 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
     # max_rows=30 截断后迭代全在主 tbody（操作列为空占位），行按钮永远探测不到。
     # Ant Design: 增加 ant-table-fixed-right 检测
     try:
-        has_fixed_right = page.locator(".el-table__fixed-right, .ant-table-fixed-right").count() > 0
+        fixed_sel = ".el-table__fixed-right, .ant-table-fixed-right"
+        if scope_selector:
+            fixed_sel = f"{scope_selector} .el-table__fixed-right, {scope_selector} .ant-table-fixed-right"
+        has_fixed_right = page.locator(fixed_sel).count() > 0
     except Exception:
         has_fixed_right = False
 
     try:
-        if has_fixed_right:
-            # Ant Design: 增加 ant-table-fixed-right 选择器
-            row_count = page.locator(".el-table__fixed-right tbody tr, .ant-table-fixed-right tbody tr.ant-table-row").count()
+        if scope_selector:
+            # Tab-scoped: 只在 scope 内查找行
+            if has_fixed_right:
+                row_count = page.locator(f"{scope_selector} .el-table__fixed-right tbody tr, {scope_selector} .ant-table-fixed-right tbody tr.ant-table-row").count()
+            else:
+                row_count = page.locator(f"{scope_selector} tbody tr, {scope_selector} .ant-table-tbody > tr.ant-table-row").count()
         else:
-            # Ant Design: 增加 ant-table-tbody 选择器
-            row_count = page.locator("tbody tr, .ant-table-tbody > tr.ant-table-row").count()
+            # 全局扫描（原有逻辑）
+            if has_fixed_right:
+                row_count = page.locator(".el-table__fixed-right tbody tr, .ant-table-fixed-right tbody tr.ant-table-row").count()
+            else:
+                row_count = page.locator("tbody tr, .ant-table-tbody > tr.ant-table-row").count()
     except Exception:
         row_count = 0
     row_count = min(row_count, max_rows)
+
+    # 日志点 2: 入口
+    print(f"  [TRACE-ROW-HOVER] scope='{scope_selector}' has_fixed_right={has_fixed_right} row_count={row_count}")
+
+    # 容错点 3: Tab-scoped 模式下空结果重试
+    if row_count == 0 and scope_selector:
+        print(f"  [RETRY-ROW-HOVER] row_count=0，等待 2 秒后重试...")
+        page.wait_for_timeout(2000)
+        try:
+            if scope_selector:
+                if has_fixed_right:
+                    row_count = page.locator(f"{scope_selector} .el-table__fixed-right tbody tr, {scope_selector} .ant-table-fixed-right tbody tr.ant-table-row").count()
+                else:
+                    row_count = page.locator(f"{scope_selector} tbody tr, {scope_selector} .ant-table-tbody > tr.ant-table-row").count()
+            else:
+                if has_fixed_right:
+                    row_count = page.locator(".el-table__fixed-right tbody tr, .ant-table-fixed-right tbody tr.ant-table-row").count()
+                else:
+                    row_count = page.locator("tbody tr, .ant-table-tbody > tr.ant-table-row").count()
+        except Exception:
+            row_count = 0
+        row_count = min(row_count, max_rows)
+        if row_count > 0:
+            print(f"  [RETRY-ROW-HOVER] 重试成功，row_count={row_count}")
+        else:
+            print(f"  [RETRY-ROW-HOVER] 重试失败，row_count=0")
 
     if row_count == 0:
         return []
@@ -628,26 +667,40 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
             # BUG-11: 同时 hover 主 tbody 和 fixed-right tbody 的对应行
             # Element UI 的 fixed-column overlay 不自动同步 hover 状态，
             # 必须手动分发事件到两个 tbody 的对应行。
-            page.evaluate(_with_fw("""(rowIndex) => {
-                const mainRows = document.querySelectorAll(fwSelectors.tableBodyRows);
+            scope = scope_selector or ''
+            page.evaluate(_with_fw("""(data) => {
+                const rowIndex = data.rowIndex;
+                const scope = data.scope || '';
+                const mainSel = scope ? (scope + ' ' + fwSelectors.tableBodyRows) : fwSelectors.tableBodyRows;
+                const fixedSel = scope ? (scope + ' ' + fwSelectors.tableFixedRows) : fwSelectors.tableFixedRows;
+                const mainRows = document.querySelectorAll(mainSel);
                 if (rowIndex < mainRows.length) {
                     const mainRow = mainRows[rowIndex];
                     mainRow.scrollIntoView({block: 'center', inline: 'nearest'});
                     mainRow.dispatchEvent(new MouseEvent('mouseover', {bubbles: true}));
                     mainRow.dispatchEvent(new MouseEvent('mouseenter', {bubbles: true}));
                 }
-                const fixedRows = document.querySelectorAll(fwSelectors.tableFixedRows);
+                const fixedRows = document.querySelectorAll(fixedSel);
                 if (rowIndex < fixedRows.length) {
                     const fixedRow = fixedRows[rowIndex];
                     fixedRow.dispatchEvent(new MouseEvent('mouseover', {bubbles: true}));
                     fixedRow.dispatchEvent(new MouseEvent('mouseenter', {bubbles: true}));
                 }
-            }"""), i)
+            }"""), {'rowIndex': i, 'scope': scope})
             page.wait_for_timeout(hover_delay_ms)
         except Exception:
             continue
         try:
-            btns = page.evaluate(_with_fw(_ROW_HOVER_JS), i)
+            # 日志点 4: JS 执行前
+            if i == 0:
+                print(f"    [TRACE-ROW-HOVER-JS] About to evaluate _ROW_HOVER_JS rowIndex={i} scope='{scope_selector}'")
+            btns = page.evaluate(_with_fw(_ROW_HOVER_JS), {'rowIndex': i, 'scope': scope_selector})
+            # 日志点 4: JS 执行后
+            if i == 0:
+                print(f"    [TRACE-ROW-HOVER-JS] Result: {len(btns)} buttons")
+            # 日志点 3: hover 循环每次迭代
+            if len(btns) > 0 or i < 3:
+                print(f"    [TRACE-ROW-HOVER] row={i}/{row_count} btns_found={len(btns)} texts={[b['text'] for b in btns]}")
             # Check if row has an expand trigger (更多)
             expand_btn = None
             for b in btns:
@@ -657,11 +710,16 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
             # If expand exists, click it and scan menu items
             if expand_btn:
                 try:
+                    _scope_str = scope_selector or ''
                     page.evaluate(_with_fw(f"""
-                        ((rowIndex) => {{
+                        ((data) => {{
+                            const rowIndex = data.rowIndex;
+                            const scope = data.scope || '';
                             // Step 1: 行内搜索展开按钮（原有逻辑，兼容其他项目）
-                            const fixedRows = document.querySelectorAll(fwSelectors.tableFixedRows);
-                            const mainRows = document.querySelectorAll(fwSelectors.tableBodyRows);
+                            const fixedSel = scope ? (scope + ' ' + fwSelectors.tableFixedRows) : fwSelectors.tableFixedRows;
+                            const mainSel = scope ? (scope + ' ' + fwSelectors.tableBodyRows) : fwSelectors.tableBodyRows;
+                            const fixedRows = document.querySelectorAll(fixedSel);
+                            const mainRows = document.querySelectorAll(mainSel);
                             const row = (rowIndex < fixedRows.length) ? fixedRows[rowIndex]
                                         : ((rowIndex < mainRows.length) ? mainRows[rowIndex] : null);
                             let rowTarget = null;
@@ -716,7 +774,7 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
                                 const trigger = dm.querySelector(fwSelectors.dropdownLink);
                                 if (trigger) {{ trigger.click(); return; }}
                             }}
-                        }})({i})
+                        }})({{'rowIndex': {i}, 'scope': '{_scope_str}'}})
                     """))
                     # 两阶段等待策略:
                     # 阶段1: 等待 el-loading-mask 消失（最多 15s）
@@ -789,6 +847,13 @@ def _discover_row_buttons_with_hover(page, hover_delay_ms=300, max_rows=30):
                                             text = t;
                                             break;
                                         }
+                                    }
+                                }
+                                // Ant Design fallback: text wrapped in <span class="ant-dropdown-menu-title-content">
+                                if (!text) {
+                                    const titleSpan = el.querySelector('.ant-dropdown-menu-title-content');
+                                    if (titleSpan) {
+                                        text = titleSpan.textContent.trim();
                                     }
                                 }
                                 text = text.slice(0, 100);
@@ -1333,6 +1398,13 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
 
         page = context.new_page()
 
+        # 日志点 6: 捕获浏览器 console.log（[TRACE- 前缀）
+        def _on_console(msg):
+            text = msg.text
+            if '[TRACE-' in text:
+                print(f"  [BROWSER-CONSOLE] {text}")
+        page.on('console', _on_console)
+
         # 认证注入：先导航到根 URL，手动设置 localStorage，再跳转到目标页面
         # 某些 SPA 会清空 init_script 注入的 localStorage，必须分两步导航
         if local_storage:
@@ -1493,7 +1565,58 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                     scope_selector = f'div#{tab_id}'
                     print(f"    [TAB] '{tab_name}' → scope: #{tab_id}")
                     try:
+                        # 3a. 等待表格数据加载完成（异步加载）
+                        # 策略：等 loading mask 消失 + 行数稳定（至少连续2次相同且>0）
+                        _stable_count = 0
+                        _prev_rows = -1
+                        for _wait in range(30):  # 30 × 500ms = 15s
+                            # 先等 loading mask 消失
+                            try:
+                                _loading = page.locator(fwSelectors.loadingMask + ":visible").count()
+                            except Exception:
+                                _loading = 0
+                            if _loading > 0:
+                                _stable_count = 0
+                                _prev_rows = -1
+                                # 日志点 1: loading 中
+                                if _wait < 5 or _wait % 5 == 0:
+                                    print(f"    [TRACE-TAB-WAIT] tab='{tab_name}' iter={_wait}/30 loading={_loading} rows=0 stable=0 (loading)")
+                                page.wait_for_timeout(500)
+                                continue
+
+                            # 检查行数
+                            try:
+                                _cur_rows = page.locator(f"{scope_selector} tbody tr, {scope_selector} .ant-table-tbody > tr.ant-table-row").count()
+                            except Exception:
+                                _cur_rows = 0
+
+                            # 日志点 1: 每次迭代
+                            if _wait < 5 or _wait % 5 == 0 or _cur_rows != _prev_rows or _wait == 29:
+                                print(f"    [TRACE-TAB-WAIT] tab='{tab_name}' iter={_wait}/30 loading={_loading} rows={_cur_rows} stable={_stable_count}")
+
+                            if _cur_rows == _prev_rows and _cur_rows > 0:
+                                _stable_count += 1
+                                if _stable_count >= 2:  # 连续2次稳定才算真正稳定
+                                    break
+                            else:
+                                _stable_count = 0
+                            _prev_rows = _cur_rows
+                            page.wait_for_timeout(500)
+
+                        # 容错点 1: 超时警告 + 容错点 2: 额外等待
+                        if _stable_count < 2:
+                            print(f"    [WARN] Tab '{tab_name}' 表格数据等待超时 (loading={_loading} rows={_cur_rows} stable={_stable_count})")
+                            print(f"    [RETRY] 等待循环超时，额外等待 2 秒...")
+                            page.wait_for_timeout(2000)
+
+                        # 3b. 基础扫描
                         tab_elements = discover_all_elements(page, scope_selector)
+
+                        # 3c. 深度扫描：悬停行 + "更多"展开
+                        tab_row_buttons = _discover_row_buttons_with_hover(page, scope_selector=scope_selector)
+                        tab_elements['row_buttons'] = tab_row_buttons
+
+
                         # Mark all elements as belonging to this tab
                         for cat in tab_elements:
                             for elem in tab_elements.get(cat, []):
@@ -1508,6 +1631,15 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
                         if all_tab_elems:
                             _generate_locators_for_elements(page, all_tab_elems, container_type=None)
                             print(f"    -> {len(all_tab_elems)} elements found in tab '{tab_name}'")
+                        # 合并 tab-scoped 按钮到 Step 4 的点击列表
+                        for b in tab_elements.get('buttons', []):
+                            b_text = b.get('text', '')
+                            if b_text and not any(x.get('text') == b_text for x in toolbar_unique):
+                                toolbar_unique.append(b)
+                        for b in tab_elements.get('row_buttons', []):
+                            b_text = b.get('text', '')
+                            if b_text and not any(x.get('text') == b_text for x in row_unique):
+                                row_unique.append(b)
                     except Exception as e:
                         print(f"    [WARN] Tab '{tab_name}' scan failed: {e}")
                 else:

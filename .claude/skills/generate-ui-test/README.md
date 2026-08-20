@@ -239,6 +239,173 @@ storage_navigate_url: "/login"
 
 > **子目录用例自动发现**：`cases/<module>/<subdir>/` 下的用例无需注册到 suite 的 `case_refs`，`--all`、`--module`、无参数三种模式均会自动扫描子目录并合并执行。同级根目录下未引用的用例视为有意排除，不会被自动发现。
 
+## 单独运行各阶段（高级用法）
+
+当需要调试或重新生成特定模块时，可以单独运行各个阶段，而不必重跑整个 pipeline。
+
+### Phase 4：页面探测（discover_page.py）
+
+探测指定模块的页面元素，生成 `discovery_{module}.json`。
+
+**命令格式：**
+```bash
+python .claude/skills/generate-ui-test/tools/probe/run_phase4.py \
+  --excel "path/to/test_cases.xlsx" \
+  --config "path/to/project/config.yaml" \
+  --project "path/to/project" \
+  --cookie "cookie_string_here" \
+  --module "模块名称" \
+  --local-storage '{"key1":"value1","key2":"value2"}'
+```
+
+**参数说明：**
+- `--excel`：Excel 测试用例文件路径（**必填**）
+- `--config`：项目 config.yaml 路径（**必填**）
+- `--project`：项目根目录路径（**必填**）
+- `--cookie`：Cookie 字符串（可选，默认从 config.yaml 读取）
+- `--module`：限定单个模块名称（可选，不指定则处理所有模块）
+- `--local-storage`：localStorage 注入，JSON 对象格式（可选）
+- `--skip-discover`：跳过探测步骤，使用已有的 discovery JSON（可选）
+- `--skip-generate`：跳过 pages 生成步骤（可选）
+
+**示例：**
+```bash
+# 仅探测 ecsCloud2 项目的 order 模块
+python .claude/skills/generate-ui-test/tools/probe/run_phase4.py \
+  --excel "examples/ecsCloud2/测试用例.xlsx" \
+  --config "examples/ecsCloud2/config.yaml" \
+  --project "examples/ecsCloud2" \
+  --cookie "session=abc123; user=admin" \
+  --module "order"
+```
+
+**输出：**
+- `_probe/discovery_{module}.json`：探测结果 JSON 文件
+
+---
+
+### Phase 5：代码生成（generate_from_excel.py）
+
+根据 Excel 测试用例和探测结果，生成 case/data/pages 文件。
+
+**命令格式：**
+```bash
+python .claude/skills/generate-ui-test/tools/generation/generate_from_excel.py \
+  "path/to/excel_parsed.json" \
+  --discovery-dir "path/to/project/_probe" \
+  --output-dir "path/to/project" \
+  --module-map "中文名1=slug1,中文名2=slug2" \
+  --module-slug "target_module_slug"
+```
+
+**参数说明：**
+- `excel_parsed.json`：Excel 解析后的 JSON 文件（**必填**，位置参数）
+- `--discovery-dir`：discovery JSON 目录，通常是 `{project}/_probe/`（**必填**）
+- `--output-dir`：项目根目录（**必填**）
+- `--module-map`：中英文模块映射，逗号分隔，格式 `"中文名=slug"`（可选）
+- `--module-slug`：限定单个模块 slug，仅生成该模块的代码（可选）
+- `--skip-pages`：跳过 pages YAML 生成（如果已存在）
+- `--skip-filter`：跳过 v2 有效性过滤（慎用，可能生成无效元素和数据）
+
+**示例：**
+```bash
+# 仅生成 order 模块的代码
+python .claude/skills/generate-ui-test/tools/generation/generate_from_excel.py \
+  "examples/ecsCloud2/_probe/excel_parsed.json" \
+  --discovery-dir "examples/ecsCloud2/_probe" \
+  --output-dir "examples/ecsCloud2" \
+  --module-map "订单管理=order,用户管理=user" \
+  --module-slug "order"
+```
+
+**输出：**
+- `cases/{module}/`：测试用例文件
+- `data/{module}/`：测试数据文件
+- `pages/{module}/`：页面元素定位器文件
+
+---
+
+### Phase 6：定位器验证（verify_locators.py）
+
+在浏览器中验证生成的定位器是否正确，更新 pages 文件中的 `[VERIFIED]` 标记。
+
+**命令格式：**
+```bash
+python .claude/skills/generate-ui-test/tools/verification/verify_locators.py \
+  "path/to/project" \
+  --cookie "cookie_string_here" \
+  --url "http://target-url" \
+  --module "module_slug" \
+  --headed
+```
+
+**参数说明：**
+- `project_dir`：项目根目录（**必填**，位置参数）
+- `--cookie`：Cookie 字符串（**必填**，用于登录态）
+- `--url`：目标系统 URL（**必填**）
+- `--module`：模块名称（可选，不指定则验证所有模块）
+- `--headed`：有头模式运行浏览器，可以看到操作过程（可选）
+
+**示例：**
+```bash
+# 验证 order 模块的定位器（有头模式）
+python .claude/skills/generate-ui-test/tools/verification/verify_locators.py \
+  "examples/ecsCloud2" \
+  --cookie "session=abc123; user=admin" \
+  --url "http://10.151.37.249" \
+  --module "order" \
+  --headed
+```
+
+**输出：**
+- 更新 `pages/{module}/elements.yaml` 中的 `[VERIFIED]` 标记
+- 生成 `_probe/verification_report_{module}.json` 验证报告
+
+---
+
+### 完整的单模块调试流程
+
+当你需要重新生成某个模块时，按以下顺序执行：
+
+```bash
+# 1. 清理旧产物（可选，谨慎操作）
+rm -f examples/ecsCloud2/_probe/discovery_order.json
+rm -rf examples/ecsCloud2/cases/order
+rm -rf examples/ecsCloud2/data/order
+rm -rf examples/ecsCloud2/pages/order
+
+# 2. Phase 4：重新探测
+python .claude/skills/generate-ui-test/tools/probe/run_phase4.py \
+  --excel "examples/ecsCloud2/测试用例.xlsx" \
+  --config "examples/ecsCloud2/config.yaml" \
+  --project "examples/ecsCloud2" \
+  --module "order"
+
+# 3. Phase 5：重新生成代码
+python .claude/skills/generate-ui-test/tools/generation/generate_from_excel.py \
+  "examples/ecsCloud2/_probe/excel_parsed.json" \
+  --discovery-dir "examples/ecsCloud2/_probe" \
+  --output-dir "examples/ecsCloud2" \
+  --module-slug "order"
+
+# 4. Phase 6：验证定位器
+python .claude/skills/generate-ui-test/tools/verification/verify_locators.py \
+  "examples/ecsCloud2" \
+  --cookie "session=abc123; user=admin" \
+  --url "http://10.151.37.249" \
+  --module "order"
+
+# 5. 检查验证报告
+cat examples/ecsCloud2/_probe/verification_report_order.json
+```
+
+**注意事项：**
+- Phase 4 依赖 Excel 和 config.yaml，确保文件存在且格式正确
+- Phase 5 依赖 Phase 4 的 discovery JSON 和 excel_parsed.json
+- Phase 6 依赖 Phase 5 生成的 pages/cases/data 文件
+- 清理旧产物时，建议先备份再删除
+- `--module` 参数使用模块中文名（如 "订单管理"），`--module-slug` 使用 slug（如 "order"）
+
 ## 常见问题
 
 **Q：用例 ID 怎么来的？**

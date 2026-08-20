@@ -42,6 +42,28 @@ def _debug_f7(*args, **kwargs):
     if _DEBUG_F7:
         print(*args, **kwargs)
 
+
+def _infer_framework_from_locator(locator_str):
+    """从 el-select expand locator 推断 UI 框架。
+
+    Element UI 的 expand 包含 el-select / el-cascader class。
+    Ant Design 的 expand 包含 ant-select / ant-cascader class。
+
+    比全局 self._framework 更精确：每个 locator 独立推断，
+    解决多 URL 模块中不同页面使用不同框架的场景。
+
+    Returns: 'ant-design' | 'element-ui' | None
+    """
+    if not locator_str:
+        return None
+    s = locator_str.lower()
+    # Element UI 优先检查（更具体的 class 名，避免 ant-select 子串误匹配）
+    if 'el-select' in s or 'el-cascader' in s:
+        return 'element-ui'
+    if 'ant-select' in s or 'ant-cascader' in s:
+        return 'ant-design'
+    return None
+
 class CaseGenerator:
     """从结构化步骤生成 case YAML。
 
@@ -440,7 +462,13 @@ class CaseGenerator:
 
         # 3. KB 标准 XPath（来自 probe_knowledge.json el-select multi_step）
         # L3: 根据框架选择不同的 XPath 模式
-        if self._framework == 'ant-design':
+        # L4: 从 discovery page framework 字段推断当前页面的框架（解决多 URL 跨框架场景）
+        current_fw = self._framework
+        if _page_slug and hasattr(self.resolver, '_page_framework_map'):
+            page_fw = self.resolver._page_framework_map.get(_page_slug)
+            if page_fw:
+                current_fw = page_fw
+        if current_fw == 'ant-design':
             # Ant Design: 使用 ant-select-selector
             select_xpath_base = (
                 f"//*[contains(text(),'{label}')]"
@@ -495,7 +523,8 @@ class CaseGenerator:
         #     _first_option: 通用第一项 XPath（带 hidden filter，下拉面板选项可能被虚拟滚动隐藏）
         #     注意：下拉面板渲染在 body 级别（非容器 DOM 内），不加容器前缀
         # L3: 根据框架选择下拉面板 XPath
-        if self._framework == 'ant-design':
+        # L4: 复用已推断的 current_fw（避免从 expand_xpath 重复推断导致回退）
+        if current_fw == 'ant-design':
             # Ant Design: 使用 ant-select-dropdown + ant-select-item-option
             first_option_xpath = (
                 "(//div[contains(@class,'ant-select-dropdown')]"
@@ -531,7 +560,8 @@ class CaseGenerator:
 
         # 8. 选项 XPath（inline，不走 PagesWriter Stage 2，需手动拼接 hidden filter）
         # L3: 根据框架选择下拉面板 XPath
-        if self._framework == 'ant-design':
+        # 复用 current_fw（已从 page framework 推断）
+        if current_fw == 'ant-design':
             # Ant Design: 使用 ant-select-dropdown + ant-select-item-option
             option_xpath = (
                 f"(//div[contains(@class,'ant-select-dropdown')]"

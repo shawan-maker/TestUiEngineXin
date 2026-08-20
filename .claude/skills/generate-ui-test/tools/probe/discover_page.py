@@ -2586,6 +2586,31 @@ def main():
             deduped.append((name, url))
     multi_urls = deduped
 
+    # Page name 去重：URL 末段可能相同（如 /ebs 和 /order/ebs）
+    # 使用 URL path 的倒数第二段作为前缀区分
+    if len(multi_urls) > 1:
+        name_counts = {}
+        for name, _ in multi_urls:
+            name_counts[name] = name_counts.get(name, 0) + 1
+
+        if any(count > 1 for count in name_counts.values()):
+            unique_names = []
+            for name, url in multi_urls:
+                if name_counts[name] > 1:
+                    # 碰撞：用 URL path 的倒数第二段区分
+                    path_parts = url.split('?')[0].rstrip('/').split('/')
+                    if len(path_parts) >= 2:
+                        prefix = path_parts[-2]
+                        new_name = f"{prefix}_{name}"
+                    else:
+                        new_name = f"{name}_{name_counts[name]}"
+                    name_counts[name] -= 1
+                    unique_names.append((new_name, url))
+                    print(f"[Discover] Page name dedup: '{name}' → '{new_name}'")
+                else:
+                    unique_names.append((name, url))
+            multi_urls = unique_names
+
     if len(multi_urls) > 1:
         # V7 multi-URL: 对每个 URL 独立探测，结果合并到 pages[]
         print(f"[Discover] V7 多页面模式: {len(multi_urls)} 个 URL")

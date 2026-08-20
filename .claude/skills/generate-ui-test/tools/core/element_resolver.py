@@ -75,6 +75,7 @@ class ElementResolver:
         self._cn_name = None
         self._element_map = {}      # {(context_key, label): ElementEntry} — 向后兼容
         self._page_element_map = {}  # {(page_slug, context_key, label): ElementEntry} — 多URL精确索引
+        self._page_framework_map = {}  # {page_slug: framework_str} — 多URL跨框架场景
         self._trigger_map = {}      # {button_text: container_entry}
         self._group_map = {}        # {group_name: {field_key: ElementEntry}}
         self._page_url_map = {}     # {slug: {url, groups}}
@@ -613,12 +614,22 @@ class ElementResolver:
                 page_url = page_entry.get(
                     'url', page_entry.get('list_page', {}).get('url', ''))
                 url_path = page_url.split('#')[-1] if '#' in page_url else page_url
+                # G5: 记录每页 framework（解决多 URL 跨框架场景）
+                page_fw = page_entry.get('framework')
+                if page_fw and page_slug:
+                    self._page_framework_map[page_slug] = page_fw
                 main_group = self.get_group_name(self._module_slug, page_slug)
                 _meta_key = page_slug or self._module_slug
                 self._page_url_map[_meta_key] = {
                     'url': url_path,
                     'groups': [main_group],
                 }
+
+                # L4: 记录页面级框架（多 URL 跨框架场景）
+                if page_slug:
+                    page_fw = page_entry.get('framework')
+                    if page_fw:
+                        self._page_framework_map[page_slug] = page_fw
 
                 # Build trigger map
                 for container in page_entry.get('containers', []):

@@ -116,9 +116,12 @@ class PipelineContext:
                     # 方案2: 保护已恢复的 target_url，不被 config.yaml 覆盖
                     if 'target_url' not in self._restored_params:
                         self.target_url = config.get('target_url')
-                    # 方案2: 保护已恢复的 cookie，不被 config.yaml 覆盖
-                    if 'cookie' not in self._restored_params:
-                        self.cookie = self.cookie or config.get('cookie')
+                    # Cookie: 以 config.yaml 为真相源（用户可能手动更新 Cookie）
+                    # 只有 config.yaml 无 cookie 时才用 state 的 cookie 作为 fallback
+                    _config_cookie = config.get('cookie')
+                    if _config_cookie:
+                        self.cookie = _config_cookie
+                    # else: 保留 self.cookie（来自 state 或 --cookie 参数）
 
                     # H1: 从 config.yaml 加载 local_storage
                     ls = config.get('local_storage')

@@ -279,8 +279,9 @@ CHECKBOX_HARDCODED = {
 GENERATOR_LOCATORS = {
     'dropdown-menu': {
         # 修改4: Element UI 使用 @x-placement 作用域（与 discover 阶段一致）
-        'element-ui': "//*[@x-placement and not(@x-placement='')]//*[contains(text(),'{label}')]",
-        'ant-design': "//li[contains(@class,'ant-dropdown-menu-item')][contains(.,'{label}')]",
+        # 添加 hidden filter，与 el-select first-option 模板保持一致
+        'element-ui': "//*[@x-placement and not(@x-placement='')]//*[contains(text(),'{label}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]",
+        'ant-design': "//li[contains(@class,'ant-dropdown-menu-item')][contains(.,'{label}') and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])]",
     },
     'more-button': {
         'element-ui': "//button[contains(@class,'el-button')]//span[contains(text(),'更多')]",

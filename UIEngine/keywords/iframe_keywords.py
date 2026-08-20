@@ -28,14 +28,98 @@ class IFrameMixin(BaseBrowser):
     @KeyWordManager.register("frame_click_element", "框架点击")
     def frame_click_element(self, frame, locator, button='left', timeout=3000):
         """
-        点击 iframe 内元素
+        点击 iframe 内元素（Phase 6 兼容版本）
+
+        等待策略与 Phase 6 verify_engine._try_find_in_iframes 对齐：
+        1. 轮询 page.frames 确认 iframe 内容已加载（最多 5 次，间隔 1000ms）
+        2. 通过 name/id/src 多策略匹配目标帧
+        3. 元素超时 5000ms（与 Phase 6 一致）
+        4. 点击后 smart wait（DOM 稳定检测）
+
         :param frame: iframe 定位表达式
         :param locator: 元素的定位表达式
         :param button: 鼠标按键 : "left", "middle", "right"
         :param timeout: 等待元素可见的最大超时时间
         """
+        import re
+
         self.log.debug_log(f"正在点击元素:{locator}")
-        self.page.frame_locator(frame).locator(locator).click(button=button, timeout=timeout)
+
+        # ── Phase 6 风格的 iframe 就绪检测 ──
+        max_attempts = 5
+        retry_interval = 1000  # ms
+        target_frame = None
+
+        for attempt in range(max_attempts):
+            # 方式1：等待 iframe 元素附加到 DOM
+            try:
+                self.page.wait_for_selector('iframe', state='attached', timeout=timeout)
+            except Exception as wait_err:
+                self.log.debug_log(f"等待 iframe 附加 DOM 超时: {str(wait_err)[:80]}")
+
+            # 方式2：轮询 page.frames 检测动态创建的 iframe
+            frames = self.page.frames
+            self.log.debug_log(f"page.frames 数量: {len(frames)}")
+
+            if len(frames) > 1:  # 找到 iframe，开始匹配
+                frame_selector = frame.replace('xpath=', '') if frame.startswith('xpath=') else frame
+
+                for f in frames:
+                    if f == self.page.main_frame:
+                        continue
+
+                    # 策略1：通过 name 属性匹配
+                    if '@name=' in frame_selector:
+                        name_match = re.search(r'@name="([^"]+)"', frame_selector)
+                        if name_match and f.name == name_match.group(1):
+                            target_frame = f
+                            break
+
+                    # 策略2：通过 id 属性匹配
+                    elif '@id=' in frame_selector:
+                        id_match = re.search(r'@id="([^"]+)"', frame_selector)
+                        if id_match:
+                            try:
+                                iframe_el = f.frame_element()
+                                if iframe_el.get_attribute('id') == id_match.group(1):
+                                    target_frame = f
+                                    break
+                            except Exception:
+                                pass
+
+                    # 策略3：通过 src 包含匹配
+                    elif 'src*="' in frame_selector:
+                        src_pattern = frame_selector.split('src*="')[1].split('"')[0]
+                        if f.url and src_pattern in f.url:
+                            target_frame = f
+                            break
+
+                    # 策略4：name 子串匹配（兜底）
+                    elif f.name and frame_selector in f.name:
+                        target_frame = f
+                        break
+
+                if target_frame:
+                    self.log.debug_log(f"找到目标 iframe: {target_frame.name or 'unnamed'}")
+                    break
+
+            # 未找到，等待后重试
+            if attempt < max_attempts - 1:
+                self.log.debug_log(f"iframe 未就绪，{retry_interval}ms 后重试...")
+                self.page.wait_for_timeout(retry_interval)
+
+        # ── 执行点击 ──
+        if target_frame:
+            element = target_frame.locator(locator)
+            element.click(button=button, timeout=5000)
+            self.log.debug_log(f"iframe 内点击成功: {locator[:80]}")
+        else:
+            # 回退：使用 frame_locator 链式定位（原方法）
+            self.log.debug_log(f"未找到目标 frame，回退使用 frame_locator")
+            self.page.frame_locator(frame).locator(locator).click(button=button, timeout=timeout)
+
+        # ── 点击后智能等待（与 Phase 6 _smart_wait_after_action 对齐）──
+        self.page.wait_for_timeout(1000)
 
     @KeyWordManager.register("frame_hover", "框架悬停")
     def frame_hover(self, frame, locator, timeout=3000):

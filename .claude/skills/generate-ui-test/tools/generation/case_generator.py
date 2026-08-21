@@ -122,8 +122,21 @@ class CaseGenerator:
 
         # common_elements 语义化命名 + Phase 4 精确 locator
         self._current_case_name = None       # 当前正在生成的用例名
-        self._discovery_containers = []      # Phase 4 discovery 的 containers 数组
         self._common_fields_extra = {}       # 动态新增的字段 {name: locator_value}
+
+        # 填充 _discovery_containers（从 resolver 的原始 discovery 数据）
+        # 用于 _find_in_discovery() 精确匹配 confirm/cancel 按钮
+        self._discovery_containers = []
+        if hasattr(resolver, '_discovery_raw'):
+            for path, raw_data in resolver._discovery_raw.items():
+                for page in raw_data.get('pages', []):
+                    for button in page.get('buttons', []):
+                        if button.get('result_type') == 'container':
+                            self._discovery_containers.append({
+                                'trigger': button.get('trigger', ''),
+                                'container_type': button.get('container_type', ''),
+                                'elements': button.get('elements', [])
+                            })
 
         # 兼容属性（供外部访问）
         self.field_meta = {}  # (group, field) -> {type, keyword, frame, body}
@@ -1567,25 +1580,26 @@ class CaseGenerator:
         return action or '通用'
 
     def _find_in_discovery(self, field_name):
-        """从 Phase 4 discovery 查找当前用例对应容器中的 confirm/cancel 按钮。
+        """从 Phase 4 discovery 查找当前容器中的 confirm/cancel 按钮。
 
         匹配逻辑：
-        1. 从用例名提取 trigger 关键词（"交付问题-删除问题" → "删除"）
-        2. 在 discovery containers 中找 trigger 匹配的容器
+        1. 使用 self._current_context（最近点击的 trigger，如"退订"）
+        2. 在 discovery containers 中找 trigger 精确匹配的容器
         3. 在该容器的 elements 中查找目标按钮
         4. 返回带容器前缀的完整 locator，未找到返回 None
         """
+        print(f"[DEBUG-DISC] _find_in_discovery called: field={field_name}")
+        print(f"[DEBUG-DISC] _current_context={self._current_context!r}")
+        print(f"[DEBUG-DISC] _discovery_containers count: {len(self._discovery_containers)}")
+
         if not self._discovery_containers:
+            print(f"[DEBUG-DISC] No containers loaded, returning None")
             return None
 
-        case_name = self._current_case_name or ''
-        parts = case_name.split('-', 1)
-        action_keyword = parts[1] if len(parts) > 1 else case_name
-        # 去掉后缀得到核心关键词
-        for suffix in ('问题', '功能', '操作'):
-            if action_keyword.endswith(suffix) and len(action_keyword) > len(suffix):
-                action_keyword = action_keyword[:-len(suffix)]
-                break
+        action_keyword = self._current_context
+        if not action_keyword or action_keyword == 'list_page':
+            print(f"[DEBUG-DISC] Initial state, returning None")
+            return None  # 初始状态，无法匹配
 
         # 目标按钮文本映射
         target_texts = {
@@ -1595,24 +1609,35 @@ class CaseGenerator:
         targets = target_texts.get(field_name)
         if not targets:
             # loading_mask/success_text/error_text 不走 discovery
+            print(f"[DEBUG-DISC] field_name not in target_texts, returning None")
             return None
 
         targets_stripped = [t.strip() for t in targets]
+        print(f"[DEBUG-DISC] Looking for trigger={action_keyword!r}, targets={targets_stripped}")
 
         for container in self._discovery_containers:
             trigger = container.get('trigger', '')
-            # trigger 匹配：用例操作名包含 trigger，或 trigger 包含操作名
-            if not (action_keyword in trigger or trigger in action_keyword):
+            print(f"[DEBUG-DISC] Checking container trigger={trigger!r}")
+            if trigger != action_keyword:  # 精确匹配
                 continue
 
+            print(f"[DEBUG-DISC] Found matching container! Elements: {len(container.get('elements', []))}")
             # 在容器内查找目标按钮
             for elem in container.get('elements', []):
-                if (elem.get('type') == 'button'
-                        and elem.get('text', '').strip() in targets_stripped
-                        and elem.get('locator')
-                        and elem.get('verified', False)):
+                elem_text = elem.get('text', '').strip()
+                elem_type = elem.get('type')
+                elem_locator = elem.get('locator')
+                elem_verified = elem.get('verified', False)
+                print(f"[DEBUG-DISC]   Checking elem: text={elem_text!r}, type={elem_type}, has_locator={bool(elem_locator)}, verified={elem_verified}")
+
+                if (elem_type == 'button'
+                        and elem_text in targets_stripped
+                        and elem_locator
+                        and elem_verified):
+                    print(f"[DEBUG-DISC]   ✓ Found matching button! locator={elem_locator[:80]}...")
                     return f"xpath={elem['locator']}"
 
+        print(f"[DEBUG-DISC] No matching button found, returning None")
         return None
 
     def _get_common(self, field_name):

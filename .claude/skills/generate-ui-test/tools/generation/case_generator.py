@@ -1634,7 +1634,7 @@ class CaseGenerator:
                         and elem_text in targets_stripped
                         and elem_locator
                         and elem_verified):
-                    print(f"[DEBUG-DISC]   ✓ Found matching button! locator={elem_locator[:80]}...")
+                    print(f"[DEBUG-DISC]   [OK] Found matching button! locator={elem_locator[:80]}...")
                     return f"xpath={elem['locator']}"
 
         print(f"[DEBUG-DISC] No matching button found, returning None")

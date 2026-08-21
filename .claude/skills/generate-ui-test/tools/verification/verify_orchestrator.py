@@ -1061,6 +1061,14 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                     container_context=container_context
                 )
 
+                # [DEBUG-PAGE] 每步执行后检查页面状态
+                try:
+                    _page_alive = not page.is_closed()
+                    if not _page_alive:
+                        print(f"  [DEBUG-PAGE] [WARN] Page closed after Step {step_idx+1}: {desc[:50]}")
+                except Exception as _alive_err:
+                    print(f"  [DEBUG-PAGE] Page status check failed: {_alive_err}")
+
                 # 收集 iframe 探测结果
                 if _ve._last_iframe_discovery:
                     iframe_disc = _ve._last_iframe_discovery
@@ -1177,13 +1185,21 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                     pass
 
             # 用例结束：清理所有新 Tab（无论成功失败）
+            # 保护主页面：始终保留 pages[0]
             while len(page.context.pages) > 1:
                 try:
                     page.context.pages[-1].close()
                     print(f"  [CLEANUP] Closed new tab")
                 except Exception:
                     break
-            page = page.context.pages[0]  # 切回主页面
+
+            # 安全检查：确保至少有一个 page
+            if len(page.context.pages) == 0:
+                print(f"  [ERROR] All pages were closed, creating new page")
+                page = page.context.new_page()
+                page.goto(base_url, wait_until="domcontentloaded", timeout=30000)
+            else:
+                page = page.context.pages[0]  # 切回主页面
 
             # Reset for next case: goto + reload 清除残留 dialog/drawer
             try:

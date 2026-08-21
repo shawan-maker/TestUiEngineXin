@@ -197,6 +197,11 @@ def _try_find_in_iframes(page, locator: str, max_iframes=10):
     iframes = None
 
     for attempt in range(max_attempts):
+        # [BUGFIX] 检查页面是否已关闭，避免 TargetClosedError
+        if page.is_closed():
+            print(f"    [DEBUG-IFRAME] Page is closed, skip iframe detection")
+            return None
+
         wait_time = initial_wait if attempt == 0 else retry_interval
         print(f"    [DEBUG-IFRAME] 尝试 {attempt + 1}/{max_attempts}，等待 {wait_time}ms...")
 
@@ -1866,7 +1871,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
     # Excluded: input-generic, el-select, textarea, tab, checkbox, etc.
     # Guarded by [1] to avoid count>1 strict mode violation.
     if elem_type in CLICK_EXPAND_TYPES and label:
-        _click_fb = f"(//*[contains(text(),'{label}')])[1]"
+        _click_fb = f"(//*[self::button or self::a or self::div or self::span][contains(text(),'{label}')])[1]"
         if not any(c[0] == _click_fb for c in candidates):
             candidates.append((_click_fb, 'kb-fallback'))
 
@@ -1965,7 +1970,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
 
             # Priority 3: Click-type wildcard fallback — last resort for click steps only
             if _alt_type in CLICK_EXPAND_TYPES and label:
-                _click_fb = f"(//*[contains(text(),'{label}')])[1]"
+                _click_fb = f"(//*[self::button or self::a or self::div or self::span][contains(text(),'{label}')])[1]"
                 if not any(c[0] == _click_fb for c in _alt_candidates):
                     _alt_candidates.append((_click_fb, 'kb-fallback'))
 
@@ -2170,7 +2175,19 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         if not verified_locator and _iframe_search_locator:
             print(f"    [TRACE-P6]   iframe 探测: 主页面所有候选 count=0，尝试 iframe")
             print(f"    [DEBUG-IFRAME] 触发条件: desc='{desc}', locator='{_iframe_search_locator[:80]}...'")
+            # [DEBUG] 检查页面是否存活
+            try:
+                _page_alive = not page.is_closed()
+                print(f"    [DEBUG-PAGE] 进入 iframe 探测前: page.is_closed()={_page_alive}")
+            except Exception as _alive_err:
+                print(f"    [DEBUG-PAGE] 页面状态检查失败: {_alive_err}")
             iframe_result = _try_find_in_iframes(page, _iframe_search_locator)
+            # [DEBUG] 检查 iframe 探测后页面状态
+            try:
+                _page_alive_after = not page.is_closed()
+                print(f"    [DEBUG-PAGE] iframe 探测后: page.is_closed()={_page_alive_after}")
+            except Exception as _alive_err:
+                print(f"    [DEBUG-PAGE] iframe 探测后页面状态检查失败: {_alive_err}")
             print(f"    [DEBUG-IFRAME] _try_find_in_iframes 返回: {iframe_result is not None}")
             if iframe_result:
                 print(f"    [DEBUG-IFRAME] 返回内容: count={iframe_result.get('count')}, "

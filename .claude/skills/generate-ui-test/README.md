@@ -325,13 +325,13 @@ python .claude/skills/generate-ui-test/tools/generation/generate_from_excel.py \
 
 ---
 
-### Phase 6：定位器验证（verify_locators.py）
+### Phase 6：定位器验证（verify_orchestrator.py）
 
 在浏览器中验证生成的定位器是否正确，更新 pages 文件中的 `[VERIFIED]` 标记。
 
 **命令格式：**
 ```bash
-python .claude/skills/generate-ui-test/tools/verification/verify_locators.py \
+python .claude/skills/generate-ui-test/tools/verification/verify_orchestrator.py \
   "path/to/project" \
   --cookie "cookie_string_here" \
   --url "http://target-url" \
@@ -348,18 +348,18 @@ python .claude/skills/generate-ui-test/tools/verification/verify_locators.py \
 
 **示例：**
 ```bash
-# 验证 order 模块的定位器（有头模式）
-python .claude/skills/generate-ui-test/tools/verification/verify_locators.py \
+# 验证 vpc_console 模块的定位器（有头模式）
+python .claude/skills/generate-ui-test/tools/verification/verify_orchestrator.py \
   "examples/ecsCloud2" \
   --cookie "session=abc123; user=admin" \
   --url "http://10.151.37.249" \
-  --module "order" \
+  --module "vpc_console" \
   --headed
 ```
 
 **输出：**
-- 更新 `pages/{module}/elements.yaml` 中的 `[VERIFIED]` 标记
-- 生成 `_probe/verification_report_{module}.json` 验证报告
+- 更新 `pages/{module}/elements.yaml` 中的定位器
+- 生成 `_probe/verify_result.json` 验证报告
 
 ---
 
@@ -389,7 +389,7 @@ python .claude/skills/generate-ui-test/tools/generation/generate_from_excel.py \
   --module-slug "order"
 
 # 4. Phase 6：验证定位器
-python .claude/skills/generate-ui-test/tools/verification/verify_locators.py \
+python .claude/skills/generate-ui-test/tools/verification/verify_orchestrator.py \
   "examples/ecsCloud2" \
   --cookie "session=abc123; user=admin" \
   --url "http://10.151.37.249" \

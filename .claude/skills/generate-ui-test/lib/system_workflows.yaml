@@ -14,11 +14,13 @@
 workflows:
 
   # ── 关键字一：等待加载完成（无参数）──
-  # 等待 4 种 loading 元素全部消失 + 1s 稳定等待
+  # ⚠️ 时序竞态保护：module_keywords.py 中已手动添加 pre_wait_visible 逻辑
+  # 重编译后需重新添加，或更新 compile_module_keywords.py 支持 pre_wait_visible 参数
+  # 场景：点击按钮→页面跳转→loading mask 尚未渲染→wait_for_element_hidden 立即返回
   - name: wait_for_loading_complete
     chinese_name: 等待加载完成
     params: []
-    description: "等待 4 种 loading 元素全部消失 + 1s 稳定等待"
+    description: "等待 8 种 loading 元素全部消失（Element UI 4种 + Ant Design 4种）+ 1s 稳定等待（含时序保护）"
     steps:
       - keyword: wait_for_element_hidden
         desc: "等待 el-loading-mask 消失"
@@ -40,6 +42,26 @@ workflows:
         params:
           locator: "xpath=//div[@class='el-loading-spinner']/p[@class='el-loading-text']"
           timeout: 10000
+      - keyword: wait_for_element_hidden
+        desc: "等待 ant-btn-loading 消失"
+        params:
+          locator: "xpath=//button[contains(@class,'ant-btn-loading')]"
+          timeout: 15000
+      - keyword: wait_for_element_hidden
+        desc: "等待 ant-btn-loading-icon 消失"
+        params:
+          locator: "xpath=//button//span[contains(@class,'ant-btn-loading-icon')]"
+          timeout: 15000
+      - keyword: wait_for_element_hidden
+        desc: "等待 ant-spin 消失"
+        params:
+          locator: "xpath=//div[contains(@class,'ant-spin')]"
+          timeout: 15000
+      - keyword: wait_for_element_hidden
+        desc: "等待 ant-spin-spinning 消失"
+        params:
+          locator: "xpath=//div[contains(@class,'ant-spin-spinning')]"
+          timeout: 15000
       - keyword: wait_for_time
         desc: "稳定等待"
         params:

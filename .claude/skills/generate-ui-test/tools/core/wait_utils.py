@@ -39,7 +39,11 @@ def wait_for_dom_stable(page, timeout_ms=3000, interval_ms=500, debug=False):
               + '.el-select, .el-form-item, button').length;
             const rows = document.querySelectorAll('tbody tr').length;
             const loading = document.querySelectorAll(
-                '.el-loading-mask:not([style*="display: none"])').length > 0;
+                '.el-loading-mask:not([style*="display: none"]), '
+              + '.ant-btn-loading, '
+              + '.ant-btn-loading-icon, '
+              + '.ant-spin-spinning'
+            ).length > 0;
             return { forms: forms, rows: rows, loading: loading };
         })()
     """

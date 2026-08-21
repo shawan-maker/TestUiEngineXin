@@ -134,10 +134,34 @@ def _store_verified_locator(v_loc, v_ct, step, pages_dict, verified_locators,
         print(f"    [TRACE-P6]   orig: {orig_xpath[:80]}{'...' if len(orig_xpath) > 80 else ''}")
         print(f"    [TRACE-P6]   new:  {v_xpath[:80]}{'...' if len(v_xpath) > 80 else ''}")
 
-        # 容器前缀降级：阻止写入，保留 pages YAML 中的原始 locator
-        # 原因：VLC 在抽屉未打开时可能返回裸 div（无容器前缀），
-        #       写入会损坏 pages YAML，导致下次运行时使用错误的裸 locator
+        # 容器前缀移除：区分「降级」和「跨框架纠错」
+        # 降级（阻止）：同框架内去掉容器前缀，可能是容器临时关闭导致
+        # 跨框架纠错（允许）：原始前缀属于不同框架（如 el-drawer 用在 ant-modal 页面上）
         if orig_has_container and not new_has_container:
+            ELEMENT_UI_MARKERS = ('el-dialog', 'el-drawer', 'el-message-box')
+            ANT_DESIGN_MARKERS = ('ant-modal', 'ant-drawer')
+
+            orig_is_el = any(m in orig_xpath for m in ELEMENT_UI_MARKERS)
+            orig_is_ant = any(m in orig_xpath for m in ANT_DESIGN_MARKERS)
+            group_is_ant = any(m in ref for m in ANT_DESIGN_MARKERS)
+            group_is_el = any(m in ref for m in ('_dialog_', '_drawer_', '_messagebox_', '_message_box_'))
+
+            # 跨框架纠错：原始前缀和页面框架不匹配
+            is_cross_framework = (orig_is_el and group_is_ant) or (orig_is_ant and group_is_el)
+
+            if is_cross_framework:
+                orig_ct_name = next((m for m in ELEMENT_UI_MARKERS + ANT_DESIGN_MARKERS if m in orig_xpath), 'unknown')
+                group_fw = 'ant' if group_is_ant else 'element-ui'
+                marker = f'[CROSS-FRAMEWORK-CORRECT: {orig_ct_name}→{group_fw}]'
+                verified_locators[ref] = {
+                    'locator': v_loc,
+                    'marker': marker_override or marker,
+                    'container_type': v_ct,
+                }
+                print(f"    {marker} '{ref}' — 跨框架纠错，允许回写: "
+                      f"{orig_xpath[:60]} → {v_xpath[:60]}")
+                return
+
             print(f"    [BLOCKED: CONTAINER-DOWNGRADE] '{ref}' — 容器前缀降级，跳过写入: "
                   f"{orig_xpath[:60]} → {v_xpath[:60]}")
             return
@@ -148,7 +172,11 @@ def _store_verified_locator(v_loc, v_ct, step, pages_dict, verified_locators,
             upgrade_ct = None
             for cm in CONTAINER_MARKERS:
                 if cm in v_xpath:
-                    upgrade_ct = cm.replace('el-', '')
+                    # 提取容器类型名称（去掉框架前缀）
+                    upgrade_ct = cm.replace('el-', '').replace('ant-', '')
+                    # 如果是 ant-modal 或 ant-drawer，保留 ant 前缀以便区分
+                    if 'ant-' in cm:
+                        upgrade_ct = cm  # ant-modal, ant-drawer
                     break
             marker = f'[UPGRADED: {upgrade_ct}]' if upgrade_ct else '[UPGRADED]'
             verified_locators[ref] = {

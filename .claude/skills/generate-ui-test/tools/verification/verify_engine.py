@@ -53,7 +53,7 @@ except ImportError:
 # ─── Local copies of constants (originally defined in verify_locators.py lines 92-124) ───
 # These are also needed by verify_orchestrator.py, which will import from this module.
 DESTRUCTIVE_TRIGGERS = set()  # 已移除破坏性操作跳过机制
-CONTAINER_TYPES = ['dialog', 'drawer', 'message-box']
+CONTAINER_TYPES = ['dialog', 'drawer', 'message-box', 'ant-modal', 'ant-drawer']
 _SYSTEM_WORKFLOWS = None
 _PROJECT_WORKFLOWS = {}
 PROBE_ISOLATION_PREFIX = '__probe__'

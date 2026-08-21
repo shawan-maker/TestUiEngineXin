@@ -13,13 +13,71 @@ class LocatorMixin(BaseBrowser):
     @KeyWordManager.register("fill_value", "输入值")
     def fill_value(self, locator, value, timeout=3000):
         """
-        输入框填入值
+        输入框填入值（智能重试策略）
+
+        针对 el-input-number 等组件的 disabled 延迟更新问题，采用混合策略：
+        1. 先尝试正常 fill（等待 Vue 自然更新）
+        2. 失败后重试 1 次（间隔 2 秒）
+        3. 仍失败则强制移除 disabled 属性后 fill
+
         :param locator: 输入框的定位表达式
         :param value: 输入的值
         :param timeout: 等待元素可见的最大超时时间
         """
         self.log.debug_log(f"正在定位元素:{locator}，输入值:{value}")
-        self.page.locator(locator).fill(value, timeout=timeout)
+        loc = self.page.locator(locator)
+
+        # 第1次尝试：正常 fill
+        try:
+            loc.fill(value, timeout=timeout)
+            return
+        except Exception as first_err:
+            self.log.debug_log(f"fill 第1次失败，2秒后重试: {str(first_err)[:100]}")
+
+        # 等待 2 秒，让 Vue 有时间更新
+        self.page.wait_for_timeout(2000)
+
+        # 第2次尝试：重试 fill
+        try:
+            loc.fill(value, timeout=timeout)
+            self.log.debug_log("fill 第2次成功（Vue 延迟更新）")
+            return
+        except Exception as second_err:
+            self.log.debug_log(f"fill 第2次失败，强制移除 disabled: {str(second_err)[:100]}")
+
+        # 第3次尝试：强制移除 disabled 后 fill
+        try:
+            # 检查是否有 disabled/aria-disabled 属性
+            is_disabled = loc.is_disabled()
+            has_aria_disabled = loc.get_attribute('aria-disabled') == 'true'
+
+            if is_disabled or has_aria_disabled:
+                self.log.debug_log("检测到 disabled 状态，强制移除")
+                # 使用 JavaScript 强制移除 disabled 状态
+                loc.evaluate("""
+                    (el) => {
+                        el.disabled = false;
+                        el.removeAttribute('disabled');
+                        el.removeAttribute('aria-disabled');
+
+                        // 尝试移除父级组件的 disabled 类
+                        const wrapper = el.closest('.el-input-number') || el.closest('.el-input');
+                        if (wrapper) {
+                            wrapper.classList.remove('is-disabled');
+                        }
+                    }
+                """)
+                self.page.wait_for_timeout(500)  # 等待 500ms 让状态更新
+
+            # 重试 fill
+            loc.fill(value, timeout=timeout)
+            self.log.debug_log("fill 第3次成功（强制移除 disabled 后）")
+            return
+
+        except Exception as third_err:
+            # 所有尝试都失败，抛出第3次错误（最详细）
+            self.log.error_log(f"fill_value 3次尝试均失败: {str(third_err)[:200]}")
+            raise third_err
 
     @KeyWordManager.register("click_element", "点击元素")
     def click_element(self, locator, timeout=3000, force=False):

@@ -172,32 +172,31 @@ HIDDEN_FILTERS = {
     'element-ui': (
         " and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
         " and not(ancestor-or-self::*[contains(@style,'display: none')])"
+        " and not(@disabled)"
+        " and not(ancestor-or-self::*[contains(@class,'is-disabled')])"
     ),
     'ant-design': (
         " and not(ancestor-or-self::*[contains(@class,'ant-drawer-hidden')])"
         " and not(ancestor-or-self::*[contains(@class,'ant-modal-hidden')])"
         " and not(ancestor-or-self::*[contains(@style,'display: none')])"
         " and not(ancestor-or-self::*[@aria-hidden='true'])"
-    ),
-    '_universal': (
-        " and not(ancestor-or-self::*[contains(@style,'display: none')])"
-    ),
-}
-
-# ============================================================
-# 禁用过滤表达式
-# ============================================================
-
-DISABLED_FILTERS = {
-    'element-ui': (
-        " and not(@disabled)"
-        " and not(ancestor-or-self::*[contains(@class,'is-disabled')])"
-    ),
-    'ant-design': (
         " and not(@disabled)"
         " and not(ancestor-or-self::*[contains(@class,'ant-btn-disabled')])"
         " and not(ancestor-or-self::*[contains(@class,'ant-select-disabled')])"
     ),
+    '_universal': (
+        " and not(ancestor-or-self::*[contains(@style,'display: none')])"
+        " and not(@disabled)"
+    ),
+}
+
+# ============================================================
+# 禁用过滤表达式（已合并到 HIDDEN_FILTERS，保留空定义以防向后兼容问题）
+# ============================================================
+
+DISABLED_FILTERS = {
+    'element-ui': '',
+    'ant-design': '',
 }
 
 # ============================================================

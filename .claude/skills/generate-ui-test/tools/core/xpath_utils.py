@@ -29,19 +29,7 @@ def get_hidden_filter(framework=None):
     from core.framework_registry import get_hidden_filter as _fw_get
     return _fw_get(framework)
 
-# 按钮禁用状态过滤（排除 disabled 按钮）
-DISABLED_FILTER = (
-    " and not(@disabled)"
-    " and not(ancestor-or-self::*[contains(@class,'is-disabled')])"
-)
-
-# 向后兼容：默认使用 element-ui 的禁用过滤
-def get_disabled_filter(framework=None):
-    """获取框架感知的禁用过滤表达式"""
-    from core.framework_registry import get_disabled_filter as _fw_get
-    return _fw_get(framework)
-
-# 按钮类型集合（这些类型需要注入 disabled 过滤）
+# 按钮类型集合（保留供外部引用，disabled 过滤已合并到 HIDDEN_FILTERS）
 BUTTON_TYPES = {'button', 'search-button', 'table-action-button', 'close-button', 'download-button'}
 
 # 新建 predicate 时，去掉开头的 " and "
@@ -313,17 +301,13 @@ def inject_hidden_filter(locator: str, framework=None, in_iframe: bool = False, 
     if _is_exempt(v):
         return locator
 
-    # 根据框架获取对应的过滤表达式
+    # 根据框架获取对应的过滤表达式（已包含 disabled 过滤）
     hidden_filter = get_hidden_filter(framework)
     hidden_filter_new = re.sub(r'^\s*and\s+', '', hidden_filter.strip())
 
-    # 根据 elem_type 决定注入的过滤条件
+    # 所有元素类型统一使用完整的 hidden filter
     _filter = hidden_filter
     _filter_new = hidden_filter_new
-    if elem_type and elem_type in BUTTON_TYPES:
-        disabled_filter = get_disabled_filter(framework)
-        _filter = hidden_filter + disabled_filter
-        _filter_new = re.sub(r'^\s*and\s+', '', (hidden_filter + disabled_filter).strip())
 
     has_prefix = v.startswith('xpath=')
     xpath = v[6:] if has_prefix else v

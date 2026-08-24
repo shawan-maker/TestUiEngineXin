@@ -682,7 +682,8 @@ class ElementResolver:
                             meta['groups'].append(group_name)
                         continue
 
-                    if ct is None or ct not in ('drawer', 'dialog', 'message-box'):
+                    if ct is None or ct not in ('drawer', 'dialog', 'message-box',
+                                                 'ant-drawer', 'ant-modal'):
                         if ct is not None:
                             print(f"[WARN] 跳过非标准容器类型: {ct} "
                                   f"(trigger: {trigger}), "

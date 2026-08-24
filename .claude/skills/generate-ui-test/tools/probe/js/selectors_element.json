@@ -10,7 +10,7 @@
   "selectExclude": ".el-select, .el-date-editor, .el-cascader",
   "selectDropdown": ".el-select-dropdown",
   "dateEditor": ".el-date-editor input",
-  "cascaderInput": ".el-cascader .el-input__inner",
+  "cascaderInput": ".el-cascader",
   "button": "button.el-button, button.ec-button",
   "iconSearch": ".el-icon-search",
   "iconDownload": ".el-icon-download",

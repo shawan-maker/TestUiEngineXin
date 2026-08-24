@@ -456,16 +456,20 @@ class CaseGenerator:
         #    self._current_context = 打开容器的按钮标签（如 "新增"），
         #    由 _update_container_context_post() 在上一步按钮点击后设置
         _page_slug = self._get_current_page_slug()
+        # [FIX-G1] 'list_page' 是初始上下文（列表页），不是导航 trigger
+        # get_group_name 仅在 trigger=None 时走列表页分支，
+        # 传 'list_page' 会误入导航分支生成 _newpage_listpage_ 前缀
+        _effective_trigger = None if self._current_context == 'list_page' else self._current_context
         group = self.resolver.get_group_name(
             self.module,
             page_slug=_page_slug,
             container_type=self.current_container,
-            trigger=self._current_context)
+            trigger=_effective_trigger)
         if not group:
             group = self.resolver.construct_pending_group(
                 self.current_container, self.module,
                 page_slug=_page_slug,
-                trigger=self._current_context)
+                trigger=_effective_trigger)
 
         # [DEBUG-ELSELECT] 追踪 el-select group 名生成
         print(f"    [DEBUG-ELSELECT] label='{label}', field='{field}'")
@@ -1806,16 +1810,18 @@ class CaseGenerator:
             field = field_with_suffix[:-len('_card')] if field_with_suffix.endswith('_card') else field_with_suffix
 
             # ── Step 2: 确定 group ──
+            # [FIX-G1] 同 el-select：'list_page' 不是导航 trigger
+            _effective_trigger = None if self._current_context == 'list_page' else self._current_context
             group = self.resolver.get_group_name(
                 self.module,
                 page_slug=self._get_current_page_slug(),
                 container_type=self.current_container,
-                trigger=self._current_context)
+                trigger=_effective_trigger)
             if not group:
                 group = self.resolver.construct_pending_group(
                     self.current_container, self.module,
                     page_slug=self._get_current_page_slug(),
-                    trigger=self._current_context)
+                    trigger=_effective_trigger)
 
             # ── Step 3: 注册 pages 字段（通用容器 XPath，不含 value）──
             # 用途：文档存档 + probe 验证（R4.43）

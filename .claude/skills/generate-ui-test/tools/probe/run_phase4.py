@@ -296,8 +296,13 @@ def main():
                     with open(output_path, encoding='utf-8') as f:
                         _disc = json.load(f)
                     if _disc.get('auth_error'):
-                        print(f"[ERROR] {slug}: Cookie 认证失败（被重定向到登录页），跳过 pages 生成",
+                        print(f"[ERROR] {slug}: Cookie 认证失败（被重定向到登录页）",
                               file=sys.stderr)
+                        print(f"[ERROR] ⚠️ 请检查以下项目:", file=sys.stderr)
+                        print(f"[ERROR]   1. Cookie 是否已过期（浏览器 F12 → Network → 任意请求 → Cookie）", file=sys.stderr)
+                        print(f"[ERROR]   2. config.yaml 中的 cookie 值是否与浏览器一致", file=sys.stderr)
+                        print(f"[ERROR]   3. cookie_domain 是否正确（应为域名，不含端口和路径）", file=sys.stderr)
+                        print(f"[ERROR]   4. 目标系统是否使用 CAS/SSO（重定向链可能未完成）", file=sys.stderr)
                         ok = False
                 except Exception:
                     pass

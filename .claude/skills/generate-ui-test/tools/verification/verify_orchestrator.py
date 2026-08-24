@@ -871,12 +871,28 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                 if not _ls_injected:
                     # root-first: localStorage 已在根 URL 设置，直接导航到目标页面
                     page.goto(base_url, wait_until="domcontentloaded", timeout=30000)
+                    # [FIX-1] 等待 URL 稳定 — CAS/SSO 重定向链可能尚未完成
+                    _last_url = ""
+                    _stable_ticks = 0
+                    for _tick in range(10):
+                        _current = page.url
+                        if _current == _last_url:
+                            _stable_ticks += 1
+                            if _stable_ticks >= 2:
+                                break
+                        else:
+                            _stable_ticks = 0
+                        _last_url = _current
+                        page.wait_for_timeout(500)
                     _wait_for_dom_stable(page, timeout_ms=4000)
                     _ls_injected = True
                     # Check if redirected to login page (invalid cookie)
                     final_url = page.url
                     if '/login' in final_url or final_url.rstrip('/').endswith('login'):
                         print(f"  [ERROR] Redirected to login page — cookie invalid/expired")
+                        print(f"  [ERROR]   目标 URL:   {base_url}")
+                        print(f"  [ERROR]   当前 URL:   {final_url}")
+                        print(f"  [ERROR]   可能原因: Cookie 已过期，请在浏览器重新登录后获取新 Cookie")
                         print(f"  [ERROR] Aborting verification. Please provide a fresh cookie.")
                         return {
                             'total_steps': 0, 'verified': 0, 'skipped': 0,
@@ -1340,7 +1356,12 @@ def main():
     if result:
         # 【auth_error 优先判断】→ exit(2) 通知管线阻断
         if result.get('auth_error'):
-            print("\n[AUTH_REQUIRED] Cookie 已失效，请更新后使用 --from-phase phase_6_verify 重新运行")
+            print("\n[AUTH_REQUIRED] Cookie 认证失败")
+            print("  排查步骤:")
+            print("  1. 浏览器 F12 → Network → 复制最新 Cookie")
+            print("  2. 更新 config.yaml 中的 cookie 字段")
+            print("  3. python pipeline.py run --project {目录} --from-phase phase_6_verify")
+            print("  ⚠️ 不要修改 cookie 以外的配置项")
             sys.exit(2)
 
         failed = result.get('failed', 0)

@@ -1433,10 +1433,34 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
         # Navigate to target URL with networkidle fallback to domcontentloaded
         # Some systems (eStack) have continuous API polling, networkidle never triggers
         _navigate_with_fallback(page, url, timeout_ms=10000)
+
+        # [FIX-1] 等待 URL 稳定 — CAS/SSO 重定向链可能尚未完成
+        # domcontentloaded 仅保证 HTML 加载，不保证 HTTP 302 链已走完
+        # 路径路由（如 /vm/list）经 CAS 重定向链，hash 路由（如 #/order/vm）不经过
+        _last_url = ""
+        _stable_ticks = 0
+        for _tick in range(10):  # 最多 5 秒（10 × 500ms）
+            _current = page.url
+            if _current == _last_url:
+                _stable_ticks += 1
+                if _stable_ticks >= 2:  # URL 连续稳定 1 秒
+                    break
+            else:
+                _stable_ticks = 0
+                print(f"  [Discover] URL redirecting: {_current}")
+            _last_url = _current
+            page.wait_for_timeout(500)
+
         _wait_for_dom_stable(page, timeout_ms=4000)
-        # Check auth
-        if '/login' in page.url or page.url.rstrip('/').endswith('login'):
+
+        # Check auth（URL 已稳定，此时检查才可靠）
+        _final_url = page.url
+        if '/login' in _final_url or _final_url.rstrip('/').endswith('login'):
             print(f"[ERROR] Redirected to login page — cookie invalid/expired")
+            print(f"[ERROR]   目标 URL:   {url}")
+            print(f"[ERROR]   当前 URL:   {_final_url}")
+            print(f"[ERROR]   Cookie domain: {urlparse(url).hostname}")
+            print(f"[ERROR]   可能原因: Cookie 已过期，请在浏览器重新登录后获取新 Cookie")
             return {'module': module_name, 'url': url, 'containers': [], 'auth_error': True}
 
         # Belt-and-suspenders: ensure localStorage is set after navigation

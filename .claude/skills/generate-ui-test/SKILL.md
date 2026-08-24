@@ -188,18 +188,41 @@ case 中 locator 引用 `${group.field}`（pages/），value 引用 `${group.fie
 ### ⑤ config.yaml 纯 YAML 格式
 config.yaml 是 YAML 文件，注释**只能用 `#`**，禁止 Python docstring `"""` 和 shebang `#!/usr/bin/env python3`。文件头格式参考 `templates/config.yaml.tpl`。
 
+### ⑥ 禁止修改用户提供的配置值
+用户提供的 cookie、target_url、cookie_domain 等配置值，AI **禁止自行修改**。
+如果管线报错 cookie 相关错误：
+1. **先分析日志**：确认是 cookie 真的过期，还是重定向时序问题
+2. **报告给用户**：展示诊断信息，由用户决定是否更新 cookie
+3. **绝不自行替换**：即使看起来像是 cookie 过期
+
 ## 错误恢复
 
-如果管线某阶段失败：
-1. 查看管线状态：`_probe/pipeline_state.json`
-2. 查看工具完整日志：`_probe/{phase_id}_tool.log`（包含 stdout/stderr 完整输出）
-3. 修复问题（如修改 Excel、补充配置）
-4. 使用 `--from-phase {失败阶段的Phase ID}` 恢复执行：
-   ```bash
-   python -u tools/pipeline.py run --project {目录} --from-phase phase_4_discovery 2>&1 | tee {目录}/_probe/pipeline.log
-   ```
+管线某阶段失败时，按以下决策树处理：
 
-**禁止**：直接调用失败阶段的工具（如 `python tools/run_phase4.py`）。必须通过管线恢复。
+### Step 1: 分析失败原因
+- 读取 `_probe/pipeline_state.json` 查看失败阶段和错误信息
+- 读取 `_probe/{phase_id}_tool.log` 查看工具完整输出
+- **不要急于重试**，先判断失败类型
+
+### Step 2: 判断失败类型
+
+| 失败类型 | 典型错误 | 处理方式 |
+|---------|---------|---------|
+| **认证失败** | `auth_error`, `Redirected to login` | 展示诊断信息给用户，等用户提供新 cookie |
+| **验证器错误** | `validate_04`, `validate_08` 报错 | 分析具体规则，修复 Excel 或定位器后 `--from-phase` 恢复 |
+| **工具执行失败** | Playwright 未安装、文件缺失等 | 修复环境问题后 `--from-phase` 恢复 |
+| **数据问题** | discovery 覆盖率低、步骤未匹配 | 可能需要补充 Excel 或调整配置 |
+
+### Step 3: 恢复执行
+```bash
+# 仅用于修复后重跑，不用于正常流程
+python -u tools/pipeline.py run --project {目录} --from-phase {失败阶段} 2>&1 | tee {目录}/_probe/pipeline.log
+```
+
+**禁止**：
+- 禁止在正常生成流程中使用 `--from-phase` 或 `--only-phase`
+- 禁止自行修改用户提供的 cookie 值
+- 禁止因单次失败就反复重试（最多重试 1 次，仍失败则报告用户）
 
 ## 参考文档
 

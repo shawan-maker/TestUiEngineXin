@@ -2275,8 +2275,10 @@ class CaseGenerator:
 
         elif ptype == 'assert_row':
             value = args[0]
-            # 检测"或"关系（支持多个可选值，如 'IPv6+IPv4'或'IPv4+IPv6'）
-            _or_values = [v.strip() for v in re.split(r'[或或者]+', re.sub(r'["""\']+', '', value)) if v.strip()]
+            # 检测”或”关系：在引号包裹的”或”/”或者”边界处拆分
+            # 例: IPv6+IPv4”或”IPv4+IPv6 → ['IPv6+IPv4', 'IPv4+IPv6']
+            _or_parts = re.split(rf'{Q}(?:或|或者){Q}', value)
+            _or_values = [v.strip() for v in _or_parts if v.strip()]
             if len(_or_values) > 1:
                 # 多值 OR 条件
                 or_conditions = ' or '.join([f"contains(.,'{v}')" for v in _or_values])

@@ -1872,6 +1872,7 @@ class CaseGenerator:
                 'keyword': 'execute_script',
                 'params': {'script': _scroll_init},
                 '_skip_phase6': True,
+                '_hide_in_report': True,
             })
             # 生成 5 片滚动：每片设置 scrollTop 到对应百分比位置
             _scroll_fractions = [0.2, 0.4, 0.6, 0.8, 1.0]
@@ -1904,12 +1905,14 @@ class CaseGenerator:
                     'keyword': 'execute_script',
                     'params': {'script': _scroll_chunk},
                     '_skip_phase6': True,
+                    '_hide_in_report': True,
                 })
                 steps.append({
                     'desc': '等待虚拟滚动渲染',
                     'keyword': 'wait_for_time',
                     'params': {'timeout': 500},
                     '_skip_phase6': True,
+                    '_hide_in_report': True,
                 })
 
             # ── Step 7: 生成 case step（内联 XPath）──

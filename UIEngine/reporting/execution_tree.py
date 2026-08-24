@@ -27,11 +27,12 @@ class StepNode:
         children: 子步骤列表 (关键字嵌套调用产生的子节点)
         log_entries: 该步骤执行期间的日志快照 [(level, msg), ...]
         depth: 嵌套深度 (0 = 用例顶层步骤)
+        hide_in_report: HTML 报告中是否隐藏 (bool, 用于滚动等实现细节步骤)
     """
     __slots__ = (
         'keyword', 'desc', 'params', 'status', 'error_msg',
         'screenshot', 'start_time', 'end_time', 'duration_ms',
-        'children', 'log_entries', 'depth',
+        'children', 'log_entries', 'depth', 'hide_in_report',
     )
 
     def __init__(self, keyword, desc, params, depth):
@@ -47,6 +48,7 @@ class StepNode:
         self.children = []
         self.log_entries = []
         self.depth = depth
+        self.hide_in_report = False
 
     def to_dict(self):
         """转换为字典，便于序列化或报告生成"""
@@ -61,6 +63,7 @@ class StepNode:
             'depth': self.depth,
             'log_entries': self.log_entries,
             'children': [child.to_dict() for child in self.children],
+            'hide_in_report': self.hide_in_report,
         }
 
 
@@ -114,6 +117,7 @@ class ExecutionTreeBuilder:
         depth = len(self._stack)
 
         node = StepNode(keyword=keyword, desc=desc, params=params, depth=depth)
+        node.hide_in_report = bool(step_dict.get('_hide_in_report'))
 
         # 建立父子关系：如果有栈顶节点，当前节点为其子节点
         if self._stack:

@@ -396,6 +396,10 @@ def _render_step_node(node, parent_id, node_idx=None, case_context=None):
     log_entries = node.get('log_entries', [])
     children = node.get('children', [])
 
+    # 检查是否需要在报告中隐藏（滚动等实现细节步骤）
+    if node.get('hide_in_report', False):
+        return ''
+
     node_id = f"{parent_id}-n{node_idx or 0}"
     indent = depth * 24  # 每层缩进 24px
 

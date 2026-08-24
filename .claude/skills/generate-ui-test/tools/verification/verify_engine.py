@@ -786,16 +786,6 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
                                     except Exception as _e:
                                         # H4: 记录异常（XPath语法错误/超时/其他）便于调试
                                         print(f"    [WARN] H4: 3b strict 前缀探测异常({try_ct}): {_e}")
-                            # P2-4: [last()] strategy for dialog/drawer (topmost = last opened)
-                            if test_prefix in ('dialog', 'drawer'):
-                                wrapped_last = f"({test_xpath})[last()]"
-                                full_last = inject_hidden_filter(f"xpath={wrapped_last}", elem_type=elem_type)
-                                try:
-                                    cnt_last = page.locator(full_last).count()
-                                    if cnt_last == 1:
-                                        return _ret(full_last, test_prefix, 1, candidate_index)
-                                except Exception as _e:
-                                    print(f"    [WARN] H4: [last()] 探测异常: {_e}")
                             # Fallback: [1]
                             wrapped = f"({test_xpath})[1]"
                             full_wrapped = inject_hidden_filter(f"xpath={wrapped}", elem_type=elem_type)

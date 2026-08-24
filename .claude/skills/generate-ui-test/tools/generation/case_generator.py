@@ -970,7 +970,7 @@ class CaseGenerator:
             return elem
 
         best_elem = None
-        best_score = 0.6
+        best_score = 0.8
         is_container_ctx = ctx in self._discovery_trigger_map
         _debug_f7(f"  [DEBUG-F7] 精确匹配失败，开始子串搜索 (is_container_ctx={is_container_ctx})")
 

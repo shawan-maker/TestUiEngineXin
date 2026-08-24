@@ -2272,18 +2272,37 @@ class CaseGenerator:
 
         elif ptype == 'assert_row':
             value = args[0]
-            kb_xpath = _get_assertion_kb_pattern('first-row-content', framework=self._framework, keyword=value)
-            if not kb_xpath:
-                kb_xpath = f"//tbody/tr[1]//*[contains(.,'{value}')]"
-            kb_xpath = _inject_hidden_filter(kb_xpath)
-            steps.append({
-                'desc': f"断言第一条记录包含'{value}'",
-                'keyword': 'except_to_be_visible',
-                'label': value,
-                'params': {
-                    'locator': f"xpath={kb_xpath}"
-                },
-            })
+            # 检测"或"关系（支持多个可选值，如 'IPv6+IPv4'或'IPv4+IPv6'）
+            _or_values = [v.strip() for v in re.split(r'[或或者]+', re.sub(r'["""\']+', '', value)) if v.strip()]
+            if len(_or_values) > 1:
+                # 多值 OR 条件
+                or_conditions = ' or '.join([f"contains(.,'{v}')" for v in _or_values])
+                kb_xpath = f"//tbody/tr[1]//*[{or_conditions}]"
+                kb_xpath = _inject_hidden_filter(kb_xpath)
+                values_desc = '或'.join([f"'{v}'" for v in _or_values])
+                steps.append({
+                    'desc': f"断言第一条记录包含{values_desc}（任一）",
+                    'keyword': 'except_to_be_visible',
+                    'label': _or_values[0],
+                    'params': {
+                        'locator': f"xpath={kb_xpath}"
+                    },
+                })
+            else:
+                # 单值：去除尾部引号
+                clean_value = _or_values[0] if _or_values else value
+                kb_xpath = _get_assertion_kb_pattern('first-row-content', framework=self._framework, keyword=clean_value)
+                if not kb_xpath:
+                    kb_xpath = f"//tbody/tr[1]//*[contains(.,'{clean_value}')]"
+                kb_xpath = _inject_hidden_filter(kb_xpath)
+                steps.append({
+                    'desc': f"断言第一条记录包含'{clean_value}'",
+                    'keyword': 'except_to_be_visible',
+                    'label': clean_value,
+                    'params': {
+                        'locator': f"xpath={kb_xpath}"
+                    },
+                })
 
         elif ptype == 'wait':
             desc = args[0].strip() if args else ''

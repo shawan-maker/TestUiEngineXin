@@ -53,11 +53,6 @@ workflows:
           locator: "xpath=//button//span[contains(@class,'ant-btn-loading-icon')]"
           timeout: 15000
       - keyword: wait_for_element_hidden
-        desc: "等待 ant-spin 消失"
-        params:
-          locator: "xpath=//div[contains(@class,'ant-spin')]"
-          timeout: 15000
-      - keyword: wait_for_element_hidden
         desc: "等待 ant-spin-spinning 消失"
         params:
           locator: "xpath=//div[contains(@class,'ant-spin-spinning')]"

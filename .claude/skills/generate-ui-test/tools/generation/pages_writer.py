@@ -430,20 +430,43 @@ class PagesWriter:
                         scalar = _yaml_scalar(locator)
                         f.write(f'  {key}: {scalar}\n')
         elif extra_fields:
-            # 幂等追加：检查 extra_fields 中是否有新字段需要追加
+            # 幂等追加：定位 common_elements: 区块边界，在正确位置插入
+            # 避免追加到 page_urls: 等后续区块下方（修复 #BUG-WCE-1）
+            common_start = -1
+            common_end = len(lines)
+            for i, line in enumerate(lines):
+                if line.strip() == 'common_elements:':
+                    common_start = i
+                elif common_start >= 0 and i > common_start:
+                    # 遇到下一个顶级 key（非空、非注释、无缩进）→ 区块结束
+                    stripped = line.strip()
+                    if stripped and not stripped.startswith('#') and not line[0].isspace():
+                        common_end = i
+                        break
+
+            if common_start < 0:
+                return  # 防御：不应到达此处
+
+            # 仅收集 common_elements 区块内的已有 key
             existing_keys = set()
-            for line in lines:
-                stripped = line.strip()
-                if ':' in stripped and not stripped.startswith('#'):
+            for i in range(common_start + 1, common_end):
+                stripped = lines[i].strip()
+                if stripped and not stripped.startswith('#') and ':' in stripped:
                     key_part = stripped.split(':', 1)[0].strip()
-                    existing_keys.add(key_part)
+                    if key_part:
+                        existing_keys.add(key_part)
 
             new_fields = {k: v for k, v in extra_fields.items() if k not in existing_keys}
             if new_fields:
-                with open(output_path, 'a', encoding='utf-8') as f:
-                    for key, locator in new_fields.items():
-                        scalar = _yaml_scalar(locator)
-                        f.write(f'  {key}: {scalar}\n')
+                insert_lines = []
+                for key, locator in new_fields.items():
+                    scalar = _yaml_scalar(locator)
+                    insert_lines.append(f'  {key}: {scalar}\n')
+                # 在 common_end 位置插入（而非追加到文件末尾）
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    f.writelines(lines[:common_end])
+                    f.writelines(insert_lines)
+                    f.writelines(lines[common_end:])
 
     def write_page_urls(self, output_path, page_url_map):
         """追加 page_urls 元数据组（仅多 URL 模块）。幂等保护：已存在则跳过。"""

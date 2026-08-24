@@ -1196,10 +1196,24 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
             # 安全检查：确保至少有一个 page
             if len(page.context.pages) == 0:
                 print(f"  [ERROR] All pages were closed, creating new page")
-                page = page.context.new_page()
-                page.goto(base_url, wait_until="domcontentloaded", timeout=30000)
+                try:
+                    # 检查 context 是否仍然有效
+                    if page.context.is_closed():
+                        print(f"  [ERROR] Context is closed, cannot create new page")
+                        page = None  # 标记为无法恢复
+                    else:
+                        page = page.context.new_page()
+                        page.goto(base_url, wait_until="domcontentloaded", timeout=30000)
+                except Exception as ctx_err:
+                    print(f"  [ERROR] Failed to create new page: {ctx_err}")
+                    page = None
             else:
                 page = page.context.pages[0]  # 切回主页面
+
+            # 如果页面恢复失败，跳过后续用例
+            if page is None:
+                print(f"  [ERROR] Page recovery failed, skipping remaining cases")
+                break
 
             # Reset for next case: goto + reload 清除残留 dialog/drawer
             try:

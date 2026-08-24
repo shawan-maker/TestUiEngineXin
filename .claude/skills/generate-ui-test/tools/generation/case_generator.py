@@ -1736,7 +1736,7 @@ class CaseGenerator:
                     if self._framework == 'ant-design':
                         level_xpath = f"//div[contains(@class,'ant-cascader-menu')]//li[contains(.,'{level_ref}')]"
                     else:
-                        level_xpath = f"//li[@role='menuitem']//span[contains(text(),'{level_ref}')]"
+                        level_xpath = f"(//li[@role='menuitem']//span[contains(text(),'{level_ref}')])[1]"
                     level_xpath = _inject_hidden_filter(level_xpath)
                     steps.append({
                         'desc': f'「{label}」第{i+1}级: {text}',
@@ -1755,10 +1755,10 @@ class CaseGenerator:
                                      f"//span[contains(@class,'ant-checkbox-inner')]")
                     text_xpath = (f"//div[contains(@class,'ant-cascader-menu')]//li[contains(.,'{last_ref}')]")
                 else:
-                    checkbox_xpath = (f"//li[@role='menuitem' and contains(.,'{last_ref}')]"
-                                     f"//span[@class='el-checkbox__inner']")
-                    text_xpath = (f"//li[@role='menuitem']//span"
-                                 f"[contains(text(),'{last_ref}')]")
+                    checkbox_xpath = (f"(//li[@role='menuitem' and contains(.,'{last_ref}')]"
+                                     f"//span[@class='el-checkbox__inner'])[last()]")
+                    text_xpath = (f"(//li[@role='menuitem']//span"
+                                 f"[contains(text(),'{last_ref}')])[last()]")
                 checkbox_xpath = _inject_hidden_filter(checkbox_xpath)
                 checkbox_xpath = f"xpath={checkbox_xpath}"
                 text_xpath = _inject_hidden_filter(text_xpath)

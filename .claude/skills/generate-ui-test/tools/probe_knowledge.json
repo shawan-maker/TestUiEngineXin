@@ -144,7 +144,8 @@
             "patterns": [
               "//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner']",
               "//label[contains(.,'{label}')]//following-sibling::*[self::div or self::span]//input[@class='el-input__inner']",
-              "//input[@class='el-input__inner' and contains(@placeholder,'{label}')]"
+              "//input[@class='el-input__inner' and contains(@placeholder,'{label}')]",
+              "//input[@class='el-input__inner' and contains(@placeholder,'请选择')]"
             ]
           },
           "fill": {
@@ -180,7 +181,8 @@
                 "patterns": [
                   "//*[contains(text(),'{label}')]/ancestor::*[contains(@class,'ant-form-item')]//span[contains(@class,'ant-select-selector')]",
                   "//div[contains(@class,'ant-form-item') and .//*[contains(text(),'{label}')]]//span[contains(@class,'ant-select-selector')]",
-                  "//input[contains(@class,'ant-select-selection-search-input') and contains(@placeholder,'{label}')]"
+                  "//input[contains(@class,'ant-select-selection-search-input') and contains(@placeholder,'{label}')]",
+                  "//input[contains(@class,'ant-select-selection-search-input') and contains(@placeholder,'请选择')]"
                 ]
               },
               "fill": {

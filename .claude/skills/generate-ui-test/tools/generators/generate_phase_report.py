@@ -320,6 +320,10 @@ def get_phase6_stats(project_dir, excel_data):
 
 def _find_case_yaml(cases_dir, module, case_name):
     """根据模块和用例名查找 case YAML 文件"""
+    # 防御性检查：cases 目录可能不存在
+    if not cases_dir.is_dir():
+        return None
+
     module_dir = cases_dir / module
     if not module_dir.exists():
         # 尝试常见变体

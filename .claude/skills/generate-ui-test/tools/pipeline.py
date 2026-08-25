@@ -1112,10 +1112,8 @@ class PipelineExecutor:
                              errors=[f"模板目录不存在: {templates_dir}"])
 
         errors = []
-        is_incremental = (project_path / "run.py").exists()
-        new_modules = []
 
-        # 创建目录结构
+        # 创建目录结构（顶层 + common）
         dirs_to_create = [
             "pages", "data", "cases", "suites",
             "lib", "_probe",
@@ -1123,41 +1121,15 @@ class PipelineExecutor:
             "report/generate_report", "report/run_report",
         ]
 
-        # 加载 config.yaml 获取模块信息
-        modules = []
-        config_path = project_path / "config.yaml"
-        if config_path.exists():
-            try:
-                import yaml
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    config = yaml.safe_load(f)
-                    page_urls = config.get('page_urls', {})
-                    if isinstance(page_urls, dict):
-                        modules = list(page_urls.keys())
-            except Exception:
-                pass
-
         # 共享资源层始终创建（common_elements / common_data 的写入目标）
         for base in ["pages", "data", "cases", "suites"]:
             dirs_to_create.append(f"{base}/common")
 
-        # 业务模块目录（无模块时 common 已创建，无需额外操作）
-        if modules:
-            for module in modules:
-                if module == "common":
-                    continue  # 已创建，不重复
-                for base in ["pages", "data", "cases", "suites"]:
-                    dirs_to_create.append(f"{base}/{module}")
-
+        # 模块目录由 Phase 4/5/7 按需创建（根据 module_map 而非 config.yaml）
         for d in dirs_to_create:
             dir_path = project_path / d
             if not dir_path.exists():
                 dir_path.mkdir(parents=True, exist_ok=True)
-                # 增量场景：记录新增的模块目录
-                if is_incremental and any(f"/{module}" in d for module in modules if module != "common"):
-                    module_name = d.split("/")[-1]
-                    if module_name not in new_modules:
-                        new_modules.append(module_name)
 
         # 复制模板文件
         template_map = {
@@ -1209,12 +1181,7 @@ class PipelineExecutor:
             return PhaseResult("phase_2", PhaseStatus.FAILED,
                              errors=["脚手架验证失败", stderr_preview])
 
-        # 增量场景：记录新增模块
-        if is_incremental and new_modules:
-            print(f"  [Phase 2] 增量场景：新增模块目录 {', '.join(new_modules)}")
-
-        return PhaseResult("phase_2", PhaseStatus.PASSED,
-                         warnings=[f"模块: {', '.join(modules)}"])
+        return PhaseResult("phase_2", PhaseStatus.PASSED)
 
     def _phase8_validate_and_report(self) -> PhaseResult:
         """Phase 8: 跨文件验证 + 问题报告生成"""

@@ -517,7 +517,10 @@ def generate_report(project_dir, output_path):
 
     modules = {}
 
-    for module in sorted(os.listdir(cases_dir)):
+    # 防御性检查：cases 目录可能不存在（例如 Phase 2 未运行或失败）
+    cases_list = sorted(os.listdir(cases_dir)) if os.path.isdir(cases_dir) else []
+
+    for module in cases_list:
         module_dir = os.path.join(cases_dir, module)
         if not os.path.isdir(module_dir):
             continue

@@ -24,6 +24,7 @@ import argparse
 import glob
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -617,15 +618,23 @@ class PipelineExecutor:
                                     if module not in module_urls:
                                         module_urls[module] = set()
                                     # 从步骤中提取 URLs（完整URL或/开头的相对路径）
+                                    # 使用正则匹配，兼容"访问/path"（无空格）和"访问 /path"（有空格）
                                     base_url = self.context.target_url or ''
+                                    _URL_RE = re.compile(
+                                        r'(https?://[^\s]+)'
+                                        r'|'
+                                        r'(?<!\w)(/[a-zA-Z][\w/\-#.?&=%]*)',
+                                        re.ASCII
+                                    )
                                     for step in case.get("steps", []):
                                         if isinstance(step, str):
-                                            for part in step.split():
-                                                if part.startswith("http://") or part.startswith("https://"):
-                                                    normalized = self.context._normalize_url(part)
+                                            for m in _URL_RE.finditer(step):
+                                                url_str = m.group(1) or m.group(2)
+                                                if url_str.startswith("http://") or url_str.startswith("https://"):
+                                                    normalized = self.context._normalize_url(url_str)
                                                     module_urls[module].add(normalized)
-                                                elif part.startswith("/"):
-                                                    resolved = self.context._resolve_step_url(part, base_url)
+                                                else:
+                                                    resolved = self.context._resolve_step_url(url_str, base_url)
                                                     normalized = self.context._normalize_url(resolved)
                                                     module_urls[module].add(normalized)
 

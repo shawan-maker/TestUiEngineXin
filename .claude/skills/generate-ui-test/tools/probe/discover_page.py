@@ -1328,7 +1328,8 @@ def _generate_locators_for_elements(page, elements, container_type=None):
 # Main discovery flow
 # ============================================================================
 
-def discover(url, cookie, module_name, local_storage_override=None, config_path=None):
+def discover(url, cookie, module_name, local_storage_override=None, config_path=None,
+             inherited_local_storage=None):
     """Main discovery flow.
 
     1. Navigate to list page
@@ -1381,8 +1382,14 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
         print(f"[INFO] HTTPS certificate errors will be ignored (ignore_https_errors=True)")
         context.add_cookies(cookies)
 
-        # Build localStorage: CLI override + cookie token (cookie wins)
+        # Build localStorage: inherited + CLI override + cookie token (cookie wins)
         local_storage = {}
+
+        # 优先使用继承的 localStorage（来自 V7 多页面的第一个 URL）
+        if inherited_local_storage:
+            local_storage.update(inherited_local_storage)
+            print(f"[Discover] Using inherited localStorage from previous page ({len(inherited_local_storage)} keys)")
+
         if local_storage_override:
             try:
                 override = json.loads(local_storage_override)
@@ -1434,6 +1441,13 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
         # Some systems (eStack) have continuous API polling, networkidle never triggers
         _navigate_with_fallback(page, url, timeout_ms=10000)
 
+        # [DEBUG] 导航后快照
+        print(f"  [DEBUG-TRACE] After navigate to target URL")
+        print(f"    URL: {page.url}")
+        print(f"    forms: {page.evaluate('''(() => document.querySelectorAll('input.el-input__inner, textarea.el-textarea__inner, .el-select, .el-form-item, button').length)()''')}")
+        print(f"    rows: {page.evaluate('''(() => document.querySelectorAll('tbody tr').length)()''')}")
+        print(f"    localStorage: {page.evaluate('() => Object.keys(localStorage)')}")
+
         # [FIX-1] 等待 URL 稳定 — CAS/SSO 重定向链可能尚未完成
         # domcontentloaded 仅保证 HTML 加载，不保证 HTTP 302 链已走完
         # 路径路由（如 /vm/list）经 CAS 重定向链，hash 路由（如 #/order/vm）不经过
@@ -1451,7 +1465,19 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
             _last_url = _current
             page.wait_for_timeout(500)
 
+        # [DEBUG] URL 稳定后快照
+        print(f"  [DEBUG-TRACE] After URL stabilization loop")
+        print(f"    URL: {page.url}")
+        print(f"    forms: {page.evaluate('''(() => document.querySelectorAll('input.el-input__inner, textarea.el-textarea__inner, .el-select, .el-form-item, button').length)()''')}")
+        print(f"    rows: {page.evaluate('''(() => document.querySelectorAll('tbody tr').length)()''')}")
+
         _wait_for_dom_stable(page, timeout_ms=4000)
+
+        # [DEBUG] 第一次 DOM 稳定后快照
+        print(f"  [DEBUG-TRACE] After first _wait_for_dom_stable (4000ms)")
+        print(f"    URL: {page.url}")
+        print(f"    forms: {page.evaluate('''(() => document.querySelectorAll('input.el-input__inner, textarea.el-textarea__inner, .el-select, .el-form-item, button').length)()''')}")
+        print(f"    rows: {page.evaluate('''(() => document.querySelectorAll('tbody tr').length)()''')}")
 
         # Check auth（URL 已稳定，此时检查才可靠）
         _final_url = page.url
@@ -1465,15 +1491,41 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
 
         # Belt-and-suspenders: ensure localStorage is set after navigation
         if local_storage:
+            # [DEBUG] 第二次设置 localStorage 前快照
+            print(f"  [DEBUG-TRACE] Before second localStorage.setItem")
+            print(f"    URL: {page.url}")
+            print(f"    forms: {page.evaluate('''(() => document.querySelectorAll('input.el-input__inner, textarea.el-textarea__inner, .el-select, .el-form-item, button').length)()''')}")
+            print(f"    localStorage before: {page.evaluate('() => Object.keys(localStorage)')}")
+
             for k, v in local_storage.items():
                 page.evaluate("([k, v]) => localStorage.setItem(k, v)", [k, v])
 
+            # [DEBUG] 第二次设置 localStorage 后快照
+            print(f"  [DEBUG-TRACE] After second localStorage.setItem")
+            print(f"    URL: {page.url}")
+            print(f"    forms: {page.evaluate('''(() => document.querySelectorAll('input.el-input__inner, textarea.el-textarea__inner, .el-select, .el-form-item, button').length)()''')}")
+            print(f"    rows: {page.evaluate('''(() => document.querySelectorAll('tbody tr').length)()''')}")
+            print(f"    localStorage after: {page.evaluate('() => Object.keys(localStorage)')}")
+
         _wait_for_dom_stable(page, timeout_ms=3000, debug=True)  # 等待 DOM 渲染（含表格行）
+
+        # [DEBUG] 第二次 DOM 稳定后快照
+        print(f"  [DEBUG-TRACE] After second _wait_for_dom_stable (3000ms)")
+        print(f"    URL: {page.url}")
+        print(f"    forms: {page.evaluate('''(() => document.querySelectorAll('input.el-input__inner, textarea.el-textarea__inner, .el-select, .el-form-item, button').length)()''')}")
+        print(f"    rows: {page.evaluate('''(() => document.querySelectorAll('tbody tr').length)()''')}")
 
         # ================================================================
         # Step 0: Detect page-level framework (L1: 页面级框架感知)
         # ================================================================
         page_framework = _detect_page_framework(page)
+
+        # [DEBUG] 框架检测后快照
+        print(f"  [DEBUG-TRACE] After _detect_page_framework")
+        print(f"    URL: {page.url}")
+        print(f"    forms: {page.evaluate('''(() => document.querySelectorAll('input.el-input__inner, textarea.el-textarea__inner, .el-select, .el-form-item, button').length)()''')}")
+        print(f"    rows: {page.evaluate('''(() => document.querySelectorAll('tbody tr').length)()''')}")
+
         if page_framework:
             print(f"[Discover] Page framework detected: {page_framework}")
         else:
@@ -2484,12 +2536,21 @@ def discover(url, cookie, module_name, local_storage_override=None, config_path=
         # ================================================================
         # Step 5: Build output
         # ================================================================
+
+        # 捕获当前 localStorage 状态（含 SPA 框架自动注入的全局状态）
+        # 供 V7 多页面模式的后续页面继承使用
+        try:
+            captured_ls = page.evaluate("() => { const o = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); o[k] = localStorage.getItem(k); } return o; }")
+        except Exception:
+            captured_ls = {}
+
         result = {
             'module': module_name,
             'url': baseline_url,
             'framework': page_framework,   # L1: 页面级框架
             'list_page': list_page,
             'containers': containers,
+            '_localStorage': captured_ls,  # 完整 localStorage 状态（供 V7 继承）
         }
 
         return result
@@ -2639,14 +2700,17 @@ def main():
         # V7 multi-URL: 对每个 URL 独立探测，结果合并到 pages[]
         print(f"[Discover] V7 多页面模式: {len(multi_urls)} 个 URL")
         pages = []
+        inherited_ls = None  # 第一个页面完成后，捕获其 localStorage 供后续页面继承
         for idx, (page_name, page_url) in enumerate(multi_urls):
             print(f"\n{'='*60}")
             print(f"[Discover] V7: [{idx+1}/{len(multi_urls)}] {page_name or page_url}")
             print(f"{'='*60}")
             try:
                 # 不传 config_path，避免 discover() 内部再次解析列表
+                # 从第二个页面开始，传入第一个页面捕获的 localStorage
                 single_result = discover(page_url, args.cookie, args.module,
-                                         args.local_storage, config_path=None)
+                                         args.local_storage, config_path=None,
+                                         inherited_local_storage=inherited_ls)
                 pages.append({
                     'name': page_name,
                     'url': page_url,
@@ -2654,6 +2718,11 @@ def main():
                     'list_page': single_result.get('list_page', {}),
                     'containers': single_result.get('containers', []),
                 })
+                # 第一个页面完成后，捕获其 localStorage 供后续页面继承
+                # 解决 eStack 等 SPA 框架的全局状态依赖问题（如 currentUserInfo, isTenantAdmin）
+                if idx == 0 and '_localStorage' in single_result:
+                    inherited_ls = single_result['_localStorage']
+                    print(f"[Discover] V7: 捕获第一个页面的 localStorage ({len(inherited_ls)} keys)，供后续页面继承")
             except Exception as e:
                 err_str = str(e).lower()
                 if "crashed" in err_str or "connection" in err_str:

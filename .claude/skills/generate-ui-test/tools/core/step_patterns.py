@@ -52,6 +52,12 @@ _RAW_PATTERNS = [
     (r'勾选第([一二三四五六七八九十\d]+)[个条]?(.*)',
      'check_first', ('row_num', 'item_desc')),
 
+    # ── 表单勾选框（在"分组标签"中[取消]勾选"选项文本"）──
+    # 必须在 check_first 之后（check_first 匹配 "勾选第N个"，不冲突）
+    # V2: 支持 "取消勾选" 可选前缀
+    (rf'在{Q}(.+?){Q}\s*中(?:取消)?勾选{Q}(.+?){Q}',
+     'check_option', ('field', 'option')),
+
     # ── 关闭按钮（通用，必须在 l3_call 之前，"点击关闭按钮" 6 字符会被 l3_call 拦截）──
     (r'点击关闭按钮',
      'close_btn', ()),

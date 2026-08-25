@@ -71,6 +71,20 @@
           "//div[contains(@class,'ant-table-content')]//thead//span[contains(@class,'ant-checkbox-inner')]"
         ]
       },
+      "form-checkbox": {
+        "name": "表单勾选框",
+        "description": "表单内独立勾选框（非表格上下文），通过 label/following-sibling 定位特定选项的勾选框",
+        "patterns": [
+          "(//label[contains(.,'{field_text}')]/following-sibling::*[self::div or self::span]//span[contains(text(),'{option_text}')]/parent::div//span[@class='el-checkbox__inner' and not(ancestor-or-self::*[contains(@class,'is-hidden')]) and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
+        ],
+        "framework_variants": {
+          "ant-design": {
+            "patterns": [
+              "(//label[contains(.,'{field_text}')]/following-sibling::*[self::div or self::span]//span[contains(text(),'{option_text}')]/parent::div//span[contains(@class,'ant-checkbox-inner') and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
+            ]
+          }
+        }
+      },
       "input-generic": {
         "name": "通用输入框",
         "patterns": [

@@ -481,7 +481,7 @@ def generate_case_file(case_data, generator, seq, output_dir, module='', project
     # Fallback: 相对路径（以 / 开头）→ 拼接 config.yaml 的 target_url
     if not url:
         for step in raw_steps:
-            m = re.search(r'访问\s+(/\S+)', step)
+            m = re.search(r'访问\s*(/\S+)', step)
             if m:
                 rel_path = m.group(1)
                 target_url = _load_target_url(project_dir)
@@ -489,6 +489,8 @@ def generate_case_file(case_data, generator, seq, output_dir, module='', project
                     url = target_url.rstrip('/') + rel_path
                 break
 
+    if not url:
+        print(f"  [WARN] No URL found in case '{case_name}', falling back to http://localhost")
     all_steps = generator.generate_preamble(url or 'http://localhost')
     generator.collect_refs_from_steps(all_steps)
 

@@ -26,7 +26,7 @@ KB_TYPE_KEYS = frozenset({
     # ── single_step (13) ──
     'button', 'search-button', 'download-button', 'close-button',
     'menu-item', 'tab',
-    'checkbox', 'checkbox-all',
+    'checkbox', 'checkbox-all', 'form-checkbox',
     'input-generic', 'textarea-generic',
     'detail-link', 'field-assertion',
     'option-card',                     # 选项卡（单选组）
@@ -70,6 +70,7 @@ STEP_TO_KB = {
     'menu_item': 'menu-item',
     'checkbox': 'checkbox',
     'checkbox_all': 'checkbox-all',
+    'check_option': 'form-checkbox',
     'detail_link': 'detail-link',
     # ── BUG-1 fixes ──
     'table_action': 'table-action-button',   # was 'table-row-button'
@@ -108,6 +109,7 @@ TYPE_TO_SECTIONS = {
     'detail-link':        ('detail_links',),
     'checkbox':           ('checkboxes',),
     'checkbox-all':       ('checkboxes',),
+    'form-checkbox':      ('checkboxes',),
     'field-assertion':    ('inputs',),
     'option-card':        ('inputs',),
     # ── composite ──
@@ -146,6 +148,7 @@ DISCOVERY_TO_KB = {
     'input':                 'input-generic',
     'checkbox':              'checkbox',
     'checkbox-all':          'checkbox-all',
+    'form-checkbox':         'form-checkbox',
     'menu-item':             'menu-item',
     'search-button':         'search-button',
     'download-button':       'download-button',
@@ -184,6 +187,7 @@ KB_TO_SUFFIX = {
     'tab':                 '_tab',
     'checkbox':            '_checkbox',
     'checkbox-all':        '_checkbox_all',
+    'form-checkbox':       '_checkbox',
     'input-generic':       '_input',
     'textarea-generic':    '_textarea',
     'detail-link':         '_link',
@@ -222,6 +226,7 @@ SUFFIX_MAP_COMPAT = {
     'detail_link':        '_link',        # underscore step type
     'checkbox':           '_checkbox',
     'checkbox-all':       '_checkbox_all',
+    'form-checkbox':      '_checkbox',
     'table_action':       '_btn',         # underscore step type
     'table-action':       '_btn',         # partial hyphen
     'menu_item':          '_menu',        # underscore step type
@@ -251,6 +256,7 @@ STEP_TYPE_ALIASES_COMPAT = {
     'row_link': 'link',
     'checkbox': 'checkbox',
     'checkbox_all': 'checkbox-all',
+    'check_option': 'form-checkbox',
     'table_action': 'table_action',
     'menu_item': 'menu_item',
 }
@@ -570,7 +576,7 @@ def infer_discovery_section(elem):
         return 'inputs'
     if etype == 'tab':
         return 'tabs'
-    if etype in ('checkbox', 'checkbox-all'):
+    if etype in ('checkbox', 'checkbox-all', 'form-checkbox'):
         return 'checkboxes'
     return None  # Unknown type, don't filter
 

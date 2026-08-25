@@ -270,6 +270,19 @@ CHECKBOX_HARDCODED = {
     ),
 }
 
+FORM_CHECKBOX_HARDCODED = {
+    'element-ui': (
+        "(//label[contains(.,'{field_text}')]/following-sibling::*[self::div or self::span]"
+        "//span[contains(text(),'{option_text}')]/parent::div"
+        "//span[@class='el-checkbox__inner'])[1]"
+    ),
+    'ant-design': (
+        "(//label[contains(.,'{field_text}')]/following-sibling::*[self::div or self::span]"
+        "//span[contains(text(),'{option_text}')]/parent::div"
+        "//span[contains(@class,'ant-checkbox-inner')])[1]"
+    ),
+}
+
 # ============================================================
 # 生成器定位器模板（KB-first：用于替代 case_generator 中
 # 3 个已废弃的 _build_*_xpath 硬编码方法）
@@ -409,6 +422,21 @@ def get_checkbox_hardcoded(framework=None):
     return CHECKBOX_HARDCODED.get(
         framework or 'element-ui',
         CHECKBOX_HARDCODED['element-ui']
+    )
+
+
+def get_form_checkbox_hardcoded(framework=None):
+    """获取表单勾选框硬编码回退 XPath（非表格上下文）
+
+    Args:
+        framework: 'element-ui' / 'ant-design' / None
+
+    Returns:
+        XPath 模板字符串（含 {field_text}, {option_text} 占位符）
+    """
+    return FORM_CHECKBOX_HARDCODED.get(
+        framework or 'element-ui',
+        FORM_CHECKBOX_HARDCODED['element-ui']
     )
 
 

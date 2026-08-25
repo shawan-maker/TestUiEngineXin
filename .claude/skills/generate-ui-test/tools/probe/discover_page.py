@@ -1271,7 +1271,7 @@ def _generate_locators_for_elements(page, elements, container_type=None):
         if not xpath:
             # Hardcoded fallback: generate from label
             # Type guard: menu-item/tab/detail-link don't use input-style fallback
-            if elem_type in ('menu-item', 'tab', 'detail-link'):
+            if elem_type in ('menu-item', 'tab', 'detail-link', 'form-checkbox'):
                 elem['locator'] = None
                 elem['verified'] = False
                 elem['count'] = 0

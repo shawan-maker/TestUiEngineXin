@@ -383,19 +383,63 @@
         if (!isVisible(el)) return;
         const isHeader = !!el.closest(fwSelectors.tableHeader);
         const isBody = !!el.closest(fwSelectors.tableBody);
-        if (!isHeader && !isBody) return;
-        checkboxResults.push({
-            type: isHeader ? 'checkbox-all' : 'checkbox',
-            name: isHeader ? '批量全选' : '第1行选择框',
-            label: isHeader ? '批量全选' : '第1行选择框',
-            locator: null,
-            row_index: isBody ? 0 : -1
-        });
+
+        if (isHeader || isBody) {
+            // Table checkbox (existing logic)
+            checkboxResults.push({
+                type: isHeader ? 'checkbox-all' : 'checkbox',
+                name: isHeader ? '批量全选' : '第1行选择框',
+                label: isHeader ? '批量全选' : '第1行选择框',
+                locator: null,
+                row_index: isBody ? 0 : -1
+            });
+        } else {
+            // Form checkbox (V2: non-table context)
+            // Try to extract associated label from parent form-item or nearby label
+            let label = '';
+            const formItem = el.closest(fwSelectors.formItem);
+            if (formItem) {
+                const labelEl = formItem.querySelector(fwSelectors.formItemLabel);
+                if (labelEl) label = getText(labelEl) || '';
+            }
+            if (!label) {
+                // Fallback 2: look for preceding label element
+                const parentDiv = el.closest('div');
+                if (parentDiv) {
+                    const prevLabel = parentDiv.previousElementSibling;
+                    if (prevLabel && prevLabel.tagName === 'LABEL') {
+                        label = getText(prevLabel) || '';
+                    }
+                }
+            }
+            if (!label) {
+                // Fallback 3: walk up ancestors to find a container whose
+                // preceding sibling is a <label> (common for checkbox groups)
+                let cur = el.parentElement;
+                for (let depth = 0; depth < 6 && cur; depth++) {
+                    const prev = cur.previousElementSibling;
+                    if (prev && prev.tagName === 'LABEL') {
+                        label = getText(prev) || '';
+                        if (label) break;
+                    }
+                    cur = cur.parentElement;
+                }
+            }
+            if (!label) label = '表单勾选框';
+
+            checkboxResults.push({
+                type: 'form-checkbox',
+                name: label,
+                label: label,
+                locator: null,
+                row_index: -1
+            });
+        }
     });
-    // Dedup: one header checkbox, one body checkbox
+    // Dedup: one header checkbox, one body checkbox, multiple form-checkboxes by label
     const seenCheckbox = new Set();
     results.checkboxes = checkboxResults.filter(c => {
-        const key = c.type;
+        const key = c.type === 'form-checkbox' ? `form-checkbox:${c.label}` : c.type;
         if (seenCheckbox.has(key)) return false;
         seenCheckbox.add(key);
         return true;

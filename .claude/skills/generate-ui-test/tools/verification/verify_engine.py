@@ -1093,8 +1093,9 @@ _R3_TYPE_COMPAT = {
     'date-picker':           {'date-picker', 'input-generic'},
     # 其他
     'tab':                   {'tab'},
-    'checkbox':              {'checkbox', 'checkbox-all'},
-    'checkbox-all':          {'checkbox-all', 'checkbox'},
+    'checkbox':              {'checkbox', 'checkbox-all', 'form-checkbox'},
+    'checkbox-all':          {'checkbox-all', 'checkbox', 'form-checkbox'},
+    'form-checkbox':         {'form-checkbox', 'checkbox'},
     'detail-link':           {'detail-link'},
     'menu-item':             {'menu-item'},
     'field-assertion':       {'field-assertion'},

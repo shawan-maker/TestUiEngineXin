@@ -577,11 +577,12 @@ class ExcelValidator:
             r'[（(]([^）)""\'"]{2,50}?'
             r'(?:替换|替代|参考|可以用|可替换|可用|随机数|例如)[^）)""\'"]*?)[）)]$',
             '', new).strip()
-        # 模式2: 括号内纯英文/数字注释（仅在模式1未匹配时）
+        # 模式2: 括号内纯英文/数字注释（排除"随机名称"系列，它是有效的 L3 关键字）
         if new == content:
-            m = re.search(r'[（(]([A-Za-z0-9\s._-]{2,30})[）)]$', new)
-            if m:
-                new = new[:m.start()].strip()
+            if not re.search(r'随机名称[（(]', new):
+                m = re.search(r'[（(]([A-Za-z0-9\s._-]{2,30})[）)]$', new)
+                if m:
+                    new = new[:m.start()].strip()
         if new and new != content:
             self._record_fix('L1', 'R31', sheet, case_name, step_num,
                              content, new)

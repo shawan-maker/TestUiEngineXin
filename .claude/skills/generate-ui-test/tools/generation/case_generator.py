@@ -786,7 +786,7 @@ class CaseGenerator:
     _FILL_INCOMPATIBLE_TYPES = frozenset({
         'button', 'table-action-button', 'download-button', 'close-button',
         'search-button', 'tab', 'detail_link', 'detail-link',
-        'checkbox', 'menu_item', 'menu-item',
+        'checkbox', 'form-checkbox', 'menu_item', 'menu-item',
     })
 
     def find_input(self, label, preferred_container=None):
@@ -2650,6 +2650,39 @@ class CaseGenerator:
                     'label': item_desc or '勾选',
                     'params': {'locator': pending_ref or 'xpath=[待确认]'},
                 })
+
+        elif ptype == 'check_option':
+            # V1: 表单勾选框 — 在"分组标签"中[取消]勾选"选项文本"
+            field_text = args[0]  # 分组标签，如 "关联菜单"
+            option_text = args[1]  # 选项文本，如 "全部服务-资源类"
+
+            # 从 KB 获取 XPath 模板
+            _kb_patterns = _get_expand_patterns('form-checkbox')
+            _fc_xpath = None
+            if _kb_patterns:
+                _fmt_vars = {'field_text': field_text, 'option_text': option_text}
+                for _p in _kb_patterns:
+                    _candidate = _safe_format(_p, _fmt_vars)
+                    if _candidate and '{' not in _candidate:
+                        _fc_xpath = _candidate
+                        break
+
+            if not _fc_xpath:
+                # KB 缺失时的硬编码回退（Element UI）
+                _fc_xpath = (
+                    f"(//label[contains(.,'{field_text}')]"
+                    f"/following-sibling::*[self::div or self::span]"
+                    f"//span[contains(text(),'{option_text}')]/parent::div"
+                    f"//span[@class='el-checkbox__inner'])[1]"
+                )
+
+            # hidden filter 已内置于 KB 模板，回退版本不加
+            steps.append({
+                'desc': f'在"{field_text}"中勾选"{option_text}"',
+                'keyword': 'click_element',
+                'label': option_text,
+                'params': {'locator': f'xpath={_fc_xpath}'},
+            })
 
         elif ptype == 'click_more_then':
             action = args[0].strip()

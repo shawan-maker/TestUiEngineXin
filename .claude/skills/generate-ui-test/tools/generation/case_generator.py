@@ -424,7 +424,7 @@ class CaseGenerator:
             }
 
     def _emit_el_select_steps(self, steps, label, value, nth=1):
-        """生成 el-select 完整 3 步条件分支（始终使用 KB 标准 XPath）。
+        """生成 el-select 完整 4 步条件分支（始终使用 KB 标准 XPath）。
 
         KB XPath 通过 _track_field() 注册，由 PagesWriter 写入 pages YAML。
         PagesWriter Stage 2 自动注入 hidden filter（幂等）。
@@ -438,6 +438,7 @@ class CaseGenerator:
                then: click_option                        ← 直接点目标选项
                else: click_first_option                  ← 回退选第一项
           3. wait_for_time(1000)                         ← 等待选择完成
+          4. click_element(label text)                   ← 点击标签文本收起面板
         """
         # 1. 生成 field prefix（hash-based，与现有机制一致）
         #    skip_container_prefix=True: 容器区分由 group name 承担
@@ -690,6 +691,20 @@ class CaseGenerator:
             'desc': "等待",
             'keyword': 'wait_for_time',
             'params': {'timeout': 1000},
+        })
+
+        # === Step 4: 收起下拉面板 ===
+        collapse_xpath = (
+            f"(//*[contains(text(),'{label}')"
+            f" and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
+            f" and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
+        )
+        steps.append({
+            'desc': f'收起「{label}」下拉面板',
+            'keyword': 'click_element',
+            'label': label,
+            'params': {'locator': f'xpath={collapse_xpath}'},
+            '_skip_phase6': True,
         })
 
     def find_el_cascader(self, label, preferred_container=None):

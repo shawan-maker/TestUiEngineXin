@@ -90,7 +90,7 @@
         "patterns": [
           "//*[contains(text(),'{label}')]/following-sibling::*[self::div or self::span]//input[@class='el-input__inner']",
           "//label[contains(.,'{label}')]//following-sibling::*[self::div or self::span]//input[@class='el-input__inner']",
-          "//input[contains(@placeholder,'{label}')]",
+          "//input[contains(@placeholder,'{label}')][not(ancestor::div[contains(@class,'left-section')])]",
           "//*[contains(text(),'{label}')]/ancestor::*[contains(@class,'ant-form-item')]//input[contains(@class,'ant-input')]"
         ]
       },

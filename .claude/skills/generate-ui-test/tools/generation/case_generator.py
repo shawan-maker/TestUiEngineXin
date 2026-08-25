@@ -833,6 +833,20 @@ class CaseGenerator:
             return entry.get('container_type')
         return None
 
+    def _normalize_tab_name(self, name: str) -> str:
+        """规范化 tab 名称，去除括号、数字、空格。
+
+        解决场景：Excel 中写"回收站"，实际 tab 标签是"回收站（3）"。
+        与 element_resolver._normalize_tab_name 保持一致。
+        """
+        # 去除中文/英文括号及其内容
+        name = re.sub(r'[（(][^）)]*[）)]', '', name)
+        # 去除数字（如"回收站3"）
+        name = re.sub(r'\d+', '', name)
+        # 去除空格
+        name = name.strip()
+        return name
+
     def _lookup_discovery_element(self, label, context=None, type_hint=None):
         """从 discovery_element_map 查找元素（两层 context 回退）。
 
@@ -873,6 +887,45 @@ class CaseGenerator:
         _debug_f7(f"    label='{label}', context_param='{context}', "
                   f"current_context='{self._current_context}', effective_ctx='{ctx}', "
                   f"page_slug='{page_slug}', type_hint='{type_hint}'")
+
+        # ✅ L0: Tab 上下文优先查找（Tab-as-Container）
+        if self.current_tab_scope:
+            # current_tab_scope 存储的是 tab ID 变量名，需要转换为 tab 名称
+            # 规范化 tab 名称以匹配 element_resolver 的注册逻辑
+            tab_name = self.current_tab_scope_label or self.current_tab_scope
+            normalized_tab_name = self._normalize_tab_name(tab_name)
+            tab_ctx = f'tab:{normalized_tab_name}'
+
+            # L0a: 多URL精确索引（page_slug + tab上下文）
+            if page_slug:
+                key_l0 = (page_slug, tab_ctx, label)
+                elem = self._discovery_page_element_map.get(key_l0)
+                _debug_f7(f"    L0a 查找键 {key_l0}: {elem is not None}")
+                if elem and elem.get('locator') and _type_ok(elem):
+                    _debug_f7(f"    → L0a 匹配成功 (tab: {normalized_tab_name})")
+                    return elem
+
+            # L0b: 无 page_slug 维度（tab上下文 + label）
+            key_l0 = (tab_ctx, label)
+            elem = self._discovery_element_map.get(key_l0)
+            _debug_f7(f"    L0b 查找键 {key_l0}: {elem is not None}")
+            if elem and elem.get('locator') and _type_ok(elem):
+                _debug_f7(f"    → L0b 匹配成功 (tab: {normalized_tab_name})")
+                return elem
+
+            # L0c: Tab 上下文空格归一化回退
+            _label_normalized = re.sub(r'\s+', '', label)
+            for (map_ctx, map_label) in list(self._discovery_element_map.keys()):
+                if map_ctx != tab_ctx:
+                    continue
+                if re.sub(r'\s+', '', map_label) == _label_normalized and map_label != label:
+                    elem = self._discovery_element_map[(map_ctx, map_label)]
+                    if elem and elem.get('locator') and _type_ok(elem):
+                        _debug_f7(f"    → L0c Tab空格归一化匹配成功: '{map_label}' ≈ '{label}'")
+                        return elem
+
+            # L0 未命中，继续 L1/L2 回退（不阻断，允许回退到 list_page）
+            _debug_f7(f"    L0 未命中，继续 L1/L2 回退")
 
         # L1: 多URL精确索引：优先按 page_slug 查找
         if page_slug:
@@ -2481,6 +2534,10 @@ class CaseGenerator:
 
             self.current_tab_scope = var_name
             self.current_tab_scope_label = label
+
+            # ✅ Tab切换时清空容器状态（dialog/drawer通常会关闭）
+            self.current_container = None
+            self._current_context = 'list_page'
 
         elif ptype == 'menu_item':
             label = args[0]

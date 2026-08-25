@@ -761,8 +761,8 @@ class ElementResolver:
 
         # GAP-2 fix: register tab buttons + tab panel elements
         for tab in section.get('tabs', []):
-            label = tab.get('label', tab.get('text', ''))
-            if label and tab.get('locator'):
+            tab_name = tab.get('label', tab.get('text', ''))
+            if tab_name and tab.get('locator'):
                 self._register_element(tab, context_key, page_slug)
 
             # Process elements inside tab panels (tab_elements structure
@@ -770,6 +770,10 @@ class ElementResolver:
             tab_elems = tab.get('tab_elements', {})
             if not tab_elems:
                 continue
+
+            # ✅ Tab-as-Container: 为 tab 内元素创建独立上下文
+            tab_context_key = f'tab:{self._normalize_tab_name(tab_name)}'
+
             _seen_tab_desc_link = False
             for cat in ('buttons', 'inputs', 'detail_links',
                         'checkboxes', 'menu_items'):
@@ -785,7 +789,7 @@ class ElementResolver:
                             elem['field_key'] = 'first_desc_link'
                             _seen_tab_desc_link = True
                         self._register_element(
-                            elem, context_key, page_slug)
+                            elem, tab_context_key, page_slug)
             # Row buttons inside tabs — apply _row suffix (GAP-1)
             for elem in tab_elems.get('row_buttons', []):
                 elabel = (elem.get('label', '') or
@@ -797,7 +801,7 @@ class ElementResolver:
                         if not base_key.endswith('_row'):
                             elem['field_key'] = f'{base_key}_row'
                     self._register_element(
-                        elem, context_key, page_slug)
+                        elem, tab_context_key, page_slug)
 
         # 修改 1: detail-link 统一注册为 first_desc_link（仅第一个）
         _seen_first_desc_link = False
@@ -819,6 +823,20 @@ class ElementResolver:
             label = mi.get('label', mi.get('text', ''))
             if label and mi.get('locator'):
                 self._register_element(mi, context_key, page_slug)
+
+    def _normalize_tab_name(self, name: str) -> str:
+        """规范化 tab 名称，去除括号、数字、空格。
+
+        解决场景：Excel 中写"回收站"，实际 tab 标签是"回收站（3）"。
+        """
+        import re
+        # 去除中文/英文括号及其内容
+        name = re.sub(r'[（(][^）)]*[）)]', '', name)
+        # 去除数字（如"回收站3"）
+        name = re.sub(r'\d+', '', name)
+        # 去除空格
+        name = name.strip()
+        return name
 
     def _register_element(self, elem, context_key, page_slug=None,
                            container=None):

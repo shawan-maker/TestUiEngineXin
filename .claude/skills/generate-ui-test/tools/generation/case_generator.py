@@ -694,16 +694,27 @@ class CaseGenerator:
         })
 
         # === Step 4: 收起下拉面板 ===
+        # 增加过滤：排除hover-click容器和包含click属性的元素，避免点击到错误元素
         collapse_xpath = (
             f"(//*[contains(text(),'{label}')"
             f" and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
-            f" and not(ancestor-or-self::*[contains(@style,'display: none')])])[1]"
+            f" and not(ancestor-or-self::*[contains(@style,'display: none')])"
+            f" and not(ancestor-or-self::*[contains(@class,'hover-click')])"
+            f" and not(ancestor-or-self::*[@onclick or @click])])[1]"
         )
+        # 用 if_element_visible 包裹：部分 placeholder 匹配的下拉框可能没有 label，不存在则跳过
         steps.append({
             'desc': f'收起「{label}」下拉面板',
-            'keyword': 'click_element',
+            'keyword': 'if_element_visible',
             'label': label,
-            'params': {'locator': f'xpath={collapse_xpath}'},
+            'params': {
+                'locator': f'xpath={collapse_xpath}',
+                'timeout': 500,
+                'then_steps': [{
+                    'keyword': 'click_element',
+                    'params': {'locator': f'xpath={collapse_xpath}'},
+                }],
+            },
             '_skip_phase6': True,
         })
 

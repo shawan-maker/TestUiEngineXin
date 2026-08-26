@@ -723,6 +723,17 @@ def verify_locator_candidates(page, candidates, container_type=None, discovery_c
                     print(f"    [TRACE-P6]       raw:    {raw_xpath[:100]}")
                     print(f"    [TRACE-P6]       bare:   {bare_xpath[:100]}")
 
+                # ★ 方案 B：剥离外层 ()[N] 包裹，让 VLC 看到真实 count
+                # 所有候选统一处理：KB、discovery、original、kb-fallback 都剥
+                # _unwrap_positional 返回 (inner, wrap_suffix)
+                # wrap_suffix 如 '[1]', '[last()]' 等；无包裹时为空字符串
+                # el-select 保留原始 ()[N]（有独立的索引管理机制）
+                if elem_type != 'el-select':
+                    _inner, _wrap = _unwrap_positional(bare_xpath)
+                    if _wrap:
+                        bare_xpath = _inner
+                        _stripped = True
+
                 # 按 prefix 决定的顺序测试 4 种变体
                 if prefix is None:
                     # prefix=None: 容器前缀优先，最后不带前缀
@@ -1860,9 +1871,9 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
     # Priority 3: Click-type wildcard fallback — last resort for click steps only
     # Only applies to button/table-action-button/detail-link types.
     # Excluded: input-generic, el-select, textarea, tab, checkbox, etc.
-    # Guarded by [1] to avoid count>1 strict mode violation.
+    # ★ 方案 B：不预设 ()[1]，让 VLC 统一处理
     if elem_type in CLICK_EXPAND_TYPES and label:
-        _click_fb = f"(//*[self::button or self::a or self::div or self::span][contains(text(),'{label}')])[1]"
+        _click_fb = f"//*[self::button or self::a or self::div or self::span][contains(text(),'{label}')]"
         if not any(c[0] == _click_fb for c in candidates):
             candidates.append((_click_fb, 'kb-fallback'))
 
@@ -1960,8 +1971,9 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                         _alt_candidates.append((_alt_disc_raw, 'discovery'))
 
             # Priority 3: Click-type wildcard fallback — last resort for click steps only
+            # ★ 方案 B：不预设 ()[1]，让 VLC 统一处理
             if _alt_type in CLICK_EXPAND_TYPES and label:
-                _click_fb = f"(//*[self::button or self::a or self::div or self::span][contains(text(),'{label}')])[1]"
+                _click_fb = f"//*[self::button or self::a or self::div or self::span][contains(text(),'{label}')]"
                 if not any(c[0] == _click_fb for c in _alt_candidates):
                     _alt_candidates.append((_click_fb, 'kb-fallback'))
 

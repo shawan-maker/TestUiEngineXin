@@ -143,20 +143,26 @@ def inject_local_storage(self, key=None, value=None, navigate_url=None):
         base_url = f"{parsed.scheme}://{parsed.netloc}"
         current = self.page.url or ''
 
-        # 从 page_urls 选取第一个真实页面 URL 作为 SPA 预热目标
-        # 排除 hash 路由 (#/...) — 它们不触发 SPA 初始化
-        for module_urls in self.config.get('page_urls', {}).values():
-            if isinstance(module_urls, list):
-                for url in module_urls:
-                    if isinstance(url, str) and '://' in url and '#/' not in url:
-                        warmup_url = url
-                        break
-            if warmup_url:
-                break
+        # 优先使用当前页面 URL（suite 的 open_url 已导航到模块自己的 URL）
+        # 排除裸 IP 和 hash 路由 — 它们不触发 SPA 初始化
+        if current.startswith(base_url) and current != base_url and current != base_url + '/' and '#/' not in current:
+            warmup_url = current
+            self.log.debug_log(f"[认证] SPA 预热: 使用当前页面 URL {warmup_url}")
+        else:
+            # 回退: 从 page_urls 选取第一个真实页面 URL（兼容旧 suite）
+            # 排除 hash 路由 (#/...) — 它们不触发 SPA 初始化
+            for module_urls in self.config.get('page_urls', {}).values():
+                if isinstance(module_urls, list):
+                    for url in module_urls:
+                        if isinstance(url, str) and '://' in url and '#/' not in url:
+                            warmup_url = url
+                            break
+                if warmup_url:
+                    break
 
-        # 回退: 无 page_urls 时使用裸根 URL（兼容旧项目）
-        if not warmup_url:
-            warmup_url = f"{base_url}/"
+            # 最终回退: 无 page_urls 时使用裸根 URL（兼容旧项目）
+            if not warmup_url:
+                warmup_url = f"{base_url}/"
 
         # 只要当前 URL 不是 warmup_url（真实页面），就执行 SPA 预热
         # setup_step 的 open_url 可能已导航到裸 IP，此时 current 已在目标域上

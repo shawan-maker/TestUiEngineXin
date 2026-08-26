@@ -92,6 +92,21 @@ def _get_priority(case_id: str, filename: str = '') -> int:
     return max_tier if max_tier >= 0 else 50  # 未知类型排中间
 
 
+def _get_module_first_url(config: dict, module: str) -> str:
+    """从 config.page_urls 获取当前模块的第一个非 hash 路由 URL
+
+    避免 suite 打开其他模块的页面（如运行 estack 模块却打开 order 的 URL）。
+    返回空字符串表示无可用 URL，调用方回退到 ${common_data.target_url}。
+    """
+    page_urls = config.get('page_urls', {})
+    module_urls = page_urls.get(module, [])
+    if isinstance(module_urls, list):
+        for url in module_urls:
+            if isinstance(url, str) and '://' in url and '#/' not in url:
+                return url
+    return ''
+
+
 def _infer_auth_steps(config: dict) -> list:
     """从 config.yaml 字段存在性推断认证步骤列表
 
@@ -163,11 +178,14 @@ def generate_suite(cases: list, config: dict, module: str,
         sorted_cases = sorted(cases, key=_filename_sort_key)
 
     # 构建 setup_step
+    # 优先使用当前模块的 page_url（避免 SPA 预热跳到其他模块的页面）
+    module_first_url = _get_module_first_url(config, module)
+    open_url_value = module_first_url if module_first_url else '${common_data.target_url}'
     setup_step = [
         {'desc': '打开浏览器', 'keyword': 'open_browser',
          'params': {'browser_type': browser_type}},
         {'desc': '导航到目标域', 'keyword': 'open_url',
-         'params': {'url': '${common_data.target_url}'}},
+         'params': {'url': open_url_value}},
     ]
     # 注入认证步骤（0-2 个）
     for kw in auth_steps:

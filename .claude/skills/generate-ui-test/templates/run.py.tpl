@@ -61,6 +61,12 @@ class DebugRunner(Runner):
         self._executed_cases = []
         return super().run(suite)
 
+    def _relative_screenshot_path(self, img_full_path, project_dir):
+        """覆写：debug 报告在 debug_report/ 子目录，需多退一层"""
+        report_dir = os.path.join(project_dir, 'report', 'run_report', 'debug_report')
+        rel = os.path.relpath(img_full_path, report_dir)
+        return rel.replace('\\', '/')
+
     def run_suite_case(self, suite_name, cases):
         """覆写：失败时暂停交互 + 即时报告生成。
 
@@ -186,6 +192,13 @@ class DebugRunner(Runner):
                     self.log.info_log(f"==============第{idx + 1}个测试用例 - 【{case_name}】执行成功==============")
                     img = self.base_case.save_page_img(f"{case_name}_success", pic_path)
                     self.result.add_success(case, list(self.log.log_data), img)
+
+                    # ── 记录成功用例到即时报告 ──
+                    case['state'] = 'success'
+                    case['_case_duration'] = time.time() - case_start_time
+                    self._record_debug_case(case, idx)
+                    self._flush_debug_report(suite_name)
+
                     final_recorded = True
                     break  # 成功，下一个 case
 

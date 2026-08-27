@@ -1,6 +1,13 @@
 # generate-ui-test
 
-基于 UIEngine 的 UI 自动化测试工程生成技能。通过管线编排器（pipeline.py）自动执行 11 个阶段（Phase 0-9 + 1b），生成可独立运行的测试工程。
+基于 UIEngine 框架的 UI 自动化测试工程生成技能。通过 11 阶段管线（Phase 0-9 + 1b）将 Excel 测试用例转换为可独立运行的测试工程。
+
+## 核心能力
+
+- **自动化探测**：Phase 4 自动发现页面元素、容器结构、iframe 上下文
+- **智能生成**：Phase 5 基于探测结果生成 cases/pages/data YAML
+- **运行时验证**：Phase 6 浏览器实际执行验证定位器准确性
+- **自愈修复**：自动修复 38 类常见定位器问题（容器前缀丢失、iframe 遗漏等）
 
 ## 触发方式
 
@@ -226,4 +233,93 @@ python -u tools/pipeline.py run --project {目录} --from-phase {失败阶段} 2
 
 ## 参考文档
 
-知识文档位于 `docs/`，详见各阶段规则文件（`rules/`）。
+### 系统架构文档
+
+- **[SYSTEM_TECHNICAL_OVERVIEW.md](docs/design/SYSTEM_TECHNICAL_OVERVIEW.md)** — 系统技术总览（v10.0）
+  - 代码结构、分层架构、数据流、匹配逻辑、工具链依赖
+  - Phase 0-9 全链路业务逻辑（每阶段详细说明）
+  - 跨阶段架构决策（容器作用域、隐藏过滤、iframe、框架注册表）
+  - 38 类常见陷阱与解决方案
+
+- **[SKILL_ARCHITECTURE.md](docs/design/SKILL_ARCHITECTURE.md)** — Skill 架构设计
+  - 8 个工具子包职责划分
+  - 管线状态机、自愈机制、容错策略
+  - 验证器总览（6 个 validate_XX 脚本）
+
+- **[kb-locator-reference.md](docs/design/kb-locator-reference.md)** — 知识库全量类型与 Locator 参考
+  - probe_knowledge.json 完整解析（24 canonical types）
+  - 单步/多步/组合/断言定位器模板
+  - 类型系统映射表（STEP_TO_KB、DISCOVERY_TO_KB、KB_TO_SUFFIX）
+  - 占位符变量说明、通用隐藏过滤规则
+
+### Phase 专项设计文档
+
+| 阶段 | 文档 | 核心内容 |
+|------|------|---------|
+| Phase 0 | [phase0-config-confirmation-design.md](docs/design/phase0-config-confirmation-design.md) | 配置确认流程、runtime-check 认证验证 |
+| Phase 1 | [phase1-parse-validation-design.md](docs/design/phase1-parse-validation-design.md) | Excel 预检（3 层验证：格式/语义/解析） |
+| Phase 2 | [phase2-scaffold-generation-design.md](docs/design/phase2-scaffold-generation-design.md) | 脚手架生成、目录结构优化 |
+| Phase 3 | [phase3-module-keywords-compiler-design.md](docs/design/phase3-module-keywords-compiler-design.md) | L3 关键字编译、三层加载机制 |
+| Phase 4 | [phase4-discovery-design.md](docs/design/phase4-discovery-design.md) | 元素探测（JS 扫描、容器检测、iframe 双通道） |
+| Phase 5 | [phase5-case-generation-design.md](docs/design/phase5-case-generation-design.md) | 步骤匹配（49+ 正则）、discovery 四步查找链、el-select 5 步序列 |
+| Phase 6 | [phase6-locator-verification-design.md](docs/design/phase6-locator-verification-design.md) | 运行时验证（VLC 两轮、6 层兜底链、Plan B [1] 统一） |
+| Phase 7 | [phase7-suite-generation-design.md](docs/design/phase7-suite-generation-design.md) | suites YAML 生成 |
+| Phase 8 | [phase8-cross-file-validation-design.md](docs/design/phase8-cross-file-validation-design.md) | 跨文件验证（13 项规则） |
+| Phase 9 | [phase9-execution-validation-design.md](docs/design/phase9-execution-validation-design.md) | 运行验证、测试报告生成 |
+
+### 全链路业务逻辑
+
+- **[phase4-5-6-full-business-logic.md](docs/design/phase4-5-6-full-business-logic.md)** — Phase 4/5/6 端到端数据流
+  - 探测 → 生成 → 验证的完整数据传递链路
+  - 容器上下文、iframe 上下文、Tab 上下文传递
+  - 回写机制（pages YAML、case YAML、_iframe 伴侣字段）
+
+### 规则文档
+
+- **[rules/02_rule_scaffold.md](rules/02_rule_scaffold.md)** — Phase 2 脚手架验证规则
+- **[rules/09_rule_execution.md](rules/09_rule_execution.md)** — Phase 9 执行验证规则
+- **[rules/09_rule_report.md](rules/09_rule_report.md)** — Phase 9 报告生成规则
+
+### 知识库文档
+
+- **[knowledge/keyword_spec.md](knowledge/keyword_spec.md)** — L3 关键字规范
+- **[knowledge/engine_arch.md](knowledge/engine_arch.md)** — UIEngine 引擎架构
+- **[knowledge/param_extract_rule.md](knowledge/param_extract_rule.md)** — 参数提取规则
+
+### 用户文档
+
+- **[USER_GUIDE.md](USER_GUIDE.md)** — 用户操作手册（完整版）
+  - 前置准备、Excel 用例编写规范
+  - 三种场景操作流程（新建项目/新增用例/排查修复）
+  - 附录 C：Excel 步骤描述格式规范（49+ 匹配模式详解）
+
+### 历史调试文档
+
+`docs/debug/old/` 目录包含 100+ 份历史 bug 修复记录（已归档），记录 38 类定位器问题的根因分析与修复方案。
+
+---
+
+## 快速索引
+
+### 常见问题速查
+
+| 问题 | 解决方案 | 参考文档 |
+|------|---------|---------|
+| Cookie 失效 | 用户提供新 cookie，`--from-phase phase_4_discovery` 恢复 | SYSTEM_TECHNICAL_OVERVIEW §十一 |
+| 定位器 `[待确认]` | 检查 discovery 覆盖率，补充 Excel 步骤 | phase4-discovery-design.md |
+| 容器前缀丢失 | Phase 6 自动回写，或手动添加 `//div[el-dialog]//` 前缀 | SYSTEM_TECHNICAL_OVERVIEW §九.1 |
+| iframe 内元素找不到 | Phase 6 自动探测 + `_iframe` 伴侣字段回写 | SYSTEM_TECHNICAL_OVERVIEW §九.4 |
+| el-select 匹配失败 | 检查是否使用"下拉框"关键词，确认 5 步序列生成 | kb-locator-reference.md §2.1 |
+
+### 关键文件索引
+
+| 文件 | 行数 | 职责 |
+|------|------|------|
+| `tools/pipeline.py` | ~1,200 | 统一管线编排器 |
+| `tools/core/element_types.py` | 631 | 类型系统单一真相源 |
+| `tools/core/step_patterns.py` | 373 | 49+ 步骤匹配正则 |
+| `tools/core/xpath_utils.py` | 433 | XPath 构建、隐藏过滤注入 |
+| `tools/probe/discover_page.py` | ~2,600 | Phase 4 探测核心 |
+| `tools/generation/case_generator.py` | ~2,500 | Phase 5 生成核心 |
+| `tools/verification/verify_engine.py` | ~2,400 | Phase 6 验证核心 |
+| `tools/probe_knowledge.json` | 554 | 知识库（24 types + Ant Design） |

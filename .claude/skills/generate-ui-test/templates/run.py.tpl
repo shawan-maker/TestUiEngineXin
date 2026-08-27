@@ -2,15 +2,16 @@
 
 依赖：pip install ui_engine_xin pyyaml openpyxl
 用法：
-    python run.py --all                           # 运行总套件（所有用例一次执行，一个报告）
-    python run.py                                 # 运行所有套件（每个套件一个报告）
+    python run.py                                 # 运行总套件（优先 suites/master.yaml）
+    python run.py --all                           # 运行总套件（内存聚合，含未引用用例）
     python run.py --module <module>              # 运行指定模块
     python run.py suites/<module>/smoke.yaml    # 运行指定套件
 
 调试模式（用例失败后暂停交互，支持手工操作/重试/跳过）：
-    python run.py --all --debug                  # 总套件 + 调试模式
+    python run.py --debug                        # 总套件 + 调试模式
+    python run.py --all --debug                  # 内存聚合 + 调试模式
     python run.py --module <module> --debug      # 指定模块 + 调试模式
-    python run.py --all --debug --max-retries 5  # 自定义最大重试次数（默认3）
+    python run.py --debug --max-retries 5        # 自定义最大重试次数（默认3）
 """
 import sys
 import os
@@ -23,6 +24,11 @@ from UIEngine.utils.path_helper import get_project_dir
 class DebugRunner(Runner):
     """调试模式执行器：用例失败后暂停交互，支持手工操作/重试/跳过/终止
 
+    增强功能（仅 debug 模式）：
+    - 用例失败时立即生成 HTML 报告到 report/run_report/debug_report/
+    - 自动在浏览器中打开报告，方便用户实时分析
+    - 每次失败覆盖同一份报告（文件名含固定时间戳）
+
     仅覆写 run_suite_case()，其余逻辑（run/setup/report）完全继承 Runner。
     """
 
@@ -33,14 +39,36 @@ class DebugRunner(Runner):
         """
         super().__init__(config)
         self.max_retries = max_retries
+        # ── Debug 即时报告 ──
+        self._debug_timestamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+        self._executed_cases = []  # 已执行用例快照（含成功/失败/跳过）
+        self._debug_report_dir = None  # 延迟初始化
+        self._debug_report_path = None  # 延迟初始化
+        self._start_timestamp = None  # run() 调用时记录
+
+    def run(self, suite):
+        """覆写 run()：初始化 debug 报告路径，记录开始时间"""
+        project_dir = get_project_dir(self.config)
+        self._debug_report_dir = os.path.join(
+            project_dir, 'report', 'run_report', 'debug_report'
+        )
+        suite_id = suite.get('id', 'suite')
+        self._debug_report_path = os.path.join(
+            self._debug_report_dir,
+            f"{suite_id}_debug_{self._debug_timestamp}.html"
+        )
+        self._start_timestamp = time.time()
+        self._executed_cases = []
+        return super().run(suite)
 
     def run_suite_case(self, suite_name, cases):
-        """覆写：失败时暂停交互。同步自 runner.py:172 + 重试/交互逻辑
+        """覆写：失败时暂停交互 + 即时报告生成。
 
         关键保证：
         - TestResult 计数：每个 case 只调用一次 add_fail/add_success
         - 执行树：tree_builder.reset() 在每次尝试前调用
         - 浏览器会话：case 间不关闭，用户手工操作保持生效
+        - 即时报告：失败时在 _debug_prompt 前生成报告并打开浏览器
         """
         self.log.info_log(f"测试套件名称 【{suite_name}】： 执行测试用例 [DEBUG 模式]")
         pic_path = self.screenshot_mgr.create_suite_dir(suite_name)
@@ -77,6 +105,17 @@ class DebugRunner(Runner):
                     img_rel = self._relative_screenshot_path(img, project_dir)
                     self.tree_builder.attach_screenshot_to_failed(img_rel)
 
+                    # ── 记录执行树 + 生成即时报告（在交互暂停前） ──
+                    case['_case_duration'] = time.time() - case_start_time
+                    case['_case_start_time'] = time.strftime(
+                        "%Y-%m-%d %H:%M:%S", time.localtime(case_start_time)
+                    )
+                    case['_execution_tree'] = self.tree_builder.get_tree()
+                    case['state'] = 'fail'
+                    self._record_debug_case(case, idx)
+                    self._flush_debug_report(suite_name)
+                    self._open_debug_report()
+
                     # ── 交互式暂停 ──
                     action = self._debug_prompt(case_name, e, idx + 1, attempt)
 
@@ -88,6 +127,8 @@ class DebugRunner(Runner):
                             self.result.add_fail(case, list(self.log.log_data), img)
                             final_recorded = True
                             break
+                        # 重试前清除即时报告中的记录（会被新尝试覆盖）
+                        self._remove_last_debug_case()
                         continue  # 重试
 
                     elif action == 'skip':
@@ -106,6 +147,17 @@ class DebugRunner(Runner):
                     img_rel = self._relative_screenshot_path(img, project_dir)
                     self.tree_builder.attach_screenshot_to_failed(img_rel)
 
+                    # ── 记录执行树 + 生成即时报告（在交互暂停前） ──
+                    case['_case_duration'] = time.time() - case_start_time
+                    case['_case_start_time'] = time.strftime(
+                        "%Y-%m-%d %H:%M:%S", time.localtime(case_start_time)
+                    )
+                    case['_execution_tree'] = self.tree_builder.get_tree()
+                    case['state'] = 'error'
+                    self._record_debug_case(case, idx)
+                    self._flush_debug_report(suite_name)
+                    self._open_debug_report()
+
                     # ── 交互式暂停 ──
                     action = self._debug_prompt(case_name, e, idx + 1, attempt)
 
@@ -116,6 +168,7 @@ class DebugRunner(Runner):
                             self.result.add_error(case, list(self.log.log_data), img)
                             final_recorded = True
                             break
+                        self._remove_last_debug_case()
                         continue
 
                     elif action == 'skip':
@@ -136,12 +189,85 @@ class DebugRunner(Runner):
                     final_recorded = True
                     break  # 成功，下一个 case
 
-            # 记录用例耗时和执行树
+            # 记录用例耗时和执行树（正常运行模式的记录，与即时报告互不冲突）
             case['_case_duration'] = time.time() - case_start_time
             case['_case_start_time'] = time.strftime(
                 "%Y-%m-%d %H:%M:%S", time.localtime(case_start_time)
             )
             case['_execution_tree'] = self.tree_builder.get_tree()
+
+    # ── Debug 即时报告辅助方法 ──
+
+    def _record_debug_case(self, case, idx):
+        """记录失败/错误用例快照到 _executed_cases（浅拷贝避免污染原字典）"""
+        snapshot = {k: v for k, v in case.items() if k != 'steps'}
+        snapshot['_seq'] = idx + 1
+        snapshot['steps'] = case.get('steps', [])  # steps 单独保留引用（只读）
+        self._executed_cases.append(snapshot)
+
+    def _remove_last_debug_case(self):
+        """重试时移除上次失败记录（将被新尝试覆盖）"""
+        if self._executed_cases:
+            self._executed_cases.pop()
+
+    def _flush_debug_report(self, suite_name):
+        """生成/覆盖 debug 即时报告"""
+        if not self._debug_report_path:
+            return
+        try:
+            os.makedirs(self._debug_report_dir, exist_ok=True)
+
+            # 构造临时 suite（包含已执行用例）
+            temp_suite = {
+                'id': f'{self._debug_timestamp}_debug',
+                'name': f'[DEBUG] {suite_name}',
+                'cases': list(self._executed_cases),
+            }
+
+            # 构造临时 result
+            executed = self._executed_cases
+            success = sum(1 for c in executed if c.get('state') == 'success')
+            fail = sum(1 for c in executed if c.get('state') == 'fail')
+            error = sum(1 for c in executed if c.get('state') == 'error')
+            skip = sum(1 for c in executed if c.get('state') == 'skip')
+            elapsed = time.time() - (self._start_timestamp or time.time())
+            duration_str = time.strftime("%H:%M:%S", time.gmtime(elapsed))
+
+            temp_result = {
+                'all': len(executed),
+                'success': success, 'fail': fail,
+                'error': error, 'skip': skip,
+                'no_run': 0,
+                'start_time': time.strftime(
+                    "%Y-%m-%d %H:%M:%S", time.localtime(self._start_timestamp or time.time())
+                ),
+                'duration': duration_str,
+                'run_cases': executed,
+                'no_run_cases': [],
+            }
+
+            # 复用引擎的报告生成器
+            from UIEngine.reporting.html_report import generate_html_report
+            generate_html_report(temp_suite, temp_result, self._debug_report_path)
+
+            rel_path = os.path.relpath(self._debug_report_path, get_project_dir(self.config))
+            print(f"  📊 调试报告已更新: {rel_path}")
+        except Exception as e:
+            # 报告生成失败不影响调试流程
+            print(f"  [WARN] 调试报告生成失败: {e}", file=sys.stderr)
+
+    def _open_debug_report(self):
+        """在浏览器中打开 debug 报告（非交互环境跳过）"""
+        if not sys.stdin.isatty():
+            return  # CI/CD 环境无 GUI
+        if not self._debug_report_path or not os.path.isfile(self._debug_report_path):
+            return
+        try:
+            import webbrowser
+            url = 'file:///' + os.path.abspath(self._debug_report_path).replace('\\', '/')
+            webbrowser.open(url)
+        except Exception:
+            pass  # 静默失败，不影响调试流程
 
     def _debug_prompt(self, case_name, error, case_idx, attempt):
         """交互式提示，返回 'retry' / 'skip' / 'quit'
@@ -160,6 +286,9 @@ class DebugRunner(Runner):
         while True:
             print(f"\n{'='*40}")
             print(f"用例 [{case_name}] 失败: {error}")
+            if self._debug_report_path:
+                rel_path = os.path.relpath(self._debug_report_path, get_project_dir(self.config))
+                print(f"📊 调试报告已在浏览器中打开: {rel_path}")
             print(f"浏览器保持打开，你可以手工操作页面")
             print(f"  [r] 重试当前用例  [s] 跳过，继续下一个  [q] 终止全部执行")
             try:
@@ -616,7 +745,30 @@ def main():
         # 直接指定套件文件路径
         suite_files = _clean_args
     else:
-        # 无参数：扫描并运行所有套件
+        # 无参数：优先运行 suites/master.yaml（存在时）
+        # master.yaml 由 generate_suites.py --all-modules 生成，包含所有模块的全部用例
+        master_suite_path = os.path.join(suites_dir, 'master.yaml')
+        if os.path.isfile(master_suite_path):
+            print(f"\n{'='*60}")
+            print("执行总套件: suites/master.yaml")
+            print(f"{'='*60}")
+            result = run_suite(master_suite_path, config, all_cases, all_data,
+                              runner_class=runner_class)
+            if result:
+                tp = result.get('success', 0)
+                tf = result.get('fail', 0)
+                te = result.get('error', 0)
+                ts = result.get('skip', 0)
+                print(f"\n通过: {tp} | 失败: {tf} | 错误: {te} | 跳过: {ts}")
+            # 自动学习：测试运行后记录成功/失败模式
+            if _auto_learn:
+                try:
+                    _auto_learn(project_dir, result)
+                except Exception as e:
+                    print(f"[自动学习] 跳过（不影响测试结果）: {e}")
+            return
+
+        # 回退：扫描并运行所有套件（老项目兼容，无 master.yaml）
         suite_files = []
         for root, dirs, files in os.walk(suites_dir):
             for f in sorted(files):

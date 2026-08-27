@@ -236,6 +236,81 @@ def _write_suite(project_dir: str, config: dict, cases_dir: str, module: str,
     return True
 
 
+def _write_master_suite(project_dir: str, config: dict, cases_dir: str,
+                        modules: list, sort_by: str = 'filename') -> bool:
+    """生成 suites/master.yaml — 包含所有模块全部 case 的总套件
+
+    跳过条件：总 case 数 ≤ 3 且只有 1 个模块（与 per-module suite 完全重复）
+
+    Returns: True 表示成功生成
+    """
+    # 收集所有模块的 case
+    all_cases = []  # [(case_id, filename, module), ...]
+    for module in modules:
+        cases = scan_cases(cases_dir, module)
+        for case_id, filename in cases:
+            all_cases.append((case_id, filename, module))
+
+    # 跳过条件：只有 1 个模块且 case ≤ 3（与 per-module suite 完全重复）
+    if len(modules) <= 1 and len(all_cases) <= 3:
+        return False
+
+    if not all_cases:
+        return False
+
+    browser_type = config.get('browser_type', 'chromium')
+    auth_steps = _infer_auth_steps(config)
+
+    # 排序：按模块排序，模块内按文件编号排序
+    if sort_by == 'dependency':
+        sorted_cases = sorted(all_cases, key=lambda c: (c[2], _get_priority(c[0], c[1])))
+    else:
+        def _sort_key(c):
+            fn = c[1]
+            m = re.match(r'^(\d+)', fn)
+            return (c[2], int(m.group(1)) if m else 999)
+        sorted_cases = sorted(all_cases, key=_sort_key)
+
+    # 构建 setup_step（使用 ${common_data.target_url}，不绑定特定模块 URL）
+    setup_step = [
+        {'desc': '打开浏览器', 'keyword': 'open_browser',
+         'params': {'browser_type': browser_type}},
+        {'desc': '导航到目标域', 'keyword': 'open_url',
+         'params': {'url': '${common_data.target_url}'}},
+    ]
+    for kw in auth_steps:
+        setup_step.append({'desc': '注入认证信息', 'keyword': kw})
+    setup_step.extend([
+        {'desc': '刷新使认证生效', 'keyword': 'refresh'},
+        {'desc': '等待页面加载完成', 'keyword': 'wait_for_loading_complete'},
+    ])
+
+    # 构建 case_refs
+    case_refs = []
+    for seq, (case_id, _, _) in enumerate(sorted_cases, 1):
+        case_refs.append({'case_id': case_id, 'seq': seq})
+
+    master_suite = {
+        'id': 'master',
+        'name': '全部用例汇总',
+        'setup_step': setup_step,
+        'case_refs': case_refs,
+    }
+
+    # 输出到 suites/master.yaml
+    suites_dir = os.path.join(project_dir, 'suites')
+    os.makedirs(suites_dir, exist_ok=True)
+    output_file = os.path.join(suites_dir, 'master.yaml')
+
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write("# 全部用例汇总套件（自动生成）\n")
+        f.write("# 由 generate_suites.py 生成，请勿手动编辑\n\n")
+        yaml.dump(master_suite, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+
+    print(f"  [master] 输出: {output_file} ({len(case_refs)} 条 case_refs, {len(modules)} 个模块)")
+    return True
+
+
 def _discover_modules(cases_dir: str) -> list:
     """自动扫描 cases/ 下所有模块目录（排除 _ 和 . 前缀）"""
     if not os.path.isdir(cases_dir):
@@ -328,6 +403,11 @@ def main():
 
     if args.all_modules:
         print(f"\n[DONE] 共生成 {generated}/{len(modules)} 个 suite 文件")
+
+    # 生成 suites/master.yaml（仅 --all-modules 时，且多模块时）
+    if args.all_modules and generated > 0:
+        _write_master_suite(project_dir, config, cases_dir, modules,
+                           sort_by=args.sort_by)
 
     if generated == 0:
         sys.exit(0)

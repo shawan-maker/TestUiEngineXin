@@ -64,6 +64,29 @@ def _infer_framework_from_locator(locator_str):
         return 'ant-design'
     return None
 
+
+def _copy_container_prefix(target_xpath, source_xpath):
+    """从 source_xpath 提取容器前缀并注入到 target_xpath。
+
+    用于确保 collapse_xpath 与 expand_xpath 使用相同的容器前缀。
+
+    Args:
+        target_xpath: 目标 XPath（如 collapse_xpath）
+        source_xpath: 源 XPath（如 expand_xpath，已包含容器前缀）
+
+    Returns:
+        带有容器前缀的 target_xpath
+    """
+    # 容器前缀模式：//div[contains(@class,'el-dialog')]// 或 //div[contains(@class,'el-drawer')]//
+    # 匹配以 (//div[contains(@class,'el-dialog')] 开头的模式
+    import re
+    container_pattern = r'^(\(//div\[contains\(@class,\'(?:el-dialog|el-drawer)\'\)\])//'
+    match = re.match(container_pattern, source_xpath)
+    if match:
+        prefix = match.group(1) + '//'
+        return prefix + target_xpath
+    return target_xpath
+
 class CaseGenerator:
     """从结构化步骤生成 case YAML。
 
@@ -702,6 +725,8 @@ class CaseGenerator:
             f" and not(ancestor-or-self::*[contains(@class,'hover-click')])"
             f" and not(ancestor-or-self::*[@onclick or @click])])[1]"
         )
+        # 注入容器前缀（与 expand 对称，从 expand_xpath 提取而非 self.current_container）
+        collapse_xpath = _copy_container_prefix(collapse_xpath, expand_xpath)
         # 用 if_element_visible 包裹：部分 placeholder 匹配的下拉框可能没有 label，不存在则跳过
         steps.append({
             'desc': f'收起「{label}」下拉面板',

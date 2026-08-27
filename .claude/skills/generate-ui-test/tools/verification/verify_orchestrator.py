@@ -90,7 +90,7 @@ from verification.verify_engine import (
 )
 import verification.verify_engine as _ve  # 用于访问 _last_iframe_discovery 模块级变量
 from verification.pages_writeback import (
-    update_pages_yaml, _store_verified_locator,
+    update_pages_yaml, _store_verified_locator, _update_case_collapse_prefix,
 )
 from verification.detail_links import (
     _write_verify_result, _consume_pending_detail_links,
@@ -159,6 +159,21 @@ def _is_page_changed(prev_url, curr_url):
     p = urlparse(prev_url)
     c = urlparse(curr_url)
     return c.path != p.path or c.fragment != p.fragment
+
+
+def _extract_collapse_prefix(locator):
+    """从 locator 中提取容器前缀（//div[contains(@class,'xxx')]//）"""
+    if not locator or not isinstance(locator, str):
+        return ''
+    # 匹配 //div[contains(@class,'xxx')]// 或 //div[contains(@class,'xxx') and yyy]//
+    match = re.search(r'//div\[contains\(@class,\'([^\']+)\'\)[^\]]*\]//', locator)
+    if match:
+        # 返回完整的 //div[...]// 部分
+        start = locator.rfind('//div[', 0, match.start() + 10)
+        if start >= 0:
+            end = locator.find(']//', match.start()) + 3
+            return locator[start:end]
+    return ''
 
 
 def _sync_el_select_substeps(expand_ref, expand_new_locator, pages_dict, verified_locators):
@@ -740,6 +755,8 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
 
     # Track iframe discoveries for writeback
     iframe_discoveries = []  # [{case_name, step_index, group, field, frame_selector}]
+    # Track collapse prefix changes for writeback
+    collapse_prefix_changes = []  # [(case_idx, case_file)]
 
     pw = sync_playwright().start()
     try:
@@ -1145,13 +1162,30 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                     if keyword == 'click_element' and '下拉框' in desc:
                         _expand_verified_locator = v_loc
                         print(f"  [TRACE-P6] el-select expand verified: locator saved for derivation")
-                        # 【新增】立即同步推导 _editable 和 _select 并更新 pages_dict
+                        # 立即同步推导 _editable 和 _select 并更新 pages_dict
                         _sync_el_select_substeps(
                             expand_ref=step['params']['locator'],
                             expand_new_locator=v_loc,
                             pages_dict=pages_dict,
                             verified_locators=verified_locators
                         )
+                        # 记录 collapse 前缀变更（expand +4 → collapse）
+                        _collapse_idx = step_idx + 4
+                        if _collapse_idx < len(steps):
+                            _col_step = steps[_collapse_idx]
+                            _col_desc = _col_step.get('desc', '') if isinstance(_col_step, dict) else ''
+                            if '收起' in _col_desc and '下拉面板' in _col_desc:
+                                _new_pfx = _extract_collapse_prefix(v_loc)
+                                _old_pfx = _extract_collapse_prefix(
+                                    _col_step.get('params', {}).get('locator', ''))
+                                if _new_pfx != _old_pfx and _new_pfx:
+                                    collapse_prefix_changes.append({
+                                        'case_name': case_name,
+                                        'step_index': _collapse_idx,
+                                        'old_prefix': _old_pfx,
+                                        'new_prefix': _new_pfx,
+                                    })
+                                    print(f"  [TRACE-P6] collapse 前缀变更: {_old_pfx or '(无)'} → {_new_pfx}")
                     if v_bg:
                         fallback_count += 1
                         print(f"    [UNVERIFIED] Step {step_idx+1}: {desc}")
@@ -1268,6 +1302,11 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
         _write_iframe_companion_fields(project_dir, iframe_discoveries, module=module)
         _update_case_iframe_keywords(project_dir, iframe_discoveries, module=module)
 
+    # Collapse prefix writeback: 将收集的前缀变更写回 case YAML 文件
+    if collapse_prefix_changes:
+        _update_case_collapse_prefix(collapse_prefix_changes, project_dir, module)
+        print(f"[Writeback] Collapse prefix updated in {len(collapse_prefix_changes)} steps")
+
     # Locator writeback: 将验证通过的定位器回写到 pages YAML
     # 之前只在 main() CLI 入口调用，verify_project() 函数调用时遗漏
     if verified_locators:
@@ -1286,6 +1325,7 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
         'verified_locators': verified_locators,
         'writeback_count': len(verified_locators),
         'iframe_discoveries': len(iframe_discoveries) if iframe_discoveries else 0,
+        'collapse_prefix_updates': len(collapse_prefix_changes),
     }
 
 def main():

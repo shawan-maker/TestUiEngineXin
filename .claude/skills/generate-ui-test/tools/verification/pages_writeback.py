@@ -947,3 +947,152 @@ def _update_case_iframe_keywords(project_dir, iframe_discoveries, module=None):
 
         except Exception as e:
             print(f"  [ERROR] 处理 {filepath} 失败: {e}")
+
+
+def _update_case_collapse_prefix(collapse_updates, project_dir, module=None):
+    """在 case YAML 中更新 collapse 步骤的容器前缀
+
+    对于每个 expand 验证成功且容器前缀与 collapse 不一致的情况，
+    将 collapse 步骤的容器前缀替换为 expand 的容器前缀。
+
+    Args:
+        collapse_updates: [{case_name, step_index, old_prefix, new_prefix}, ...]
+        project_dir: 项目根目录
+        module: 模块名（可选，用于定位 cases 目录）
+    """
+    if not collapse_updates:
+        return
+
+    print(f"\n[COLLAPSE] 更新 {len(collapse_updates)} 个 case 步骤的容器前缀...")
+
+    # 按 case 文件分组
+    updates_by_case = {}  # {case_filepath: [{step_index, old_prefix, new_prefix}, ...]}
+
+    cases_dir = os.path.join(project_dir, 'cases')
+    if module:
+        module_dir = module.replace('_', '-')
+        search_root = os.path.join(cases_dir, module_dir)
+        if not os.path.isdir(search_root):
+            search_root = cases_dir
+    else:
+        search_root = cases_dir
+
+    for update in collapse_updates:
+        case_name = update.get('case_name')
+        step_index = update.get('step_index')
+        old_prefix = update.get('old_prefix')
+        new_prefix = update.get('new_prefix')
+
+        if case_name is None or step_index is None:
+            continue
+
+        # 查找 case 文件
+        target_file = None
+        for root, dirs, files in os.walk(search_root):
+            for f in files:
+                if f.endswith(('.yaml', '.yml')) and case_name in f:
+                    target_file = os.path.join(root, f)
+                    break
+            if target_file:
+                break
+
+        if not target_file:
+            print(f"  [WARN] 未找到 case 文件: {case_name}")
+            continue
+
+        if target_file not in updates_by_case:
+            updates_by_case[target_file] = []
+        updates_by_case[target_file].append({
+            'step_index': step_index,
+            'old_prefix': old_prefix,
+            'new_prefix': new_prefix,
+        })
+
+    # 逐个文件处理
+    for filepath, updates in updates_by_case.items():
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            data = yaml.safe_load(content)
+            if not data or not isinstance(data, dict) or 'steps' not in data:
+                print(f"  [WARN] {filepath} 格式异常，跳过")
+                continue
+
+            steps = data['steps']
+            updated_count = 0
+
+            for update in updates:
+                step_index = update['step_index']
+                old_prefix = update['old_prefix']
+                new_prefix = update['new_prefix']
+
+                if step_index >= len(steps):
+                    continue
+
+                step = steps[step_index]
+                if not isinstance(step, dict):
+                    continue
+
+                # 防御性校验：确认是 if_element_visible 且 desc 包含"收起"
+                if step.get('keyword') != 'if_element_visible':
+                    print(f"  [WARN] Step {step_index+1}: 不是 if_element_visible，跳过")
+                    continue
+
+                desc = step.get('desc', '')
+                if '收起' not in desc or '下拉面板' not in desc:
+                    print(f"  [WARN] Step {step_index+1}: 不是 collapse 步骤，跳过")
+                    continue
+
+                # 更新外层 locator 和 then_steps 内层 locator
+                updated = False
+                for loc_path in [
+                    ('params', 'locator'),
+                    ('params', 'then_steps', 0, 'params', 'locator'),
+                ]:
+                    obj = step
+                    for key in loc_path[:-1]:
+                        if isinstance(key, int):
+                            obj = obj[key] if isinstance(obj, list) and key < len(obj) else None
+                        else:
+                            obj = obj.get(key) if isinstance(obj, dict) else None
+                        if obj is None:
+                            break
+
+                    loc_key = loc_path[-1]
+                    if not isinstance(obj, dict) or loc_key not in obj:
+                        continue
+
+                    locator = obj[loc_key]
+                    if not locator or not isinstance(locator, str):
+                        continue
+
+                    if old_prefix:
+                        # 有旧前缀：替换为新前缀
+                        if new_prefix:
+                            locator = locator.replace(old_prefix, new_prefix, 1)
+                        else:
+                            # 删除旧前缀
+                            locator = locator.replace(old_prefix, '', 1)
+                    elif new_prefix:
+                        # 无前缀 → 有前缀：在 xpath= 后或 ( 后插入前缀
+                        if locator.startswith('xpath=('):
+                            locator = locator.replace('xpath=(', f'xpath=({new_prefix}', 1)
+                        elif locator.startswith('xpath=//'):
+                            locator = locator.replace('xpath=', f'xpath={new_prefix}', 1)
+
+                    obj[loc_key] = locator
+                    updated = True
+
+                if updated:
+                    updated_count += 1
+                    print(f"  [OK] Step {step_index+1}: {old_prefix or '(无前缀)'} → {new_prefix or '(无前缀)'}")
+
+            if updated_count > 0:
+                # 写回 YAML
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+                print(f"  [OK] Updated: {filepath} ({updated_count} steps)")
+
+        except Exception as e:
+            print(f"  [ERROR] 处理 {filepath} 失败: {e}")

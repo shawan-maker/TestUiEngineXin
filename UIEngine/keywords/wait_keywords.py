@@ -26,16 +26,20 @@ class WaitMixin(BaseBrowser):
         self.page.wait_for_timeout(timeout)
 
     @KeyWordManager.register("wait_for_load", "等待加载")
-    def wait_for_load(self):
-        """等待页面加载完成"""
-        self.log.debug_log("正在等待页面加载完成")
-        self.page.wait_for_load_state(state='load')
+    def wait_for_load(self, timeout=30000):
+        """等待页面加载完成
+        :param timeout: 超时时间（毫秒），默认 30000
+        """
+        self.log.debug_log(f"正在等待页面加载完成，超时: {timeout}")
+        self.page.wait_for_load_state(state='load', timeout=timeout)
 
     @KeyWordManager.register("wait_for_network", "等待网络")
-    def wait_for_network(self):
-        """等待网络请求完成"""
-        self.log.debug_log("正在等待网络请求完成")
-        self.page.wait_for_load_state(state='networkidle')
+    def wait_for_network(self, timeout=30000):
+        """等待网络请求完成
+        :param timeout: 超时时间（毫秒），默认 30000
+        """
+        self.log.debug_log(f"正在等待网络请求完成，超时: {timeout}")
+        self.page.wait_for_load_state(state='networkidle', timeout=timeout)
 
     @KeyWordManager.register("wait_for_element", "等待元素")
     def wait_for_element(self, locator, timeout=3000):

@@ -14,14 +14,23 @@
 workflows:
 
   # ── 关键字一：等待加载完成（无参数）──
-  # ⚠️ 时序竞态保护：module_keywords.py 中已手动添加 pre_wait_visible 逻辑
-  # 重编译后需重新添加，或更新 compile_module_keywords.py 支持 pre_wait_visible 参数
-  # 场景：点击按钮→页面跳转→loading mask 尚未渲染→wait_for_element_hidden 立即返回
+  # 方案 E 混合等待：浏览器级 readyState → 网络空闲（容错）→ UI 级 loading 消失
+  # 场景：点击按钮→Tab转圈→页面空白→loading mask 出现→loading 消失→内容渲染
   - name: wait_for_loading_complete
     chinese_name: 等待加载完成
     params: []
-    description: "等待 8 种 loading 元素全部消失（Element UI 4种 + Ant Design 4种）+ 1s 稳定等待（含时序保护）"
+    description: "等待浏览器加载状态 → 网络空闲兜底 → 8种 loading 元素消失 + 1s 稳定等待"
     steps:
+      - keyword: wait_for_load
+        desc: "等待浏览器加载状态（覆盖Tab转圈阶段）"
+        tolerant: true
+        params:
+          timeout: 10000
+      - keyword: wait_for_network
+        desc: "等待网络空闲（SPA兜底，短超时容错）"
+        tolerant: true
+        params:
+          timeout: 3000
       - keyword: wait_for_element_hidden
         desc: "等待 el-loading-mask 消失"
         params:

@@ -204,6 +204,7 @@ _ENGINE_KEYWORDS = {
     'if_variable', 'wait_for_time', 'wait_for_element_visible',
     'wait_for_element_hidden', 'wait_for_element_enabled',
     'wait_for_element', 'wait_for_url_contains', 'wait_for_request',
+    'wait_for_load', 'wait_for_network',
     'open_browser', 'close_browser', 'inject_local_storage',
     'inject_token_header', 'log',
 }
@@ -394,17 +395,18 @@ def compile_step(step, workflow, indent):
     keyword = step.get('keyword', '')
     params = step.get('params', {})
     desc = step.get('desc', '')
+    tolerant = step.get('tolerant', False)
 
     if keyword == 'click_element':
-        return _compile_click(desc, params, workflow, indent)
+        lines = _compile_click(desc, params, workflow, indent)
     elif keyword == 'fill_value':
-        return _compile_fill(desc, params, workflow, indent)
+        lines = _compile_fill(desc, params, workflow, indent)
     elif keyword == 'wait_for_time':
-        return _compile_wait(desc, params, indent)
+        lines = _compile_wait(desc, params, indent)
     elif keyword == 'get_element_count':
-        return _compile_count(desc, params, workflow, indent)
+        lines = _compile_count(desc, params, workflow, indent)
     elif keyword == 'get_text':
-        return _compile_get_text(desc, params, workflow, indent)
+        lines = _compile_get_text(desc, params, workflow, indent)
     elif keyword == 'if_variable':
         # Merge step-level fields (condition, then_steps, else_steps) into params
         merged_params = dict(params) if params else {}
@@ -412,14 +414,31 @@ def compile_step(step, workflow, indent):
                        'then_steps', 'else_steps'):
             if field in step and field not in merged_params:
                 merged_params[field] = step[field]
-        return _compile_if_var(desc, merged_params, workflow, indent)
+        lines = _compile_if_var(desc, merged_params, workflow, indent)
     elif keyword in ('if_element_visible', 'if_element_hidden'):
-        return _compile_if_element(keyword, desc, params, workflow, indent)
+        lines = _compile_if_element(keyword, desc, params, workflow, indent)
     elif keyword == 'log':
-        return _compile_log(params, indent)
+        lines = _compile_log(params, indent)
     else:
         # 默认: self.perform({...}) 通用处理
-        return _compile_perform(desc, keyword, params, workflow, indent)
+        lines = _compile_perform(desc, keyword, params, workflow, indent)
+
+    # tolerant: true → 包裹 try/except，超时或异常不阻断
+    if tolerant:
+        wrapped = [
+            f"{_sp(indent)}try:",
+        ]
+        # 内部行增加 4 空格缩进
+        for line in lines:
+            if line.strip():
+                wrapped.append('    ' + line)
+            else:
+                wrapped.append(line)
+        wrapped.append(f"{_sp(indent)}except Exception as _e:")
+        wrapped.append(f"{_sp(indent+4)}self.log.debug_log(f'[L3] tolerant skip: {desc} — {{_e}}')")
+        return wrapped
+
+    return lines
 
 
 def _sp(indent):

@@ -1040,7 +1040,7 @@ def _update_case_collapse_prefix(collapse_updates, project_dir, module=None):
                     continue
 
                 desc = step.get('desc', '')
-                if '收起' not in desc or '下拉面板' not in desc:
+                if '收起' not in desc or ('下拉面板' not in desc and '级联面板' not in desc):
                     print(f"  [WARN] Step {step_index+1}: 不是 collapse 步骤，跳过")
                     continue
 

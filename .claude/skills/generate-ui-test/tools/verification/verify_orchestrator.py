@@ -1158,34 +1158,35 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                 elif v_loc:
                     _marker = (_AI_MARKER_MAP.get(v_src) if _HAS_AI_PROBE and v_src else None)
                     _store_verified_locator(v_loc, v_ct, step, pages_dict, verified_locators, is_best_guess=v_bg, marker_override=_marker)
-                    # el-select expand 步骤：保存验证后的 locator，传递给后续推导
-                    if keyword == 'click_element' and '下拉框' in desc:
+                    # el-select/cascader expand 步骤：保存验证后的 locator，传递给后续推导
+                    if keyword == 'click_element' and ('下拉框' in desc or '级联选择器' in desc):
                         _expand_verified_locator = v_loc
-                        print(f"  [TRACE-P6] el-select expand verified: locator saved for derivation")
-                        # 立即同步推导 _editable 和 _select 并更新 pages_dict
-                        _sync_el_select_substeps(
-                            expand_ref=step['params']['locator'],
-                            expand_new_locator=v_loc,
-                            pages_dict=pages_dict,
-                            verified_locators=verified_locators
-                        )
-                        # 记录 collapse 前缀变更（expand +4 → collapse）
-                        _collapse_idx = step_idx + 4
-                        if _collapse_idx < len(steps):
-                            _col_step = steps[_collapse_idx]
+                        print(f"  [TRACE-P6] expand verified: locator saved for derivation")
+                        # 立即同步推导 _editable 和 _select 并更新 pages_dict（仅 el-select）
+                        if '下拉框' in desc:
+                            _sync_el_select_substeps(
+                                expand_ref=step['params']['locator'],
+                                expand_new_locator=v_loc,
+                                pages_dict=pages_dict,
+                                verified_locators=verified_locators
+                            )
+                        # 记录 collapse 前缀变更（向后搜索收起步骤）
+                        for _search_idx in range(step_idx + 1, min(step_idx + 20, len(steps))):
+                            _col_step = steps[_search_idx]
                             _col_desc = _col_step.get('desc', '') if isinstance(_col_step, dict) else ''
-                            if '收起' in _col_desc and '下拉面板' in _col_desc:
+                            if '收起' in _col_desc and '面板' in _col_desc:
                                 _new_pfx = _extract_collapse_prefix(v_loc)
                                 _old_pfx = _extract_collapse_prefix(
                                     _col_step.get('params', {}).get('locator', ''))
                                 if _new_pfx != _old_pfx and _new_pfx:
                                     collapse_prefix_changes.append({
                                         'case_name': case_name,
-                                        'step_index': _collapse_idx,
+                                        'step_index': _search_idx,
                                         'old_prefix': _old_pfx,
                                         'new_prefix': _new_pfx,
                                     })
                                     print(f"  [TRACE-P6] collapse 前缀变更: {_old_pfx or '(无)'} → {_new_pfx}")
+                                break
                     if v_bg:
                         fallback_count += 1
                         print(f"    [UNVERIFIED] Step {step_idx+1}: {desc}")

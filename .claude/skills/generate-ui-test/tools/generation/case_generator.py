@@ -78,9 +78,9 @@ def _copy_container_prefix(target_xpath, source_xpath):
         带有容器前缀的 target_xpath
     """
     # 容器前缀模式：//div[contains(@class,'el-dialog')]// 或 //div[contains(@class,'el-drawer')]//
-    # 匹配以 (//div[contains(@class,'el-dialog')] 开头的模式
+    # 支持 Element UI 和 Ant Design 两种框架
     import re
-    container_pattern = r'^(\(//div\[contains\(@class,\'(?:el-dialog|el-drawer)\'\)\])//'
+    container_pattern = r'^(\(//div\[contains\(@class,\'(?:el-dialog|el-drawer|ant-modal|ant-drawer)\'\)\])//'
     match = re.match(container_pattern, source_xpath)
     if match:
         prefix = match.group(1) + '//'
@@ -1893,6 +1893,36 @@ class CaseGenerator:
                             '_skip_phase6': True,
                         }],
                     },
+                })
+
+                # === 收起级联面板（与 el-select Step 4 对称）===
+                collapse_xpath = (
+                    f"(//*[contains(text(),'{label}')"
+                    f" and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
+                    f" and not(ancestor-or-self::*[contains(@style,'display: none')])"
+                    f" and not(ancestor-or-self::*[contains(@class,'hover-click')])"
+                    f" and not(ancestor-or-self::*[@onclick or @click])])[1]"
+                )
+                # 从级联展开定位器提取容器前缀（与 expand 对称）
+                groups = self._compat_groups()
+                cascader_field = el['cascader'].split('.')[1].strip('}') if '.' in el['cascader'] else ''
+                cascader_loc = groups.get(el['group'], {}).get(cascader_field, '')
+                if cascader_loc.startswith('xpath='):
+                    cascader_loc = cascader_loc[6:]
+                collapse_xpath = _copy_container_prefix(collapse_xpath, cascader_loc)
+                steps.append({
+                    'desc': f'收起「{label}」级联面板',
+                    'keyword': 'if_element_visible',
+                    'label': label,
+                    'params': {
+                        'locator': f'xpath={collapse_xpath}',
+                        'timeout': 500,
+                        'then_steps': [{
+                            'keyword': 'click_element',
+                            'params': {'locator': f'xpath={collapse_xpath}'},
+                        }],
+                    },
+                    '_skip_phase6': True,
                 })
             else:
                 steps.append({

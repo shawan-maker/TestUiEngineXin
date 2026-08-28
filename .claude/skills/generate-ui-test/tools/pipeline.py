@@ -1255,8 +1255,9 @@ class PipelineExecutor:
             existing = env.get("PYTHONPATH", "")
             env["PYTHONPATH"] = repo_root + (os.pathsep + existing if existing else "")
 
+            # 修复：cwd 已设置为 project_dir，所以 run.py 用文件名即可
             result = subprocess.run(
-                [sys.executable, str(run_py)],
+                [sys.executable, "run.py"],
                 cwd=self.project_dir,
                 capture_output=True,
                 text=True,

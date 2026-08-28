@@ -161,6 +161,30 @@ class ExecutionTreeBuilder:
         if screenshot:
             node.screenshot = screenshot
 
+    def tolerate_last_error(self):
+        """将最近一次 pop_step 记录的错误节点重置为 pass（tolerant 语义）
+
+        当 tolerant 包装捕获异常后调用，清除执行树中被误标记的 error 状态，
+        避免 HTML 报告的"失败原因"列显示已被容忍的超时错误。
+        """
+        # 查找最后一个被 pop 的节点：优先查栈顶的 children（最近子步骤），
+        # 否则查 _roots（最近的顶层步骤）
+        if self._stack:
+            parent = self._stack[-1]
+            if parent.children:
+                node = parent.children[-1]
+            else:
+                return
+        elif self._roots:
+            node = self._roots[-1]
+        else:
+            return
+
+        # 只重置 error 状态，不动 fail（断言失败不应被容忍）
+        if node.status == 'error':
+            node.status = 'pass'
+            node.error_msg = None
+
     def attach_screenshot_to_failed(self, screenshot_path):
         """为最后一个失败的节点附加截图路径
 

@@ -202,6 +202,16 @@ config.yaml 是 YAML 文件，注释**只能用 `#`**，禁止 Python docstring 
 2. **报告给用户**：展示诊断信息，由用户决定是否更新 cookie
 3. **绝不自行替换**：即使看起来像是 cookie 过期
 
+### ⑦ L3 workflow tolerant 规则
+`compile_module_keywords.py` 对防御性等待关键字**自动添加 `tolerant: true`**，无需手动标注：
+- `wait_for_element_hidden` — 等待元素消失（可能不存在或持续可见，如 loading 元素）
+- `wait_for_load` — 页面加载等待（可能已完成）
+- `wait_for_network` — 网络空闲等待（可能无请求或 SPA 长连接永不 idle）
+
+**语义**：这些步骤的意图是"如果元素存在就等待"，超时不应阻断流程。
+**覆盖**：显式写 `tolerant: false` 可禁用自动 tolerant（向后兼容）。
+**非防御性关键字**（如 `click_element`、`fill_value`）不自动 tolerant，需要手动标注。
+
 ## 错误恢复
 
 管线某阶段失败时，按以下决策树处理：

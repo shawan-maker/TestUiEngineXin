@@ -33,36 +33,43 @@ workflows:
           timeout: 3000
       - keyword: wait_for_element_hidden
         desc: "等待 el-loading-mask 消失"
+        tolerant: true
         params:
           locator: "xpath=//div[contains(@class,'el-loading-mask')]"
           timeout: 15000
       - keyword: wait_for_element_hidden
         desc: "等待 el-loading-text 消失"
+        tolerant: true
         params:
           locator: "xpath=//p[@class='el-loading-text']"
           timeout: 10000
       - keyword: wait_for_element_hidden
         desc: "等待 ng-show loading 消失"
+        tolerant: true
         params:
           locator: "xpath=//div[@ng-show='loading' and not(contains(@class,'ng-hide'))]"
           timeout: 10000
       - keyword: wait_for_element_hidden
         desc: "等待 el-loading-spinner 消失"
+        tolerant: true
         params:
           locator: "xpath=//div[@class='el-loading-spinner']/p[@class='el-loading-text']"
           timeout: 10000
       - keyword: wait_for_element_hidden
         desc: "等待 ant-btn-loading 消失"
+        tolerant: true
         params:
           locator: "xpath=//button[contains(@class,'ant-btn-loading')]"
           timeout: 15000
       - keyword: wait_for_element_hidden
         desc: "等待 ant-btn-loading-icon 消失"
+        tolerant: true
         params:
           locator: "xpath=//button//span[contains(@class,'ant-btn-loading-icon')]"
           timeout: 15000
       - keyword: wait_for_element_hidden
         desc: "等待 ant-spin-spinning 消失"
+        tolerant: true
         params:
           locator: "xpath=//div[contains(@class,'ant-spin-spinning')]"
           timeout: 15000

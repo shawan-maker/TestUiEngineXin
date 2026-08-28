@@ -397,6 +397,20 @@ def compile_step(step, workflow, indent):
     desc = step.get('desc', '')
     tolerant = step.get('tolerant', False)
 
+    # ── 自动 tolerant 规则 ──
+    # 防御性等待步骤默认 tolerant，避免因元素不存在或超时而阻断流程
+    # 这些步骤的语义是"如果元素存在就等待它消失/完成"，不存在或超时不应阻断
+    # 仅在用户未显式设置 tolerant 字段时生效（'tolerant' not in step）
+    # 显式 tolerant: false 仍可覆盖（向后兼容）
+    AUTO_TOLERANT_KEYWORDS = {
+        'wait_for_element_hidden',  # 等待元素消失（可能不存在或持续可见，如 loading 元素）
+        'wait_for_load',            # 页面加载等待（可能已完成）
+        'wait_for_network',         # 网络空闲等待（可能无请求或 SPA 长连接永不 idle）
+    }
+
+    if 'tolerant' not in step and keyword in AUTO_TOLERANT_KEYWORDS:
+        tolerant = True
+
     if keyword == 'click_element':
         lines = _compile_click(desc, params, workflow, indent)
     elif keyword == 'fill_value':
@@ -436,6 +450,8 @@ def compile_step(step, workflow, indent):
                 wrapped.append(line)
         wrapped.append(f"{_sp(indent)}except Exception as _e:")
         wrapped.append(f"{_sp(indent+4)}self.log.debug_log(f'[L3] tolerant skip: {desc} — {{_e}}')")
+        wrapped.append(f"{_sp(indent+4)}if hasattr(self, 'tree_builder') and self.tree_builder:")
+        wrapped.append(f"{_sp(indent+8)}self.tree_builder.tolerate_last_error()")
         return wrapped
 
     return lines

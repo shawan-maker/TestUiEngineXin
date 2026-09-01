@@ -326,3 +326,52 @@ def _find_detail_link(groups, preferred_container=None, module_slug=None):
                     any(kw in field_name for kw in ('desc', 'detail', 'link', 'title', 'name'))):
                 return f"${{{group_name}.{field_name}}}"
     return None
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Step ④ 辅助函数：递归遍历步骤 + 引用提取
+# ═══════════════════════════════════════════════════════════════════
+
+def walk_all_steps(steps):
+    """递归生成所有步骤（包括嵌套的 then_steps/else_steps）。
+
+    Yields:
+        dict: 每个步骤（包括顶层和嵌套步骤）
+
+    Usage:
+        for step in walk_all_steps(case['steps']):
+            locator = step.get('params', {}).get('locator', '')
+    """
+    if not steps:
+        return
+    for step in steps:
+        yield step
+        then_steps = step.get('then_steps') or step.get('params', {}).get('then_steps')
+        if then_steps:
+            yield from walk_all_steps(then_steps)
+        else_steps = step.get('else_steps') or step.get('params', {}).get('else_steps')
+        if else_steps:
+            yield from walk_all_steps(else_steps)
+
+
+def extract_pages_ref(locator):
+    """从 locator 提取 pages 引用。
+
+    输入: ${project_elements.query_btn}
+    输出: ('project_elements', 'query_btn')
+
+    输入: xpath=//...
+    输出: None
+
+    Args:
+        locator: locator 字符串
+
+    Returns:
+        tuple (group, field) or None
+    """
+    if not locator or not isinstance(locator, str):
+        return None
+    match = re.match(r'^\$\{(\w+)\.(\w+)\}$', locator.strip())
+    if match:
+        return (match.group(1), match.group(2))
+    return None

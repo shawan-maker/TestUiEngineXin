@@ -806,3 +806,63 @@ def generate_pages_yaml_from_discovery(discovery_path, output_path,
     writer.write_page_urls(output_path, resolver.get_page_url_map())
 
     print(f'[OK] generate_pages_yaml_from_discovery: {output_path}')
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Step ④ 辅助函数
+# ═══════════════════════════════════════════════════════════════════
+
+def remove_traceability_hash(field_name):
+    """移除 Phase 5 生成的 traceability hash 后缀。
+
+    规则: field_{hex6}_{type}_{hex4} → field_{hex6}_{type}
+
+    Examples:
+        field_7a0b00_input_91c7 → field_7a0b00_input
+        field_04ee27_expand → field_04ee27_expand  (无hash，不处理)
+        submit_btn_91c7 → submit_btn
+        query_btn → query_btn  (无hash，不处理)
+    """
+    # 匹配 _{4位hex} 后缀（不区分大小写）
+    return re.sub(r'_[0-9a-fA-F]{4}$', '', field_name)
+
+
+def build_ref_mapping(field_usage, case_groups, shared_group, module_slug):
+    """构建引用映射表 {${old_group.field}: ${new_group.field}}。
+
+    Args:
+        field_usage: {old_ref_string: [case_ids]} — old_ref like "project_elements.field_738a41_input"
+        case_groups: {case_id: {field_name: xpath}} — field_name 保留原始名称（含 hash）
+        shared_group: {field_name: xpath}
+        module_slug: 模块英文slug（如 'project'）
+
+    Returns:
+        dict: {'${old_group.old_field}': '${new_group.new_field}', ...}
+    """
+    mapping = {}
+    shared_group_name = f'{module_slug}_page'
+
+    # 反向查找: 对于每个 old ref, 找到 new ref
+    # case_groups 和 shared_group 中存的是原始 field name（含 hash）
+    field_to_new_ref = {}
+    for case_id, fields in case_groups.items():
+        group_name = f'case_{case_id}'
+        for field_name in fields:
+            field_to_new_ref[field_name] = f'{group_name}.{field_name}'
+    for field_name in shared_group:
+        field_to_new_ref[field_name] = f'{shared_group_name}.{field_name}'
+
+    for old_ref in field_usage:
+        parts = old_ref.split('.', 1)
+        if len(parts) != 2:
+            continue
+        old_group, old_field = parts
+        # 直接用 old_field（保留 hash 后缀），避免同名 field 冲突
+        if old_field in field_to_new_ref:
+            new_ref = field_to_new_ref[old_field]
+            old_ref_full = f'${{{old_ref}}}'
+            new_ref_full = f'${{{new_ref}}}'
+            if old_ref_full != new_ref_full:
+                mapping[old_ref_full] = new_ref_full
+
+    return mapping

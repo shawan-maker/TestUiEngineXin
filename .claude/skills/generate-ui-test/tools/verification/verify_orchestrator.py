@@ -92,6 +92,7 @@ import verification.verify_engine as _ve  # 用于访问 _last_iframe_discovery 
 from verification.pages_writeback import (
     update_pages_yaml, _store_verified_locator, _update_case_collapse_prefix,
 )
+from verification.step4_reorganize import post_process_step4
 from verification.detail_links import (
     _write_verify_result, _consume_pending_detail_links,
 )
@@ -1388,6 +1389,11 @@ def main():
 
         # 写入 verify_result.json（供阶段门禁检查）
         _write_verify_result(args.project_dir, result)
+
+        # Step ④: 重组 pages YAML 并注册内联 locator
+        if args.module:
+            module_slug = args.module.replace('-', '_').lower()
+            post_process_step4(args.project_dir, module_slug)
 
     # X-2 修复 + Phase 6 不阻断策略（2026-08-03）:
     #   exit code 分流：

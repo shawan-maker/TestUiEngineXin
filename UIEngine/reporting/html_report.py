@@ -432,7 +432,9 @@ def _render_step_node(node, parent_id, node_idx=None, case_context=None):
     # 源文件检查提示（仅失败步骤）
     source_hint_html = ''
     if status in ('fail', 'error'):
-        source_hint_html = _render_source_hints(params, case_context)
+        # 优先使用 raw_params（未解析的原始参数），以提取 ${group.field} 键名
+        raw_params = node.get('raw_params', params)
+        source_hint_html = _render_source_hints(raw_params, case_context)
 
     # 日志（可折叠）
     logs_html = ''

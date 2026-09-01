@@ -86,7 +86,7 @@ from verification.verify_engine import (
     DESTRUCTIVE_TRIGGERS, CONTAINER_TYPES,
     SKIP_KEYWORDS, EXECUTE_KEYWORDS, L3_KEYWORDS,
     PROBE_ISOLATION_PREFIX, PROBE_FILL_VALUES,
-    _HAS_AI_PROBE,
+    _HAS_AI_PROBE, _format_locator_ref,
 )
 import verification.verify_engine as _ve  # 用于访问 _last_iframe_discovery 模块级变量
 from verification.pages_writeback import (
@@ -506,51 +506,59 @@ def _process_if_element_visible(page, step, pages_dict, data_dict,
     print(f"    [DEBUG-COND] Raw locator: {cond_locator_raw}")
     print(f"    [DEBUG-COND] Resolved locator: {cond_locator}")
 
-    try:
-        cond_count = page.locator(cond_locator).count()
-        print(f"    [DEBUG-COND] Count: {cond_count}")
-
-        if cond_count == 0:
-            print(f"    [DEBUG-COND] Result: count=0, will execute else_steps")
-        elif cond_count == 1:
-            try:
-                page.locator(cond_locator).first.wait_for(state='visible', timeout=cond_timeout)
-                print(f"    [DEBUG-COND] Result: count=1, visible=True, will execute then_steps")
-            except Exception as e:
-                cond_count = 0
-                print(f"    [DEBUG-COND] Result: count=1 but wait_for failed: {str(e)[:80]}, will execute else_steps")
-        else:
-            print(f"    [DEBUG-COND] Result: count={cond_count} (strict mode violation), attempting prefix traversal")
-            if cond_locator.startswith('xpath='):
-                cond_xpath = cond_locator[6:]
-            else:
-                cond_xpath = cond_locator
-
-            v_loc, v_ct, v_count, v_idx = verify_locator_candidates(
-                page, [cond_xpath],
-                container_type=None,
-                return_index=True
-            )
-
-            if v_loc and v_count == 1:
-                print(f"    [DEBUG-COND] [OK] Prefix traversal SUCCESS: prefix={v_ct}, count={v_count}")
-                _store_verified_locator(
-                    v_loc, v_ct,
-                    {'params': {'locator': cond_locator_raw}},
-                    pages_dict, verified_locators,
-                    is_best_guess=False
-                )
-                cond_locator = v_loc
-                cond_count = 1
-                print(f"    [DEBUG-COND] Result: prefix found, will execute then_steps")
-            else:
-                print(f"    [DEBUG-COND] [FAIL] Prefix traversal FAILED: no valid prefix found")
-                cond_count = 0
-                print(f"    [DEBUG-COND] Result: will execute else_steps")
-
-    except Exception as e:
+    # 空值守卫：如果解析失败（key not found），直接判定 count=0，不抛 Playwright 异常
+    if not cond_locator or cond_locator.strip() == '':
+        print(f"    [DEBUG-COND] [FAIL] Resolved locator is empty (key not found in pages_dict)")
+        print(f"    [DEBUG-COND] Action: skip locator check, go to else_steps")
         cond_count = 0
-        print(f"    [DEBUG-COND] [FAIL] Exception during count/visibility check: {str(e)[:100]}")
+    else:
+        try:
+            cond_count = page.locator(cond_locator).count()
+            print(f"    [DEBUG-COND] Count: {cond_count}")
+
+            if cond_count == 0:
+                print(f"    [DEBUG-COND] Result: count=0, will execute else_steps")
+            elif cond_count == 1:
+                try:
+                    page.locator(cond_locator).first.wait_for(state='visible', timeout=cond_timeout)
+                    print(f"    [DEBUG-COND] Result: count=1, visible=True, will execute then_steps")
+                except Exception as e:
+                    cond_count = 0
+                    print(f"    [DEBUG-COND] Result: count=1 but wait_for failed: {str(e)[:80]}, will execute else_steps")
+            else:
+                print(f"    [DEBUG-COND] Result: count={cond_count} (strict mode violation), attempting prefix traversal")
+                if cond_locator.startswith('xpath='):
+                    cond_xpath = cond_locator[6:]
+                else:
+                    cond_xpath = cond_locator
+
+                v_loc, v_ct, v_count, v_idx = verify_locator_candidates(
+                    page, [cond_xpath],
+                    container_type=None,
+                    return_index=True
+                )
+
+                if v_loc and v_count == 1:
+                    print(f"    [DEBUG-COND] [OK] Prefix traversal SUCCESS: prefix={v_ct}, count={v_count}")
+                    _store_verified_locator(
+                        v_loc, v_ct,
+                        {'params': {'locator': cond_locator_raw}},
+                        pages_dict, verified_locators,
+                        is_best_guess=False
+                    )
+                    cond_locator = v_loc
+                    cond_count = 1
+                    print(f"    [DEBUG-COND] Result: prefix found, will execute then_steps")
+                else:
+                    print(f"    [DEBUG-COND] [FAIL] Prefix traversal FAILED: no valid prefix found")
+                    cond_count = 0
+                    print(f"    [DEBUG-COND] Result: will execute else_steps")
+
+        except Exception as e:
+            cond_count = 0
+            err_msg = str(e)[:100]
+            _ref = cond_locator_raw if cond_locator_raw else ''
+            print(f"    [DEBUG-COND] [FAIL] Exception during count/visibility check [{_ref}]: {err_msg}")
         print(f"    [DEBUG-COND] Result: will execute else_steps")
 
     print(f"    [DEBUG-COND] ===== End condition check (cond_count={cond_count}) =====")
@@ -1155,7 +1163,8 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
 
                 if v_skip:
                     skipped_count += 1
-                    print(f"    [SKIP] Step {step_idx+1}: {desc}")
+                    ref_suffix = _format_locator_ref(step)
+                    print(f"    [SKIP] Step {step_idx+1}: {desc}{ref_suffix}")
                 elif v_loc:
                     _marker = (_AI_MARKER_MAP.get(v_src) if _HAS_AI_PROBE and v_src else None)
                     _store_verified_locator(v_loc, v_ct, step, pages_dict, verified_locators, is_best_guess=v_bg, marker_override=_marker)
@@ -1190,15 +1199,18 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
                                 break
                     if v_bg:
                         fallback_count += 1
-                        print(f"    [UNVERIFIED] Step {step_idx+1}: {desc}")
+                        ref_suffix = _format_locator_ref(step)
+                        print(f"    [UNVERIFIED] Step {step_idx+1}: {desc}{ref_suffix}")
                     else:
                         verified_count += 1
-                        print(f"    [OK] Step {step_idx+1}: {desc}")
+                        ref_suffix = _format_locator_ref(step)
+                        print(f"    [OK] Step {step_idx+1}: {desc}{ref_suffix}")
                 else:
                     # SKIP_KEYWORDS 和 EXECUTE_KEYWORDS 都不需要 locator 验证，不计入失败
                     if keyword not in SKIP_KEYWORDS and keyword not in EXECUTE_KEYWORDS and 'except' not in keyword:
                         fallback_count += 1
-                        print(f"    [FAIL] Step {step_idx+1}: {desc}")
+                        ref_suffix = _format_locator_ref(step)
+                        print(f"    [FAIL] Step {step_idx+1}: {desc}{ref_suffix}")
 
                 steps_so_far.append(step)
 

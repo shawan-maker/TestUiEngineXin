@@ -52,8 +52,9 @@ class BaseCase(PageMixin, LocatorMixin, MouseMixin, WaitMixin, IFrameMixin, Asse
         resolved_params = self.variable_resolver.resolve(params)
 
         # 推入执行树（记录开始时间，建立父子关系）
+        # 传递 raw_params（未解析的原始参数），用于报告显示键名
         if self.tree_builder:
-            self.tree_builder.push_step(step, resolved_params)
+            self.tree_builder.push_step(step, resolved_params, raw_params=params)
 
         try:
             # 优先通过关键字注册表查找

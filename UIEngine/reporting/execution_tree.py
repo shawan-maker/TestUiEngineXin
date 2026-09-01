@@ -33,6 +33,7 @@ class StepNode:
         'keyword', 'desc', 'params', 'status', 'error_msg',
         'screenshot', 'start_time', 'end_time', 'duration_ms',
         'children', 'log_entries', 'depth', 'hide_in_report',
+        'raw_params',
     )
 
     def __init__(self, keyword, desc, params, depth):
@@ -49,6 +50,7 @@ class StepNode:
         self.log_entries = []
         self.depth = depth
         self.hide_in_report = False
+        self.raw_params = {}
 
     def to_dict(self):
         """转换为字典，便于序列化或报告生成"""
@@ -64,6 +66,7 @@ class StepNode:
             'log_entries': self.log_entries,
             'children': [child.to_dict() for child in self.children],
             'hide_in_report': self.hide_in_report,
+            'raw_params': self.raw_params,
         }
 
 
@@ -104,11 +107,12 @@ class ExecutionTreeBuilder:
         if self._log_ref:
             self._log_start_idx = len(self._log_ref.log_data)
 
-    def push_step(self, step_dict, resolved_params=None):
+    def push_step(self, step_dict, resolved_params=None, raw_params=None):
         """在 perform() 开始时调用 — 创建节点并推入栈
 
         :param step_dict: 原始步骤字典 (包含 desc, keyword/method, params)
         :param resolved_params: 变量替换后的参数 (可选，默认使用 step_dict['params'])
+        :param raw_params: 未解析的原始参数 (包含 ${group.field} 引用，用于报告显示键名)
         :return: 创建的 StepNode
         """
         keyword = step_dict.get('keyword') or step_dict.get('method', '')
@@ -118,6 +122,7 @@ class ExecutionTreeBuilder:
 
         node = StepNode(keyword=keyword, desc=desc, params=params, depth=depth)
         node.hide_in_report = bool(step_dict.get('_hide_in_report'))
+        node.raw_params = raw_params if raw_params is not None else step_dict.get('params', {})
 
         # 建立父子关系：如果有栈顶节点，当前节点为其子节点
         if self._stack:

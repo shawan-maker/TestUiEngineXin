@@ -552,6 +552,14 @@ def _extract_locator_ref(step):
     return None
 
 
+def _format_locator_ref(step):
+    """格式化步骤的定位器引用，用于错误信息显示"""
+    ref = _extract_locator_ref(step)
+    if ref:
+        return f" [{ref}]"
+    return ""
+
+
 def _get_original_xpath(ref, pages_dict):
     """获取 pages_dict 中的原始 xpath（P3f-1 修复）"""
     if not ref:
@@ -1204,7 +1212,7 @@ def _detect_actual_element_type(page, label, container_prefix=''):
     return None
 
 
-def _iframe_execute_action(keyword, element_loc, verified_locator, page, params, data_dict, desc):
+def _iframe_execute_action(keyword, element_loc, verified_locator, page, params, data_dict, desc, step=None):
     """iframe 内执行具体操作（点击/填充/悬停等），统一返回格式。
 
     Args:
@@ -1215,6 +1223,7 @@ def _iframe_execute_action(keyword, element_loc, verified_locator, page, params,
         params: 步骤参数 dict
         data_dict: 数据变量字典
         desc: 步骤描述（仅用于日志）
+        step: 原始步骤 dict（用于错误信息显示定位器引用）
 
     Returns:
         tuple: (verified_locator, container_ct, is_skip, is_best_guess, hit_source)
@@ -1271,10 +1280,11 @@ def _iframe_execute_action(keyword, element_loc, verified_locator, page, params,
 
     except Exception as e:
         err_str = str(e)
+        ref_suffix = _format_locator_ref(step) if step else ''
         if 'Timeout' in err_str:
-            print(f"    [ERROR] iframe 元素操作超时: {verified_locator[:80]}")
+            print(f"    [ERROR] iframe 元素操作超时{ref_suffix}: {verified_locator[:80]}")
         else:
-            print(f"    [ERROR] {keyword} 执行失败: {err_str[:100]}")
+            print(f"    [ERROR] {keyword} 执行失败{ref_suffix}: {err_str[:100]}")
         return None, None, False, False, None
 
 
@@ -1492,7 +1502,8 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
     if keyword.startswith('frame_'):
         frame_ref = params.get('frame', '') if isinstance(params, dict) else ''
         if not frame_ref:
-            print(f"    [ERROR] {keyword} 缺少 frame 参数: '{desc}'")
+            ref_suffix = _format_locator_ref(step)
+            print(f"    [ERROR] {keyword} 缺少 frame 参数: '{desc}'{ref_suffix}")
             return None, None, False, False, None
 
         # 解析 frame 参数（兼容 xpath= 和 css= 前缀）
@@ -1581,7 +1592,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
 
                         verified_locator = locator
                         return _iframe_execute_action(keyword, element_loc, verified_locator,
-                                                      page, params, data_dict, desc)
+                                                      page, params, data_dict, desc, step=step)
                 except Exception as e:
                     print(f"    [TRACE-P6] 指定 iframe 操作失败: {str(e)[:80]}，回退扫描")
 
@@ -1610,9 +1621,10 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 _fb_locator = f'xpath={_clean_xpath}' if _clean_xpath else locator
                 element_loc = frame_obj.locator(_fb_locator)
                 return _iframe_execute_action(keyword, element_loc, verified_locator,
-                                              page, params, data_dict, desc)
+                                              page, params, data_dict, desc, step=step)
 
-            print(f"    [ERROR] iframe 内未找到元素: '{desc}'")
+            ref_suffix = _format_locator_ref(step)
+            print(f"    [ERROR] iframe 内未找到元素: '{desc}'{ref_suffix}")
             print(f"    [ERROR]   frame='{frame_selector}', locator='{locator[:100]}'")
             return None, None, False, False, None
 
@@ -2485,7 +2497,8 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 # 层 0: count check（快速判断元素是否存在，避免 count=0 时的无效重试）
                 _el_count = page.locator(verified_locator).count()
                 if _el_count == 0:
-                    print(f"    [ERROR] '{desc}': element not found (count=0), skip click")
+                    ref_suffix = _format_locator_ref(step)
+                    print(f"    [ERROR] '{desc}'{ref_suffix}: element not found (count=0), skip click")
                     print(f"    [DEBUG-COUNT=0] locator: {verified_locator[:150]}")
                     print(f"    [DEBUG-COUNT=0] current_url: {page.url[:100]}")
                     # 诊断 el-table 和更多按钮状态
@@ -2585,7 +2598,8 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                             page.locator(verified_locator).first.dispatch_event('click')
                             print(f"    [WARN] dispatch_event fallback: '{desc}'")
                         except Exception as _final_err:
-                            print(f"    [ERROR] '{desc}': all click attempts failed. "
+                            ref_suffix = _format_locator_ref(step)
+                            print(f"    [ERROR] '{desc}'{ref_suffix}: all click attempts failed. "
                                   f"Last error: {str(_final_err)[:80]}")
                             # 即使全部失败，也做最终容器探测
                             _fail_ct = detect_visible_containers(page)
@@ -2708,7 +2722,8 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             # iframe 操作：使用 frame_locator API（MVP 实现）
             frame_ref = params.get('frame', '') if isinstance(params, dict) else ''
             if not frame_ref:
-                print(f"    [ERROR] {keyword} 缺少 frame 参数: '{desc}'")
+                ref_suffix = _format_locator_ref(step)
+                print(f"    [ERROR] {keyword} 缺少 frame 参数: '{desc}'{ref_suffix}")
                 return None, matched_prefix or current_ct, False, False, hit_source
 
             # 解析 frame 参数
@@ -2748,7 +2763,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                     print(f"    [TRACE-P6] iframe element count={count}")
                     if count > 0:
                         return _iframe_execute_action(keyword, element_loc, verified_locator,
-                                                      page, params, data_dict, desc)
+                                                      page, params, data_dict, desc, step=step)
                 except Exception as e:
                     print(f"    [TRACE-P6] 指定 iframe 操作失败: {str(e)[:80]}，回退扫描")
 
@@ -2760,9 +2775,10 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                 frame_loc = page.frame_locator(_fb_selector)
                 element_loc = frame_loc.locator(verified_locator)
                 return _iframe_execute_action(keyword, element_loc, verified_locator,
-                                              page, params, data_dict, desc)
+                                              page, params, data_dict, desc, step=step)
 
-            print(f"    [ERROR] iframe 内未找到元素: '{desc}'")
+            ref_suffix = _format_locator_ref(step)
+            print(f"    [ERROR] iframe 内未找到元素: '{desc}'{ref_suffix}")
             print(f"    [ERROR]   frame='{frame_selector}', locator='{verified_locator[:100]}'")
             return None, matched_prefix or current_ct, False, False, hit_source
 
@@ -2797,6 +2813,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
 
     except Exception as e:
-        print(f"    [ERROR] '{desc}': {str(e)[:100]}")
+        ref_suffix = _format_locator_ref(step)
+        print(f"    [ERROR] '{desc}'{ref_suffix}: {str(e)[:100]}")
         return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
 

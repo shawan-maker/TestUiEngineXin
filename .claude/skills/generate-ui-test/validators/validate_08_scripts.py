@@ -1223,26 +1223,6 @@ def format_report(violations: List[Violation], project_dir: str) -> str:
 
 
 # ============================================================================
-# JSON 导出（供 generate_issues_report.py 消费）
-# ============================================================================
-
-def _export_phase8_json(project_dir: str, violations: List[Violation]):
-    """导出 Phase 8 violations 到 JSON（供 HTML 联合报告消费）"""
-    data = [
-        {
-            'file': v.file, 'line': v.line, 'rule': v.rule,
-            'severity': v.severity, 'message': v.message,
-            'suggestion': v.suggestion,
-        }
-        for v in violations
-    ]
-    output_path = os.path.join(project_dir, '_probe', 'phase8_violations.json')
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    with open(output_path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
-
-# ============================================================================
 # 主函数
 # ============================================================================
 
@@ -1388,9 +1368,6 @@ def main():
     # 输出报告
     report = format_report(all_violations, project_dir)
     print(report)
-
-    # 导出 JSON 供 HTML 联合报告消费
-    _export_phase8_json(project_dir, all_violations)
 
     # 退出码
     has_errors = any(v.severity == 'error' for v in all_violations)

@@ -487,7 +487,6 @@ my-system/
 ├── _probe/                         # 探测结果（discovery JSON，自动生成）
 ├── files/                          # 运行时文件（截图、下载）
 └── report/                         # HTML 报告
-    ├── generate_report/            # 脚本生成报告 (Phase 8)
     └── run_report/                 # 运行结果报告 (Phase 9)
 ```
 

@@ -356,36 +356,8 @@ def main():
     print("Analyzed: R6.1, R6.2, R6.3, R6.4")
     print("=" * 70)
 
-    # 输出 JSON 供 HTML 联合报告消费
-    _export_phase9_json(project_dir, errors, warnings, info, structured)
-
     # 纯分析模式：始终 exit 0，不阻断管线
     sys.exit(0)
-
-
-def _export_phase9_json(project_dir, errors, warnings, info, structured):
-    """导出 Phase 9 分析结果到 JSON（供 generate_issues_report.py 消费）"""
-    import json as _json
-
-    phase9_data = {
-        'errors': errors,
-        'warnings': warnings,
-        'info': info,
-        'error_count': len(errors),
-        'warning_count': len(warnings),
-        # X-4 修复: 添加结构化失败分类数据
-        'execution_errors': structured.get('execution_errors', []),
-        'assertion_errors': structured.get('assertion_errors', []),
-    }
-
-    output_path = os.path.join(project_dir, '_probe', 'phase9_analysis.json')
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    try:
-        with open(output_path, 'w', encoding='utf-8') as f:
-            _json.dump(phase9_data, f, ensure_ascii=False, indent=2)
-        print(f"[INFO] Phase 9 分析结果已导出: {output_path}")
-    except Exception as e:
-        print(f"[WARN] Phase 9 JSON 导出失败: {e}", file=sys.stderr)
 
 
 if __name__ == '__main__':

@@ -129,7 +129,7 @@ def _try_kb_resolve_detail_links(project_dir, pending, cookie, url,
         browser = pw.chromium.launch(headless=True)
         domain = urlparse(url).hostname
         cookies = parse_cookie(cookie, domain)
-        context = browser.new_context(no_viewport=True)
+        context = browser.new_context(no_viewport=True, ignore_https_errors=True)
         context.add_cookies(cookies)
 
         # Inject localStorage (same logic as main verify)

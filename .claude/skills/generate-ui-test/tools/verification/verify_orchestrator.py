@@ -776,7 +776,7 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
         domain = urlparse(base_url).hostname
         cookies = parse_cookie(cookie, domain)
 
-        context = browser.new_context(no_viewport=True)
+        context = browser.new_context(no_viewport=True, ignore_https_errors=True)
         context.add_cookies(cookies)
 
         # Build localStorage map: tokens from cookie (highest priority) + config + CLI
@@ -1420,7 +1420,7 @@ def main():
             print("  1. 浏览器 F12 → Network → 复制最新 Cookie")
             print("  2. 更新 config.yaml 中的 cookie 字段")
             print("  3. python pipeline.py run --project {目录} --from-phase phase_6_verify")
-            print("  ⚠️ 不要修改 cookie 以外的配置项")
+            print("  [WARN] 不要修改 cookie 以外的配置项")
             sys.exit(2)
 
         failed = result.get('failed', 0)

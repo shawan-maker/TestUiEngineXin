@@ -279,7 +279,7 @@ def runtime_check(config):
     try:
         pw = sync_playwright().start()
         browser = pw.chromium.launch(headless=True)
-        context = browser.new_context(no_viewport=True)
+        context = browser.new_context(no_viewport=True, ignore_https_errors=True)
 
         # 注入 cookie
         if cookie_str:

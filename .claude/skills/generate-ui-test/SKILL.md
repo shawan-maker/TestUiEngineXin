@@ -77,6 +77,15 @@ python tools/pipeline.py validate-refs --project {目录}
 
 **Cookie 收集**：提示用户从 F12 → Network → Cookie 复制。
 
+**禁止询问项**（违反"不需要人工交互"原则）：
+
+- ❌ "是否采集DOM" - Phase 4 自动执行
+- ❌ "是否运行Phase X" - 管线阶段全部自动执行
+- ❌ "是否跳过某阶段" - 使用 CLI 参数（`--only-phase`, `--from-phase`, `--skip-phase`），不询问
+- ❌ 任何关于"是否执行某功能"的询问 - 管线默认执行所有阶段
+
+**原则**：Phase 0 只收集 6 项配置信息，不询问执行策略。所有阶段默认执行，通过 CLI 参数控制。
+
 ## 全局约束
 
 **① 全 XPath**：禁止 CSS 选择器、`nth=0`，用 `[1]` 替代。

@@ -111,14 +111,14 @@ class BaseBrowser:
             headless=not is_debug,
             args=launch_args,
         )
-        # 4. 创建隔离浏览器上下文
+        # 4. 创建隔离浏览器上下文（忽略 HTTPS 证书错误，适配自签名证书）
         if is_debug:
             # 有头模式：不设 viewport，--start-maximized 让窗口铺满屏幕，
             # Playwright 自动使用窗口实际尺寸作为视口（含 DPI 缩放）
-            context = browser.new_context(no_viewport=True)
+            context = browser.new_context(no_viewport=True, ignore_https_errors=True)
         else:
             # 无头模式：固定 1920×1080 保证截图一致性
-            context = browser.new_context(viewport={"width": 1920, "height": 1080})
+            context = browser.new_context(viewport={"width": 1920, "height": 1080}, ignore_https_errors=True)
         # 5. 注入配置级 cookie（如果配置了 cookie 字段）
         self._apply_config_cookies(context)
         # 6. 创建页面 Tab（对应浏览器标签页）
@@ -156,11 +156,11 @@ class BaseBrowser:
         self.page.close()
         self.context.close()
         # 与 create_browser 保持一致：有头模式 no_viewport，无头模式固定 1920x1080
-        is_debug = self.config.get("is_debug", False)
+        # 同时忽略 HTTPS 证书错误，适配自签名证书
         if is_debug:
-            self.context = self.browser.new_context(no_viewport=True)
+            self.context = self.browser.new_context(no_viewport=True, ignore_https_errors=True)
         else:
-            self.context = self.browser.new_context(viewport={"width": 1920, "height": 1080})
+            self.context = self.browser.new_context(viewport={"width": 1920, "height": 1080}, ignore_https_errors=True)
         # 重置后重新注入配置中的 cookie
         self._apply_config_cookies(self.context)
         self.page = self.context.new_page()

@@ -1118,7 +1118,7 @@ class PipelineExecutor:
             "pages", "data", "cases", "suites",
             "lib", "_probe",
             "files/logs", "files/shortcuts", "files/downloads",
-            "report/generate_report", "report/run_report",
+            "report/run_report",
         ]
 
         # 共享资源层始终创建（common_elements / common_data 的写入目标）
@@ -1194,46 +1194,6 @@ class PipelineExecutor:
             errors.append(f"validate_08_scripts.py 失败 (exit {val_result.returncode})")
             if stderr_preview:
                 errors.append(f"验证器输出: {stderr_preview}")
-
-        # 2. 先生成报告（验证前必须有报告）
-        report_generator = Path(__file__).parent / "generators/generate_report.py"
-        if report_generator.exists():
-            output_path = Path(self.project_dir) / "report/generate_report/generation_report.html"
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                result = subprocess.run(
-                    [sys.executable, str(report_generator), self.project_dir, str(output_path)],
-                    capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120
-                )
-                if result.returncode != 0:
-                    errors.append(f"generate_report.py 失败 (exit {result.returncode})")
-                else:
-                    print(f"  ✅ 报告已生成: {output_path.relative_to(Path(self.project_dir))}")
-            except subprocess.TimeoutExpired:
-                errors.append("generate_report.py 超时")
-
-        # 3. 运行 validate_09_report.py（验证生成的报告）
-        report_validator = Path(__file__).parent.parent / "validators" / "validate_09_report.py"
-        if report_validator.exists():
-            result = subprocess.run(
-                [sys.executable, str(report_validator), self.project_dir],
-                capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120
-            )
-            if result.returncode != 0:
-                errors.append("validate_09_report.py 失败")
-
-        # 4. 生成 issues_report（如果存在）
-        issues_generator = Path(__file__).parent / "generators/generate_issues_report.py"
-        if issues_generator.exists():
-            try:
-                result = subprocess.run(
-                    [sys.executable, str(issues_generator), self.project_dir],
-                    capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120
-                )
-                if result.returncode != 0:
-                    errors.append("generate_issues_report.py 失败")
-            except subprocess.TimeoutExpired:
-                errors.append("generate_issues_report.py 超时")
 
         if errors:
             return PhaseResult("phase_8", PhaseStatus.FAILED, errors=errors)

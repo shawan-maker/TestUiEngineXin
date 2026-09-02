@@ -240,7 +240,7 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
 
     # BUG-5: Build module-scoped search directory
     if module:
-        module_dir = module.replace('_', '-')
+        module_dir = module
         search_root = os.path.join(pages_dir, module_dir)
         if not os.path.isdir(search_root):
             search_root = pages_dir  # fallback if module dir doesn't exist
@@ -540,7 +540,7 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
     # [DEBUG-WB] 后处理完成后：重新读取文件，打印最终状态
     print(f"\n  [DEBUG-WB] --- 后处理完成后: 重新读取 YAML 文件 ---")
     if module:
-        module_dir = module.replace('_', '-')
+        module_dir = module
         final_path = os.path.join(pages_dir, module_dir, 'elements.yaml')
         if os.path.exists(final_path):
             try:
@@ -573,7 +573,7 @@ def _write_iframe_companion_fields(project_dir, iframe_discoveries, module=None)
     # BUG-5: Build module-scoped search directory
     pages_dir = os.path.join(project_dir, 'pages')
     if module:
-        module_dir = module.replace('_', '-')
+        module_dir = module
         search_root = os.path.join(pages_dir, module_dir)
         if not os.path.isdir(search_root):
             search_root = pages_dir
@@ -807,7 +807,7 @@ def _update_case_iframe_keywords(project_dir, iframe_discoveries, module=None):
 
     cases_dir = os.path.join(project_dir, 'cases')
     if module:
-        module_dir = module.replace('_', '-')
+        module_dir = module
         search_root = os.path.join(cases_dir, module_dir)
         if not os.path.isdir(search_root):
             search_root = cases_dir
@@ -970,7 +970,7 @@ def _update_case_collapse_prefix(collapse_updates, project_dir, module=None):
 
     cases_dir = os.path.join(project_dir, 'cases')
     if module:
-        module_dir = module.replace('_', '-')
+        module_dir = module
         search_root = os.path.join(cases_dir, module_dir)
         if not os.path.isdir(search_root):
             search_root = cases_dir

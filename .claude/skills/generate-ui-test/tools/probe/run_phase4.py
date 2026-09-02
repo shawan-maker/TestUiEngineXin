@@ -437,8 +437,7 @@ def main():
             merged_path = _merge_discovery_files(probe_dir, slug)
             discovery_input = merged_path if merged_path else res['output']
 
-            dir_name = slug.replace('_', '-')
-            out_pages_dir = os.path.join(args.project, 'pages', dir_name)
+            out_pages_dir = os.path.join(args.project, 'pages', slug)
             os.makedirs(out_pages_dir, exist_ok=True)
             out_yaml = os.path.join(out_pages_dir, 'elements.yaml')
 

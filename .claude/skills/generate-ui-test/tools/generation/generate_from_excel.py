@@ -497,9 +497,8 @@ def _process_single_module(module_slug, case_list, discovery_dir, output_dir,
 
     # 2g. PagesWriter 生成 pages YAML
     if not args.skip_pages:
-        # 统一使用 hyphen 格式（与 Phase 4 run_phase4.py:327 保持一致）
-        pages_dir_name = module_slug.replace('_', '-')
-        pages_dir = os.path.join(output_dir, 'pages', pages_dir_name)
+        # 统一使用 snake_case 格式（与 cases/data/suites 保持一致）
+        pages_dir = os.path.join(output_dir, 'pages', module_slug)
         os.makedirs(pages_dir, exist_ok=True)
         pages_path = os.path.join(pages_dir, 'elements.yaml')
 

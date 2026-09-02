@@ -98,7 +98,7 @@ _TYPE_TAG_MAP = {
 
 # hit_source → marker 映射
 MARKER_MAP = {
-    'ai-probe-l0': '[AI-PROBE-L0]',
+    'ai-probe-struct': '[AI-PROBE-STRUCT]',
     'ai-probe-high': '[AI-PROBE]',
     'ai-probe-medium': '[AI-PROBE-WARN]',
 }
@@ -116,6 +116,7 @@ _framework = None       # 当前框架（'element-ui' | 'ant-design' | None）
 _XPATH_FROM_ELEMENT_JS = None
 _DOM_EXTRACT_JS = None
 _PAGE_SUMMARY_JS = None
+_DEEP_SCAN_JS = None
 
 
 # ============================================================================
@@ -130,7 +131,7 @@ def init(config_dict, framework=None):
         framework: 页面 UI 框架（'ant-design' | 'element-ui' | None）
     """
     global _config, _ai_call_count, _diagnoses, _framework
-    global _XPATH_FROM_ELEMENT_JS, _DOM_EXTRACT_JS, _PAGE_SUMMARY_JS
+    global _XPATH_FROM_ELEMENT_JS, _DOM_EXTRACT_JS, _PAGE_SUMMARY_JS, _DEEP_SCAN_JS
 
     _config = config_dict
     _ai_call_count = 0
@@ -151,6 +152,7 @@ def init(config_dict, framework=None):
     base_xpath_js = _load_ai_js('_ai_xpath_from_elem.js')
     base_dom_js = _load_ai_js('_ai_dom_extract.js')
     base_summary_js = _load_ai_js('_ai_page_summary.js')
+    base_deep_scan_js = _load_ai_js('_ai_deep_scan.js')
 
     _XPATH_FROM_ELEMENT_JS = _inject_fw_into_js(
         base_xpath_js,
@@ -167,6 +169,11 @@ def init(config_dict, framework=None):
         break_classes=break_classes,
         container_classes=container_classes,
         selectors=json.loads(selectors_json)
+    )
+    _DEEP_SCAN_JS = _inject_fw_into_js(
+        base_deep_scan_js,
+        break_classes=break_classes,
+        container_classes=container_classes
     )
 
 
@@ -214,14 +221,14 @@ def ai_probe_locator(page, step, label, elem_type, current_ct,
 
     ai_attempts = []
 
-    # ── Layer 0: Playwright 内置定位器 ──
+    # ── Layer 0: Deep Structural Scan（深度结构扫描）──
     if _config.get('layer0_enabled', True):
-        l0_result = _layer0_playwright(page, label, elem_type,
-                                        container_prefix_str, inject_hidden_filter)
+        l0_result = _layer0_deep_scan(page, label, elem_type,
+                                      container_prefix_str, inject_hidden_filter)
         if l0_result:
             xpath, strategy = l0_result
-            print(f"    [AI-PROBE-L0] '{desc}' → Playwright {strategy} (count=1)")
-            return _make_result(f"xpath={xpath}", 'ai-probe-l0')
+            print(f"    [AI-PROBE-STRUCT] '{desc}' → 深度扫描 {strategy} (count=1)")
+            return _make_result(f"xpath={xpath}", 'ai-probe-struct')
 
     # ── Layer 1: DOM 快照 + AI 单次生成 ──
     max_calls = _config.get('max_calls', 30)
@@ -320,59 +327,66 @@ def flush_diagnostics(project_dir):
 
 
 # ============================================================================
-# 内部：Layer 0 — Playwright 内置定位器
+# 内部：Layer 0 — 深度结构扫描（替代原 Playwright 语义 API）
 # ============================================================================
 
-def _layer0_playwright(page, label, elem_type, container_prefix_str,
-                        inject_hidden_filter):
-    """Layer 0: Playwright 内置定位器 + XPath 反推。
+def _layer0_deep_scan(page, label, elem_type, container_prefix_str,
+                      inject_hidden_filter):
+    """Layer 0: 深度结构扫描（替代原 Playwright 语义 API）。
+
+    在浏览器端执行 _ai_deep_scan.js，从 label 出发找到作用域容器，
+    按 elem_type 规则扫描目标元素，过滤后反推 XPath。
 
     Returns: (xpath, strategy_name) or None
     """
-    strategies = []
+    if _DEEP_SCAN_JS is None:
+        return None
 
-    if elem_type in ('button', 'table-action-button', 'submit-btn',
-                      'search-button', 'download-button', 'close-button'):
-        strategies.append(('role-button', page.get_by_role('button', name=label)))
-        strategies.append(('role-link', page.get_by_role('link', name=label)))
+    from core.framework_registry import get_deep_scan_rules, get_scan_break_classes
 
-    if elem_type in ('input-generic', 'textarea-generic'):
-        strategies.append(('role-textbox', page.get_by_role('textbox', name=label)))
-        strategies.append(('get-by-label', page.get_by_label(label)))
-        strategies.append(('placeholder', page.get_by_placeholder(label)))
+    scan_rules = get_deep_scan_rules(_framework)
+    scan_break = get_scan_break_classes(_framework)
 
-    if elem_type in ('el-select', 'el-cascader'):
-        strategies.append(('role-combobox', page.get_by_role('combobox', name=label)))
+    try:
+        result = page.evaluate(_DEEP_SCAN_JS, [
+            label, elem_type,
+            json.dumps(scan_rules),
+            json.dumps(scan_break),
+        ])
+    except Exception as e:
+        print(f"    [AI-PROBE-STRUCT] JS 执行失败: {str(e)[:80]}")
+        return None
 
+    if not result or not result.get('labelFound'):
+        return None  # label 不在 DOM 中，交给 Layer 1
 
-    if elem_type == 'tab':
-        strategies.append(('role-tab', page.get_by_role('tab', name=label)))
+    if result.get('bestMatch') is None or result['bestMatch'] < 0:
+        return None  # 无匹配候选
 
-    strategies.append(('title', page.get_by_title(label)))
+    candidate = result['candidates'][result['bestMatch']]
+    xpath = candidate.get('xpath')
+    if not xpath:
+        return None
 
-    for name, loc in strategies:
+    # 验证 XPath（count==1 + 可见）
+    full_xpath = inject_hidden_filter(f"xpath={xpath}")
+    try:
+        count = page.locator(full_xpath).count()
+    except Exception:
+        return None
+
+    if count == 1:
+        return xpath, 'deep-scan'
+
+    if count > 1:
+        # 尝试 [1] 收窄
+        narrowed = f"({xpath})[1]"
         try:
-            count = loc.count()
-            if count == 0 or count > 3:
-                continue
-
-            el = loc.first
-            xpath = el.evaluate(_XPATH_FROM_ELEMENT_JS)
-
-            verify_count = page.locator(f"xpath={xpath}").count()
-            if verify_count == 1:
-                return xpath, name
-
-            if verify_count > 1 and container_prefix_str:
-                scoped = f"{container_prefix_str}{xpath.lstrip('/')}"
-                scoped_count = page.locator(
-                    inject_hidden_filter(f"xpath={scoped}")
-                ).count()
-                if scoped_count == 1:
-                    return scoped, f"{name}+container"
-
+            nc = page.locator(inject_hidden_filter(f"xpath={narrowed}")).count()
+            if nc == 1:
+                return narrowed, 'deep-scan-narrowed'
         except Exception:
-            continue
+            pass
 
     return None
 

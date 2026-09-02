@@ -1333,14 +1333,31 @@ def main():
         for _, val in entries:
             all_search_vals.add(val)
 
+    # 构建 data_search_values 查找表：group.field → value（用于解析 ${var_ref}）
+    _data_val_map = {}
+    for _file, entries in ctx.get('data_search_values', {}).items():
+        for gf, val in entries:
+            _data_val_map[gf] = val
+
+    _var_ref_in_option = re.compile(r'\$\{([^}]+)\}')
     for pages_file, entries in ctx.get('pages_option_texts', {}).items():
         for field_name, option_text in entries:
-            found = any(option_text in sv or sv in option_text for sv in all_search_vals)
+            # 解析 ${var_ref} → 实际值
+            resolved = option_text
+            m_var = _var_ref_in_option.search(option_text)
+            if m_var:
+                ref = m_var.group(1)
+                if ref in _data_val_map:
+                    resolved = _data_val_map[ref]
+                else:
+                    # 变量引用在 data 中不存在，由 R4.31 捕获，这里跳过
+                    continue
+            found = any(resolved in sv or sv in resolved for sv in all_search_vals)
             if not found:
                 rp = rel_path(pages_file, project_dir)
                 all_violations.append(Violation(
                     file=rp, line=0, rule='R4.3', severity='error',
-                    message=f"{field_name} 选项文本 '{option_text}' 在 data/ 搜索值中未找到匹配",
+                    message=f"{field_name} 选项文本 '{resolved}' 在 data/ 搜索值中未找到匹配",
                     suggestion="选项 XPath 的 contains 文本必须与 data/ 中对应的 _search 值一致，禁止从 probe select_options 随意取值",
                 ))
 

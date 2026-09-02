@@ -2243,12 +2243,9 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         _last_iframe_discovery = _iframe_discovery
 
         if not verified_locator:
-            # ── R5: KB locator 兜底回写（规则 6 修复）──
-            # 即使 count=0，也用 KB locator 回写（比 [待确认] 更有价值）
-            # 理由：KB locator 结构正确，count=0 通常因为容器未打开，
-            #       Phase 9 运行时前序步骤正确执行后大概率能命中。
+            # ═══ R5 快速路径（仅 count≥1）═══
             # [TRACE-P6] R5 入口
-            print(f"    [TRACE-P6]   R5 fallback: entering (no verified_locator)")
+            print(f"    [TRACE-P6]   R5 快速路径: entering (no verified_locator)")
             _bg_locator = None
             _bg_source = None
 
@@ -2266,7 +2263,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             if not _bg_locator and label:
                 fb = kb_fallback(elem_type, label, label)
                 if fb and fb.get('locator'):
-                    _bg_raw = fb['locator'].replace('xpath=', '') if fb['locator'].startswith('xpath=') else fb['locator']
+                    _bg_raw = fb['locator'].replace('xpath=', '', 1) if fb['locator'].startswith('xpath=') else fb['locator']
                     _bg_locator = inject_hidden_filter(
                         f"xpath={_fallback_prefix_str}{_bg_raw}", elem_type=elem_type)
                     _bg_source = f'KB-fallback-{elem_type}'
@@ -2283,6 +2280,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             print(f"    [TRACE-P6]   R5 _bg_source={_bg_source}")
             print(f"    [TRACE-P6]   R5 _bg_locator={_bg_locator[:120] if _bg_locator else 'None'}")
 
+            # R5 快速路径：仅 count≥1 时回写
             if _bg_locator:
                 # 防御性：count>1 时自动 [1] 收窄（与 M11 兜底路径一致）
                 # 场景：表格异步加载未完成时 count=0，加载完 count>1（行按钮等）
@@ -2293,52 +2291,61 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                     verified_locator = _bg_narrowed
                     _bg_note = ('已 [1] 收窄' if _bg_narrowed != _bg_locator
                                 else 'count=1')
+                    is_best_guess = True
+                    print(f"    [UNVERIFIED] '{desc}' → {_bg_source} "
+                          f"({_bg_note}, R5快速路径)")
                 else:
-                    # count==0：加 [1] 防御 Phase 9 strict mode（与 Fix-6 对齐）
-                    # 场景：验证时元素不可见，Phase 9 运行时可能出现多个匹配
-                    _raw = (_bg_locator.replace('xpath=', '', 1)
-                            if _bg_locator.startswith('xpath=')
-                            else _bg_locator)
-                    # 防止重复包裹：检查是否已有 (xpath)[N] 形式
-                    inner, wrap = _unwrap_positional(_raw)
-                    if not wrap:  # 没有已有 positional 包裹
-                        verified_locator = f"xpath=({_raw})[1]"
-                        _bg_note = 'count=0, [1] 防御'
-                    else:
-                        verified_locator = _bg_locator  # 已有包裹，不重复添加
-                        _bg_note = 'count=0, 已有包裹跳过'
-                is_best_guess = True
-                print(f"    [UNVERIFIED] '{desc}' → {_bg_source} "
-                      f"({_bg_note}, 兜底回写)")
-            else:
-                # ── R6: KB 已穷尽，打印警告 ──
-                # R5 失败意味着 KB 模板 + KB fallback + 第一个 candidate 全部 count=0
-                # probe_element() 深度探测与 R5 的 KB 遍历重复，不再调用
-                if is_placeholder:
-                    print(f"    [WARN] '{desc}' → KB 已穷尽，locator 仍为 [待确认]，"
-                          f"请检查前序步骤是否正确打开了容器")
+                    # count==0: 不回写，进入深度扫描
+                    print(f"    [TRACE-P6]   R5快速路径: {_bg_source} count=0, 进入深度扫描")
 
-                # ── R6: AI 兜底探测（新增）──
-                if (_HAS_AI_PROBE and is_placeholder and label
-                        and page is not None):
-                    _r6 = _ai_probe_locator(
-                        page, step, label, elem_type, current_ct,
-                        steps_so_far, container_context, inject_hidden_filter)
-                    if _r6:
+            # ═══ 深度扫描（新增，带验证门控）═══
+            if not verified_locator and _HAS_AI_PROBE and label and page is not None:
+                print(f"    [TRACE-P6]   深度扫描: 尝试 Layer 0")
+                _r6 = _ai_probe_locator(
+                    page, step, label, elem_type, current_ct,
+                    steps_so_far, container_context, inject_hidden_filter)
+                if _r6:
+                    # 验证门控
+                    _valid, _reason = _validate_deep_scan_result(
+                        page, _r6['locator'], label, elem_type, container_context)
+                    if _valid:
                         verified_locator = _r6['locator']
                         is_best_guess = _r6['is_best_guess']
                         hit_source = _r6['hit_source']
-
-                # 走原有逻辑
-                if not verified_locator:
-                    is_best_guess = False
-                    hit_source = None
-                    if is_placeholder:
-                        print(f"    [WARN] 占位符步骤 '{desc}' 验证失败 — "
-                              f"KB 和 discovery 均未匹配，请检查前序步骤是否正确打开了容器")
+                        print(f"    [AI-PROBE] '{desc}' → {_r6['hit_source']} (门控通过: {_reason})")
                     else:
-                        print(f"    [FALLBACK] '{desc}' — no candidate matched, KB 无覆盖")
-                    return None, current_ct, False, False, hit_source
+                        print(f"    [AI-PROBE-REJECT] '{desc}' → 门控拒绝: {_reason}")
+
+            # ═══ R6 AI 兜底（带验证门控）═══
+            # 注意：_ai_probe_locator 内部已包含 Layer 1/2，此处无需额外处理
+            # 如果深度扫描的 Layer 0 失败，_ai_probe_locator 会自动尝试 Layer 1/2
+            # 所以这里的 _r6 已经包含了 Layer 1/2 的结果
+
+            # ═══ R5 慢速路径（count=0 兜底回写）═══
+            if not verified_locator and _bg_locator:
+                _raw = (_bg_locator.replace('xpath=', '', 1)
+                        if _bg_locator.startswith('xpath=') else _bg_locator)
+                inner, wrap = _unwrap_positional(_raw)
+                if not wrap:  # 没有已有 positional 包裹
+                    verified_locator = f"xpath=({_raw})[1]"
+                    _bg_note = 'count=0, [1] 防御'
+                else:
+                    verified_locator = _bg_locator  # 已有包裹，不重复添加
+                    _bg_note = 'count=0, 已有包裹跳过'
+                is_best_guess = True
+                print(f"    [UNVERIFIED] '{desc}' → {_bg_source} "
+                      f"({_bg_note}, R5慢速路径)")
+
+            # 最终失败
+            if not verified_locator:
+                is_best_guess = False
+                hit_source = None
+                if is_placeholder:
+                    print(f"    [WARN] 占位符步骤 '{desc}' 验证失败 — "
+                          f"KB 和 discovery 均未匹配，请检查前序步骤是否正确打开了容器")
+                else:
+                    print(f"    [FALLBACK] '{desc}' — no candidate matched, KB 无覆盖")
+                return None, current_ct, False, False, hit_source
 
     # Execute the step
     # _iframe_discovery 已在上方 iframe 探测阶段设置，此处不再初始化
@@ -2816,4 +2823,138 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         ref_suffix = _format_locator_ref(step)
         print(f"    [ERROR] '{desc}'{ref_suffix}: {str(e)[:100]}")
         return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
+
+
+# ============================================================
+# 验证门控函数（Phase 6 深度扫描/AI 结果校验）
+# ============================================================
+
+def _validate_deep_scan_result(page, locator, label, elem_type, container_context):
+    """验证深度扫描/AI 生成结果的语义正确性（三道防线）
+
+    Args:
+        page: Playwright Page 对象
+        locator: "xpath=..." 格式的 locator
+        label: 目标元素的标签文本
+        elem_type: 元素类型
+        container_context: 容器上下文（dialog/drawer/None）
+
+    Returns:
+        (valid, reason): bool, str
+            valid: 是否通过验证
+            reason: 通过/拒绝的原因
+    """
+    if not locator or not locator.startswith('xpath='):
+        return False, 'invalid locator format'
+
+    xpath = locator.replace('xpath=', '', 1)
+
+    # 提取元素信息
+    try:
+        el = page.locator(locator).first
+        tag = el.evaluate("e => e.tagName.toLowerCase()")
+        text = el.inner_text(timeout=1000).strip()
+        placeholder = el.get_attribute('placeholder') or ''
+        classes = el.evaluate("e => e.className || ''")
+    except Exception as e:
+        return False, f'evaluate failed: {str(e)[:50]}'
+
+    # ═══ 防线 1: 文本匹配校验 ═══
+    # 按钮类：元素文本必须包含 label
+    if elem_type in ('button', 'submit-btn', 'tab', 'table-action-button',
+                     'search-button', 'download-button'):
+        if label not in text:
+            return False, f"button text='{text}' 不包含 label='{label}'"
+
+    # 输入类：检查 placeholder 或相邻 label
+    if elem_type in ('input-generic', 'textarea-generic'):
+        # 增强：检查是否在 el-select 内部（避免误匹配）
+        try:
+            in_select = el.evaluate("""
+                el => el.closest('.el-select, .ant-select') !== null
+            """)
+            if in_select:
+                return False, f"input 在 el-select 内部，可能是误匹配"
+        except:
+            pass
+
+        if label in text or label in placeholder:
+            pass  # 文本匹配成功
+        else:
+            # 检查相邻 label 元素
+            try:
+                parent_label = el.evaluate("""
+                    el => {
+                        const formItem = el.closest('.el-form-item, .ant-form-item');
+                        if (formItem) {
+                            const label = formItem.querySelector('label');
+                            return label ? label.textContent.trim() : '';
+                        }
+                        return '';
+                    }
+                """)
+                if label not in parent_label:
+                    return False, f"input 无文本关联: text='{text}', placeholder='{placeholder}', parent_label='{parent_label}'"
+            except:
+                return False, f"input 无法验证文本关联"
+
+    # select/cascader：检查相邻 label
+    if elem_type in ('el-select', 'el-cascader'):
+        try:
+            parent_label = el.evaluate("""
+                el => {
+                    const formItem = el.closest('.el-form-item, .ant-form-item');
+                    if (formItem) {
+                        const label = formItem.querySelector('label');
+                        return label ? label.textContent.trim() : '';
+                    }
+                    return '';
+                }
+            """)
+            if label not in parent_label:
+                return False, f"select 无文本关联: parent_label='{parent_label}'"
+        except:
+            return False, f"select 无法验证文本关联"
+
+    # ═══ 防线 2: 容器上下文校验 ═══
+    # 如果当前容器上下文是 dialog/drawer，但元素不在容器内 → 拒绝
+    if container_context in ('dialog', 'drawer', 'message-box', 'ant-modal', 'ant-drawer'):
+        try:
+            in_container = el.evaluate(f"""
+                el => {{
+                    const containerSelectors = {{
+                        'dialog': '.el-dialog, .ant-modal',
+                        'drawer': '.el-drawer, .ant-drawer',
+                        'message-box': '.el-message-box, .ant-modal-confirm',
+                        'ant-modal': '.ant-modal',
+                        'ant-drawer': '.ant-drawer'
+                    }};
+                    const selector = containerSelectors['{container_context}'] || '';
+                    if (!selector) return true;
+                    return el.closest(selector) !== null;
+                }}
+            """)
+            if not in_container:
+                return False, f"元素不在期望容器 {container_context} 内"
+        except:
+            return False, f"无法验证容器上下文"
+
+    # ═══ 防线 3: 元素类型校验 ═══
+    # 检查 tag 是否符合 elem_type 的预期
+    expected_tags = {
+        'button': ['button', 'a', 'span'],
+        'submit-btn': ['button'],
+        'input-generic': ['input', 'textarea'],
+        'textarea-generic': ['textarea'],
+        'el-select': ['input', 'div'],
+        'el-cascader': ['input', 'div'],
+        'tab': ['div', 'li', 'a'],
+        'table-action-button': ['button', 'a', 'span'],
+    }
+    if elem_type in expected_tags:
+        if tag not in expected_tags[elem_type]:
+            return False, f"tag='{tag}' 不符合 elem_type={elem_type}"
+
+    # 所有防线通过
+    return True, f"tag={tag}, text='{text[:30]}'"
 

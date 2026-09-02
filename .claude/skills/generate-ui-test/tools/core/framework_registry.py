@@ -334,6 +334,226 @@ GENERATOR_LOCATORS = {
 }
 
 # ============================================================
+# 深度扫描规则（Deep Structural Scan）
+# ============================================================
+
+DEEP_SCAN_RULES = {
+    'element-ui': {
+        'input-generic': {
+            'scan': 'input, textarea',
+            'excludeInsideSelect': True,
+            'excludeInsideCascader': True,
+            'excludeInsideDatePicker': True,
+            'needTextMatch': False,
+        },
+        'textarea-generic': {
+            'scan': 'textarea',
+            'excludeInsideSelect': False,
+            'excludeInsideCascader': False,
+            'excludeInsideDatePicker': False,
+            'needTextMatch': False,
+        },
+        'el-select': {
+            'scan': '.el-select .el-input__inner',
+            'excludeInsideSelect': False,
+            'excludeInsideCascader': True,
+            'excludeInsideDatePicker': True,
+            'needTextMatch': False,
+        },
+        'el-cascader': {
+            'scan': '.el-cascader .el-input__inner',
+            'excludeInsideSelect': True,
+            'excludeInsideCascader': False,
+            'excludeInsideDatePicker': True,
+            'needTextMatch': False,
+        },
+        'button': {
+            'scan': 'button, a[role="button"], span[class*="btn"]',
+            'excludeInsideSelect': False,
+            'excludeInsideCascader': False,
+            'excludeInsideDatePicker': False,
+            'needTextMatch': True,
+        },
+        'table-action-button': {
+            'scan': 'button, a, span[class*="link"], span[style*="cursor"]',
+            'excludeInsideSelect': False,
+            'excludeInsideCascader': False,
+            'excludeInsideDatePicker': False,
+            'needTextMatch': True,
+        },
+        'detail-link': {
+            'scan': 'a, span[class*="link"], td[class*="name"]',
+            'excludeInsideSelect': False,
+            'excludeInsideCascader': False,
+            'excludeInsideDatePicker': False,
+            'needTextMatch': True,
+        },
+        'tab': {
+            'scan': '.el-tabs__item',
+            'excludeInsideSelect': False,
+            'excludeInsideCascader': False,
+            'excludeInsideDatePicker': False,
+            'needTextMatch': True,
+        },
+        'submit-btn': {
+            'scan': 'button[type="submit"], button.el-button--primary, button.ec-button--primary',
+            'excludeInsideSelect': False,
+            'excludeInsideCascader': False,
+            'excludeInsideDatePicker': False,
+            'needTextMatch': True,
+        },
+        'search-button': {
+            'scan': 'button, .el-input-group__append button',
+            'excludeInsideSelect': False,
+            'excludeInsideCascader': False,
+            'excludeInsideDatePicker': False,
+            'needTextMatch': True,
+        },
+        'close-button': {
+            'scan': 'i.el-icon-close, button .el-icon-close, .el-dialog__close',
+            'excludeInsideSelect': False,
+            'excludeInsideCascader': False,
+            'excludeInsideDatePicker': False,
+            'needTextMatch': False,
+        },
+        'download-button': {
+            'scan': 'button, a[download], i.el-icon-download',
+            'excludeInsideSelect': False,
+            'excludeInsideCascader': False,
+            'excludeInsideDatePicker': False,
+            'needTextMatch': True,
+        },
+        'checkbox': {
+            'scan': '.el-checkbox__inner, input[type="checkbox"]',
+            'excludeInsideSelect': False,
+            'excludeInsideCascader': False,
+            'excludeInsideDatePicker': False,
+            'needTextMatch': True,
+        },
+        '_default': {
+            'scan': 'input, textarea, button, a, select',
+            'excludeInsideSelect': True,
+            'excludeInsideCascader': True,
+            'excludeInsideDatePicker': True,
+            'needTextMatch': False,
+        },
+    },
+    'ant-design': {
+        'input-generic': {
+            'scan': 'input.ant-input, textarea.ant-input',
+            'excludeInsideSelect': True,
+            'excludeInsideCascader': True,
+            'excludeInsideDatePicker': True,
+            'needTextMatch': False,
+        },
+        'textarea-generic': {
+            'scan': 'textarea.ant-input',
+            'excludeInsideSelect': False,
+            'excludeInsideCascader': False,
+            'excludeInsideDatePicker': False,
+            'needTextMatch': False,
+        },
+        'el-select': {
+            'scan': '.ant-select .ant-select-selector',
+            'excludeInsideSelect': False,
+            'excludeInsideCascader': True,
+            'excludeInsideDatePicker': True,
+            'needTextMatch': False,
+        },
+        'el-cascader': {
+            'scan': '.ant-cascader .ant-select-selector',
+            'excludeInsideSelect': True,
+            'excludeInsideCascader': False,
+            'excludeInsideDatePicker': True,
+            'needTextMatch': False,
+        },
+        'button': {
+            'scan': 'button.ant-btn, a.ant-btn',
+            'excludeInsideSelect': False,
+            'excludeInsideCascader': False,
+            'excludeInsideDatePicker': False,
+            'needTextMatch': True,
+        },
+        'table-action-button': {
+            'scan': 'button.ant-btn, a.ant-btn, .ant-dropdown-trigger',
+            'excludeInsideSelect': False,
+            'excludeInsideCascader': False,
+            'excludeInsideDatePicker': False,
+            'needTextMatch': True,
+        },
+        'detail-link': {
+            'scan': 'a, span[class*="link"], td[class*="name"]',
+            'excludeInsideSelect': False,
+            'excludeInsideCascader': False,
+            'excludeInsideDatePicker': False,
+            'needTextMatch': True,
+        },
+        'tab': {
+            'scan': '.ant-tabs-tab',
+            'excludeInsideSelect': False,
+            'excludeInsideCascader': False,
+            'excludeInsideDatePicker': False,
+            'needTextMatch': True,
+        },
+        'submit-btn': {
+            'scan': 'button[type="submit"], button.ant-btn-primary',
+            'excludeInsideSelect': False,
+            'excludeInsideCascader': False,
+            'excludeInsideDatePicker': False,
+            'needTextMatch': True,
+        },
+        'search-button': {
+            'scan': 'button.ant-btn',
+            'excludeInsideSelect': False,
+            'excludeInsideCascader': False,
+            'excludeInsideDatePicker': False,
+            'needTextMatch': True,
+        },
+        'close-button': {
+            'scan': '.ant-modal-close, .ant-drawer-close, span.anticon-close',
+            'excludeInsideSelect': False,
+            'excludeInsideCascader': False,
+            'excludeInsideDatePicker': False,
+            'needTextMatch': False,
+        },
+        'download-button': {
+            'scan': 'button.ant-btn, a[download]',
+            'excludeInsideSelect': False,
+            'excludeInsideCascader': False,
+            'excludeInsideDatePicker': False,
+            'needTextMatch': True,
+        },
+        'checkbox': {
+            'scan': '.ant-checkbox-inner, input[type="checkbox"]',
+            'excludeInsideSelect': False,
+            'excludeInsideCascader': False,
+            'excludeInsideDatePicker': False,
+            'needTextMatch': True,
+        },
+        '_default': {
+            'scan': 'input, textarea, button, a, select',
+            'excludeInsideSelect': True,
+            'excludeInsideCascader': True,
+            'excludeInsideDatePicker': True,
+            'needTextMatch': False,
+        },
+    },
+}
+
+SCAN_BREAK_CLASSES = {
+    'element-ui': [
+        'el-form-item', 'el-dialog', 'el-drawer', 'el-message-box',
+        'el-table__body', 'el-table__fixed-right',
+        'el-form--inline', 'el-tabs__nav',
+    ],
+    'ant-design': [
+        'ant-form-item', 'ant-modal', 'ant-drawer',
+        'ant-table-tbody', 'ant-table-fixed-right',
+        'ant-tabs-nav',
+    ],
+}
+
+# ============================================================
 # 查询函数
 # ============================================================
 
@@ -508,4 +728,72 @@ def get_prompt_templates(framework=None):
     """
     return PROMPT_TEMPLATES.get(
         framework, PROMPT_TEMPLATES.get('element-ui', {})
+    )
+
+
+def get_deep_scan_rules(framework=None):
+    """获取深度扫描规则
+
+    Args:
+        framework: 'element-ui' / 'ant-design' / None
+
+    Returns:
+        dict，每个 elem_type 对应一个扫描规则 dict
+    """
+    return DEEP_SCAN_RULES.get(
+        framework, DEEP_SCAN_RULES.get('element-ui', {})
+    )
+
+
+def get_scan_break_classes(framework=None):
+    """获取深度扫描容器中断类名
+
+    Args:
+        framework: 'element-ui' / 'ant-design' / None
+
+    Returns:
+        类名列表
+    """
+    return SCAN_BREAK_CLASSES.get(
+        framework, SCAN_BREAK_CLASSES.get('element-ui', [])
+    )
+
+
+# ============================================================
+# 验证门控规则（Validation Gate）
+# ============================================================
+
+VALIDATION_RULES = {
+    'element-ui': {
+        'container_selectors': {
+            'dialog': '.el-dialog',
+            'drawer': '.el-drawer',
+            'message-box': '.el-message-box',
+        },
+        'form_item_selector': '.el-form-item',
+        'label_selector': 'label',
+    },
+    'ant-design': {
+        'container_selectors': {
+            'dialog': '.ant-modal',
+            'drawer': '.ant-drawer',
+            'message-box': '.ant-modal-confirm',
+        },
+        'form_item_selector': '.ant-form-item',
+        'label_selector': 'label',
+    },
+}
+
+
+def get_validation_rules(framework=None):
+    """获取验证规则
+
+    Args:
+        framework: 'element-ui' / 'ant-design' / None
+
+    Returns:
+        dict with container_selectors, form_item_selector, label_selector
+    """
+    return VALIDATION_RULES.get(
+        framework, VALIDATION_RULES.get('element-ui', {})
     )

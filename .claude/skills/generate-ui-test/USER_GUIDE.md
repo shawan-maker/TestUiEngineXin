@@ -7,12 +7,16 @@
 ## 目录
 
 - [一、前置准备](#一前置准备)
+  - [1.3 认证配置详解](#13-认证配置详解)
 - [二、准备 Excel 用例](#二准备-excel-用例)
+  - [关键字优先级](#关键字优先级)
 - [三、场景一：新建完整项目](#三场景一新建完整项目)
 - [四、场景二：已有项目——新增用例](#四场景二已有项目新增用例)
 - [五、场景三：排查与修复](#五场景三排查与修复)
+  - [5.7 常见问题](#57-常见问题)
 - [附录 A：生成的项目目录结构](#附录-a生成的项目目录结构)
 - [附录 B：常用命令速查表](#附录-b常用命令速查表)
+  - [管线各阶段单独运行](#管线各阶段单独运行)
 - [附录 C：Excel 步骤描述格式规范](#附录-cexcel-步骤描述格式规范)
 
 ---
@@ -35,6 +39,34 @@ playwright install chromium
 3. 在技能交互阶段粘贴给 AI
 
 > Cookie 有过期时间，过期后需重新获取（见 [5.4 Cookie 过期替换](#54-cookie-过期替换)）。
+
+### 1.3 认证配置详解
+
+根据被测系统的认证方式选择对应配置：
+
+| 方式 | 适用场景 | 注入方式 |
+|------|---------|---------|
+| 用户名密码 | 无验证码或验证码固定 | 写在用例步骤中，无需注入 |
+| **Cookie**（推荐） | 有验证码，无法自动登录 | 引擎自动注入（`open_browser` 时） |
+| Header Token | 前后端分离 | suite 的 `setup_step` 中 `inject_token_header` |
+| localStorage | 前端 Token 存储 | suite 的 `setup_step` 中 `inject_local_storage` |
+
+**Cookie 认证配置**：
+```yaml
+# config.yaml
+cookie: "ud_token=eyJhbGci...; lang=zh-CN"
+cookie_domain: "100.71.19.25"
+```
+
+**localStorage 认证配置**：
+```yaml
+# config.yaml
+local_storage:
+  ud_token: "eyJhbGciOiJIUzI1NiIs..."   # 与 cookie 中的 token 一致
+  accessToken: "另一个token值"           # 某些系统需要多个 key
+```
+
+> **提示**：某些系统 token 同时存在 Cookie 和 localStorage 中，两者都需要配置。
 
 ---
 
@@ -71,6 +103,21 @@ Excel 步骤中可以使用以下关键字，AI 会自动识别并生成对应�
 | 首页列表校验 | `首页列表校验(待办事项)` | 获取指定区域列表行数 → 数量>0 则点击第一条链接 | 技能内置 |
 
 > **L3 关键字调用格式**：`关键字名(参数1, 参数2)` — 无参数时直接写关键字名。
+
+#### 关键字优先级
+
+测试用例中**优先使用 UIEngine 封装的关键字**，保证可读性和可维护性：
+
+| 优先级 | 关键字 | 说明 |
+|:------:|--------|------|
+| 1 | `click_element` | 点击按钮、链接等 |
+| 1 | `fill_value` | 输入框填写内容 |
+| 1 | `click_select_option` | 下拉框选择（原生 select 或非 Element UI） |
+| 1 | `wait_for_element` / `wait_for_element_hidden` | 等待元素出现/消失 |
+| 1 | `except_to_be_visible` | 断言验证（统一使用可见性断言） |
+| 2 | `execute_script` | **仅当上述方法不可用时**作为后备 |
+
+> `execute_script` 中的 JS 脚本不支持 `${variable}` 变量替换，且测试人员不易维护，应尽量避免。
 
 #### 特殊值表达式
 
@@ -374,6 +421,39 @@ python run.py
 
 AI 会分析错误、重新探测、修改定位器、重新验证。提供越详细的错误信息，修复越准确。
 
+### 5.7 常见问题
+
+**Q：用例 ID 怎么来的？**
+A：AI 根据模块名和用例名称自动生成（如"正确密码登录"→ `login-correct-password`）。
+
+**Q：元素定位不准确怎么办？**
+A：直接编辑 `pages/{module}/elements.yaml` 中的 XPath。修改后建议重新运行 Phase 6 验证：
+```bash
+python .claude/skills/generate-ui-test/tools/verification/verify_orchestrator.py {project} \
+  --cookie "..." --url "..." --module "{module}"
+```
+
+**Q：Cookie/Token 过期了怎么办？**
+A：重新手动登录获取新值，更新 `config.yaml` 即可。无需重新生成工程。
+
+**Q：系统有验证码怎么处理？**
+A：推荐让开发在测试环境关闭验证码。如果无法关闭，使用 Cookie 认证方式跳过登录。
+
+**Q：生成的用例可以修改吗？**
+A：可以。`cases/`、`pages/`、`data/` 下的 YAML 文件都可以手动修改。修改后建议运行 Phase 8 校验引用完整性：
+```bash
+python tools/pipeline.py validate-refs --project {项目目录}
+```
+
+**Q：如何添加新的 L3 关键字？**
+A：在项目 `_knowledge/` 目录下创建 YAML 文件，按照 `system_workflows.yaml` 的格式定义关键字，然后重新运行 Phase 3 编译：
+```bash
+python tools/pipeline.py run --project {目录} --only-phase phase_3_keywords
+```
+
+**Q：多模块项目如何管理？**
+A：每个模块独立目录（`pages/module1/`、`cases/module1/` 等），`suites/` 下可以创建跨模块的组合套件。运行时可以指定 `--module module1` 只运行特定模块。
+
 ---
 
 ## 附录 A：生成的项目目录结构
@@ -435,6 +515,58 @@ python run.py --all --debug
 python run.py --all --debug --max-retries 5
 python run.py --module compute --debug
 ```
+
+### 管线各阶段单独运行
+
+当需要调试或重新生成特定模块时，可以单独运行各个阶段（高级用法）：
+
+**Phase 4：页面探测**
+```bash
+python .claude/skills/generate-ui-test/tools/probe/run_phase4.py \
+  --excel "测试用例.xlsx" \
+  --config "项目/config.yaml" \
+  --project "项目/" \
+  --cookie "cookie_string" \
+  --module "模块名" \
+  --local-storage '{"key1":"value1"}'
+```
+
+**Phase 5：代码生成**
+```bash
+python .claude/skills/generate-ui-test/tools/generation/generate_from_excel.py \
+  "项目/_probe/excel_parsed.json" \
+  --discovery-dir "项目/_probe" \
+  --output-dir "项目/" \
+  --module-map "中文名=slug" \
+  --module-slug "目标模块slug"
+```
+
+**Phase 6：定位器验证**
+```bash
+python .claude/skills/generate-ui-test/tools/verification/verify_orchestrator.py \
+  "项目/" \
+  --cookie "cookie_string" \
+  --url "http://目标URL" \
+  --module "模块slug" \
+  --headed
+```
+
+**完整单模块调试流程**：
+```bash
+# 1. 清理旧产物（谨慎操作）
+rm -rf 项目/cases/模块 项目/data/模块 项目/pages/模块
+
+# 2. Phase 4：重新探测
+python .claude/skills/generate-ui-test/tools/probe/run_phase4.py ...
+
+# 3. Phase 5：重新生成
+python .claude/skills/generate-ui-test/tools/generation/generate_from_excel.py ...
+
+# 4. Phase 6：验证定位器
+python .claude/skills/generate-ui-test/tools/verification/verify_orchestrator.py ...
+```
+
+> **注意**：建议优先使用 `python pipeline.py` 统一编排，单阶段运行仅用于调试。
 
 ### 调试模式交互命令
 

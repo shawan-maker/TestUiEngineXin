@@ -14,6 +14,7 @@
 - [四、场景二：已有项目——新增用例](#四场景二已有项目新增用例)
 - [五、场景三：排查与修复](#五场景三排查与修复)
   - [5.7 常见问题](#57-常见问题)
+  - [XPath Picker 快速定位修复](#xpath-picker-快速定位修复)
 - [附录 A：生成的项目目录结构](#附录-a生成的项目目录结构)
 - [附录 B：常用命令速查表](#附录-b常用命令速查表)
   - [管线各阶段单独运行](#管线各阶段单独运行)
@@ -265,7 +266,50 @@ python run.py --module compute --debug
 - 输入 `r`：重试当前用例（从头执行，包含环境隔离步骤）
 - 输入 `s`：跳过当前用例，继续执行后续用例
 - 输入 `q`：终止全部执行，生成报告
+- 输入 `p`：启动 XPath Picker 拾取元素定位器（详见下文）
 - 非交互式环境（CI/CD）自动降级为跳过模式
+
+#### XPath Picker 快速定位修复
+
+测试失败时，按 `p` 启动交互式 XPath Picker，在浏览器中点选元素自动修复定位器：
+
+**操作流程**：
+1. 测试失败后，输入 `p` 启动 Picker
+2. 在浏览器中悬停/点击目标元素（新选择自动覆盖旧的）
+3. 点击浮层上的 💾 **写入 YAML** 按钮
+4. Picker 自动退出，提示"写回完成"
+5. 输入 `r` 重试用例（立即使用新定位器）
+
+**修复机制**：
+- 磁盘更新：直接修改 `pages/{module}/elements.yaml` 中目标元素的 XPath 值
+- 内存更新：同步更新运行时的 `config['global_variable']`，重试时立即生效
+- 自动退出：写回成功后自动关闭 Picker，无需手动按 Esc
+
+**示例**：
+```
+用例 [项目管理-阻塞报备] 失败: Timeout 3000ms exceeded.
+请选择: p
+
+🔍 XPath Picker 已激活
+   目标元素: case_项目管理-阻塞报备.阻塞报备_menu_item
+   - Click 元素拾取并验证（新选择覆盖旧的）
+   - 💾 写入 YAML 按钮直接更新目标元素
+
+✅ 拾取: 归档
+   类型: dropdown-menu-item [dropdown-menu]
+   XPath: //*[contains(text(), '归档') and not(ancestor::div[contains(@class,'el-select-dropdown')])]
+   验证: count=1, 策略: P1
+
+💾 已更新: case_项目管理-阻塞报备.阻塞报备_menu_item
+   旧值: xpath=//*[@x-placement...]...
+   新值: xpath=//*[@x-placement...]//*[contains(text(), '归档')]
+   内存定位器已更新: case_项目管理-阻塞报备.阻塞报备_menu_item
+
+💾 写回完成，正在自动退出拾取模式...
+请选择: r  ← 立即重试，使用新定位器
+```
+
+> **注意**：Picker 会自动识别失败步骤的 `group.field` 引用，只更新目标元素，不会创建新字段。
 
 ---
 
@@ -576,6 +620,7 @@ python .claude/skills/generate-ui-test/tools/verification/verify_orchestrator.py
 | `r` | 重试当前用例（从头执行，包含环境隔离步骤） |
 | `s` | 跳过当前用例，继续执行后续用例 |
 | `q` | 终止全部执行，生成报告 |
+| `p` | 启动 XPath Picker 拾取元素定位器（写回后自动退出，按 `r` 重试立即生效） |
 
 > **注意**：非交互式环境（CI/CD、后台任务）自动降级为跳过模式，不会阻塞执行。
 

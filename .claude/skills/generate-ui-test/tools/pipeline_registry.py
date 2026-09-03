@@ -38,6 +38,11 @@ def _has_excel(ctx) -> bool:
     return getattr(ctx, 'excel_path', None) is not None
 
 
+def _has_nl_input(ctx) -> bool:
+    """检查是否有自然语言输入（与 Excel 互斥）"""
+    return getattr(ctx, 'cases_input_path', None) is not None
+
+
 # ─── 阶段定义 ───
 
 PHASE_DEFINITIONS: dict[str, dict[str, Any]] = {
@@ -80,6 +85,25 @@ PHASE_DEFINITIONS: dict[str, dict[str, Any]] = {
         "artifacts": ["{project_dir}/_probe/excel_parsed.json"],
         "optional": True,
         "condition": _has_excel,
+        "multi_module": False,
+    },
+
+    "phase_1_nl": {
+        "name": "自然语言预检",
+        "tool": "text/normalize_steps.py",
+        "tool_args": [
+            "{cases_input_path}",
+            "--output", "{project_dir}/_probe/cases_raw.json",
+            "--module", "{module_slug}",
+            "--target-url", "{target_url}",
+            "--non-interactive",
+        ],
+        "validator": None,          # normalize_steps 自带 exit code
+        "hard_deps": ["phase_0"],
+        "soft_deps": [],
+        "artifacts": ["{project_dir}/_probe/cases_raw.json"],
+        "optional": True,
+        "condition": _has_nl_input,
         "multi_module": False,
     },
 
@@ -146,8 +170,8 @@ PHASE_DEFINITIONS: dict[str, dict[str, Any]] = {
             "--output-dir", "{project_dir}",
         ],
         "validator": None,          # 由 CrossRef + Phase 8 统一验证
-        "hard_deps": ["phase_4_discovery", "phase_1b_parse"],  # 硬依赖 excel_parsed.json
-        "soft_deps": ["phase_3_keywords"],  # phase_3_keywords 软依赖（_knowledge 为空时跳过）
+        "hard_deps": ["phase_4_discovery"],  # 硬依赖探测结果
+        "soft_deps": ["phase_1b_parse", "phase_1_nl", "phase_3_keywords"],  # 软依赖：Excel 或 NL 二选一产出
         "artifacts": [
             "{project_dir}/pages/*/elements.yaml",
             "{project_dir}/cases/*/*.yaml",
@@ -226,6 +250,7 @@ EXECUTION_ORDER = [
     "phase_0",
     "phase_1",
     "phase_1b_parse",
+    "phase_1_nl",
     "phase_2",
     "phase_3_keywords",
     "phase_4_discovery",

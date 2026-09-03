@@ -73,9 +73,11 @@ class PipelineContext:
                  target_url: Optional[str] = None,
                  browser_type: str = "chromium",
                  run_smoke: bool = False,
-                 headed: bool = False):
+                 headed: bool = False,
+                 cases_input_path: Optional[str] = None):
         self.project_dir = project_dir
         self.excel_path = excel_path
+        self.cases_input_path = cases_input_path  # 自然语言输入文本文件路径
         self.cookie = cookie
         self.local_storage = local_storage or {}
         self.config_path = os.path.join(project_dir, "config.yaml")
@@ -97,11 +99,16 @@ class PipelineContext:
             skip_module_rebuild: 恢复模式下为 True，跳过基于 excel_parsed.json 的模块重建
         """
         # 自动推导 excel_json_path
+        # 优先使用 Excel 解析产物，回退到自然语言预检产物（格式一致）
         probe_dir = Path(self.project_dir) / "_probe"
         if probe_dir.exists():
             for json_file in probe_dir.glob("excel_parsed.json"):
                 self.excel_json_path = str(json_file)
                 break
+            if not self.excel_json_path:
+                for json_file in probe_dir.glob("cases_raw.json"):
+                    self.excel_json_path = str(json_file)
+                    break
 
         try:
             import yaml
@@ -388,6 +395,10 @@ class PipelineExecutor:
                         self.context.excel_path = prev_params['excel_path']
                         self.context._restored_params.add('excel_path')
                         print(f"  [恢复] excel_path = {self.context.excel_path}")
+                    if not self.context.cases_input_path and prev_params.get('cases_input_path'):
+                        self.context.cases_input_path = prev_params['cases_input_path']
+                        self.context._restored_params.add('cases_input_path')
+                        print(f"  [恢复] cases_input_path = {self.context.cases_input_path}")
                     if not self.context.cookie and prev_params.get('cookie'):
                         self.context.cookie = prev_params['cookie']
                         self.context._restored_params.add('cookie')
@@ -586,17 +597,17 @@ class PipelineExecutor:
                 print(f"  ❌ 未捕获异常: {e}")
             self.results[phase_id] = result
 
-            # X-1 修复: phase_1b_parse 成功后刷新 context，使 excel_json_path 可用
-            if phase_id == "phase_1b_parse" and result.status == PhaseStatus.PASSED:
+            # X-1 修复: phase_1b_parse 或 phase_1_nl 成功后刷新 context，使 excel_json_path 可用
+            if phase_id in ("phase_1b_parse", "phase_1_nl") and result.status == PhaseStatus.PASSED:
                 self.context.update_from_config()
                 print(f"  ✅ excel_json_path 已刷新: {self.context.excel_json_path}")
-                # D方案: Phase 1b 完成后构建 module_map_str
+                # D方案: Phase 1b/1_nl 完成后构建 module_map_str
                 if not self.context.module_map_str:
                     self.context._build_module_aliases()
                     if self.context.module_map_str:
                         print(f"  ✅ module_map_str 已构建: {self.context.module_map_str}")
 
-                # 新增: 从 excel_parsed.json 提取 URLs 并填充 page_urls 到 config.yaml
+                # 新增: 从 excel_parsed.json 或 cases_raw.json 提取 URLs 并填充 page_urls 到 config.yaml
                 if self.context.excel_json_path and Path(self.context.excel_json_path).exists():
                     try:
                         with open(self.context.excel_json_path, 'r', encoding='utf-8') as f:
@@ -667,20 +678,25 @@ class PipelineExecutor:
                                     config['page_urls'] = {}
                                 for cn_name, urls in module_urls.items():
                                     slug = cn_to_slug[cn_name]
-                                    if slug not in config['page_urls']:
-                                        config['page_urls'][slug] = sorted(list(urls))
-                                        if cn_name != slug:
-                                            print(f"  [SLUG] {cn_name} → {slug}")
+                                    config['page_urls'][slug] = list(urls)
 
-                                # 写回 config.yaml
                                 with open(config_path, 'w', encoding='utf-8') as f:
                                     yaml.dump(config, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
-                                # 刷新 context.modules
-                                self.context.update_from_config()
-                                print(f"  ✅ page_urls 已填充: {len(module_urls)} 个模块")
+                                # 同步生成 _probe/module_urls.json（Phase 4 需要）
+                                module_urls_json_path = Path(self.project_dir) / "_probe" / "module_urls.json"
+                                module_urls_json_path.parent.mkdir(parents=True, exist_ok=True)
+                                module_urls_json = {}
+                                for cn_name, urls in module_urls.items():
+                                    slug = cn_to_slug[cn_name]
+                                    module_urls_json[slug] = {"urls": list(urls)}
+                                with open(module_urls_json_path, 'w', encoding='utf-8') as f:
+                                    json.dump(module_urls_json, f, ensure_ascii=False, indent=2)
+
+                                print(f"  ✅ page_urls 已更新: {len(module_urls)} 个模块")
+                                print(f"  ✅ module_urls.json 已生成: {module_urls_json_path}")
                     except Exception as e:
-                        print(f"  ⚠️  page_urls 自动填充失败: {e}")
+                        print(f"  ⚠️  page_urls/module_urls 更新失败: {e}")
 
             # BUG-8 fix: Phase 1 完成后检测修正版 Excel 并更新路径
             if phase_id == "phase_1" and result.status == PhaseStatus.PASSED:
@@ -1549,10 +1565,20 @@ class PipelineExecutor:
             return subprocess.CompletedProcess(cmd, 1, "", str(e))
 
     def _resolve_args(self, args: list[str]) -> list[str]:
-        """解析参数模板"""
+        """解析参数模板
+
+        BUG-FIX: module_slug 在 Phase 1 NL 时尚未被 resolve（单模块场景）
+        当 modules 列表恰好有 1 个时，使用该模块的 slug；
+        否则回退到 'common'（与 normalize_steps.py 的 --module 默认值一致）。
+        """
         resolved = []
         import json
         ls_str = json.dumps(self.context.local_storage, ensure_ascii=False) if self.context.local_storage else ""
+        # 推断 module_slug 回退值：单模块场景用该 slug，否则用 'common'
+        _fallback_module_slug = (
+            self.context.modules[0]["slug"] if len(self.context.modules) == 1
+            else "common"
+        )
         for arg in args:
             try:
                 resolved_arg = arg.format(
@@ -1564,12 +1590,12 @@ class PipelineExecutor:
                     excel_path=self.context.excel_path or "",
                     excel_json_path=self.context.excel_json_path or "",
                     module_urls_path=self.context.module_urls_path or "",
-                    # BUG-6 fix: 不传递 module_slug/discovery_path，让 KeyError 保留占位符
-                    # 由 _execute_multi_module 在循环中替换为真实值
+                    cases_input_path=self.context.cases_input_path or "",
+                    module_slug=_fallback_module_slug,
                 )
                 resolved.append(resolved_arg)
             except KeyError as e:
-                # 缺失变量（module_slug, discovery_path）保留原始占位符
+                # 其他缺失变量（discovery_path 等）保留原始占位符
                 resolved.append(arg)
         return resolved
 
@@ -1618,6 +1644,7 @@ class PipelineExecutor:
             "project_dir": self.project_dir,
             "cli_params": {
                 "excel_path": self.context.excel_path or "",
+                "cases_input_path": self.context.cases_input_path or "",
                 "cookie": self.context.cookie or "",
                 "target_url": self.context.target_url or "",
             },
@@ -1687,9 +1714,23 @@ class PipelineExecutor:
 
 def cmd_run(args):
     """执行管线"""
+    # 验证互斥参数
+    if args.excel and args.nl_input:
+        print("❌ 错误: --excel 和 --nl-input 不能同时使用（互斥）")
+        return
+
+    # Resume 模式（--from-phase / --only-phase）允许不提供输入源
+    is_resume = bool(args.from_phase or args.only_phase)
+
+    if not args.excel and not args.nl_input and not is_resume:
+        print("❌ 错误: 必须提供 --excel 或 --nl-input 之一")
+        print("提示: Resume 模式请使用 --from-phase 或 --only-phase")
+        return
+
     context = PipelineContext(
         project_dir=args.project,
         excel_path=args.excel,
+        cases_input_path=args.nl_input,
         cookie=args.cookie,
         target_url=args.target_url,
         browser_type=args.browser_type,
@@ -1760,6 +1801,7 @@ def main():
     run_parser = subparsers.add_parser("run", help="执行管线")
     run_parser.add_argument("--project", required=True, help="项目目录")
     run_parser.add_argument("--excel", help="Excel 文件路径")
+    run_parser.add_argument("--nl-input", help="自然语言用例文本文件路径（与 --excel 互斥）")
     run_parser.add_argument("--cookie", help="Cookie 字符串")
     run_parser.add_argument("--target-url", help="目标系统 URL（用于自动生成 config.yaml）")
     run_parser.add_argument("--browser-type", default="chromium",

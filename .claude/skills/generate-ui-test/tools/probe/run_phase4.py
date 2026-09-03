@@ -126,8 +126,8 @@ def main():
     parser = argparse.ArgumentParser(
         description='Phase 4 全自动探测编排器 — 串联 URL 提取 + 探测 + pages 生成'
     )
-    parser.add_argument('--excel', required=True,
-                        help='Excel 测试用例文件路径')
+    parser.add_argument('--excel', default=None,
+                        help='Excel 测试用例文件路径（自然语言输入时可为空）')
     parser.add_argument('--config', required=True,
                         help='config.yaml 路径')
     parser.add_argument('--project', required=True,
@@ -182,15 +182,27 @@ def main():
 
     # ── Step 1: 提取 URL ──
     module_urls_path = os.path.join(probe_dir, 'module_urls.json')
-    cmd = [sys.executable, os.path.join(SCRIPT_DIR, '..', 'excel', 'read_excel.py'),
-           args.excel, '--extract-urls',
-           '--pages-dir', pages_dir,
-           '--config', args.config,
-           '--output', module_urls_path]
-    success = run_cmd(cmd, 'Step 1: 从 Excel 提取模块 URL')
-    if not success:
-        print("[FATAL] Step 1 失败，无法继续", file=sys.stderr)
-        sys.exit(1)
+
+    if args.excel:
+        # Excel 路径：从 Excel 提取 URL
+        cmd = [sys.executable, os.path.join(SCRIPT_DIR, '..', 'excel', 'read_excel.py'),
+               args.excel, '--extract-urls',
+               '--pages-dir', pages_dir,
+               '--config', args.config,
+               '--output', module_urls_path]
+        success = run_cmd(cmd, 'Step 1: 从 Excel 提取模块 URL')
+        if not success:
+            print("[FATAL] Step 1 失败，无法继续", file=sys.stderr)
+            sys.exit(1)
+    else:
+        # 自然语言路径：检查是否已有 module_urls.json（从 cases_raw.json 或手动创建）
+        if os.path.isfile(module_urls_path):
+            print(f"[INFO] 复用已有的 module_urls.json (无 Excel)")
+        else:
+            # 生成空的 module_urls.json，后续依赖 target_url
+            print(f"[WARN] 无 Excel 且无 module_urls.json，将使用 target_url 作为所有页面的基础 URL")
+            with open(module_urls_path, 'w', encoding='utf-8') as f:
+                json.dump({}, f)
 
     with open(module_urls_path, encoding='utf-8') as f:
         module_urls = json.load(f)
@@ -235,22 +247,30 @@ def main():
         existing_map = None
 
     if not os.path.isfile(module_map_path):
-        pages_dir = os.path.join(args.project, 'pages')
-        bmm_cmd = [sys.executable, os.path.join(SCRIPT_DIR, '..', 'excel', 'build_module_map.py'),
-                   args.excel,
-                   '--pages', pages_dir,
-                   '--discovery-dir', probe_dir,
-                   '--output', module_map_path,
-                   '--module-urls', module_urls_path]
-        if args.module_map:
-            bmm_cmd.extend(['--module-map', args.module_map])
+        if not args.excel:
+            # 自然语言路径且无 module_map.json：生成空映射，依赖 --module-map 或手动配置
+            print(f"[WARN] 无 Excel 且无 module_map.json，生成空映射")
+            print(f"[INFO] 可通过 --module-map 参数手动指定，或稍后手动创建")
+            with open(module_map_path, 'w', encoding='utf-8') as f:
+                json.dump({}, f)
+        else:
+            # Excel 路径：调用 build_module_map.py
+            pages_dir = os.path.join(args.project, 'pages')
+            bmm_cmd = [sys.executable, os.path.join(SCRIPT_DIR, '..', 'excel', 'build_module_map.py'),
+                       args.excel,
+                       '--pages', pages_dir,
+                       '--discovery-dir', probe_dir,
+                       '--output', module_map_path,
+                       '--module-urls', module_urls_path]
+            if args.module_map:
+                bmm_cmd.extend(['--module-map', args.module_map])
 
-        bmm_ok = run_cmd(bmm_cmd, 'Step 1.5: build_module_map.py')
-        if not (bmm_ok and os.path.isfile(module_map_path)):
-            print("[ERROR] build_module_map.py 失败，无法生成模块映射",
-                  file=sys.stderr)
-            print("[INFO] 请确保 Excel 文件和 pages/ 目录结构正确", file=sys.stderr)
-            sys.exit(1)
+            bmm_ok = run_cmd(bmm_cmd, 'Step 1.5: build_module_map.py')
+            if not (bmm_ok and os.path.isfile(module_map_path)):
+                print("[ERROR] build_module_map.py 失败，无法生成模块映射",
+                      file=sys.stderr)
+                print("[INFO] 请确保 Excel 文件和 pages/ 目录结构正确", file=sys.stderr)
+                sys.exit(1)
 
     with open(module_map_path, encoding='utf-8') as f:
         cn_to_slug = json.load(f)

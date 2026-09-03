@@ -304,11 +304,16 @@ class DebugRunner(Runner):
                 print(f"📊 调试报告已在浏览器中打开: {rel_path}")
             print(f"浏览器保持打开，你可以手工操作页面")
             print(f"  [r] 重试当前用例  [s] 跳过，继续下一个  [q] 终止全部执行")
+            print(f"  [p] 拾取元素定位器（XPath Picker）")
             try:
                 choice = input("请选择: ").strip().lower()
             except (EOFError, KeyboardInterrupt):
                 print()  # 换行
                 return 'skip'
+
+            if choice == 'p':
+                self._run_xpath_picker(case_name)
+                continue  # 拾取完成后回到菜单
 
             if choice == 'r':
                 if attempt >= self.max_retries:
@@ -320,7 +325,102 @@ class DebugRunner(Runner):
             elif choice == 'q':
                 return 'quit'
             else:
-                print("  请输入 r/s/q")
+                print("  请输入 r/s/q/p")
+
+    def _get_failed_step_info(self):
+        """从执行树获取最后一个失败步骤的 locator 引用
+
+        Returns:
+            dict: {group, field, locator_ref, desc}
+            或 None
+        """
+        import re
+        tree = self.tree_builder.get_tree()
+        if not tree:
+            return None
+
+        # 递归查找最后一个失败节点
+        def _find_last_failed(nodes):
+            result = None
+            for node in nodes:
+                child_result = _find_last_failed(node.children)
+                if child_result:
+                    result = child_result
+                elif node.status in ('fail', 'error'):
+                    result = node
+            return result
+
+        failed = _find_last_failed(tree)
+        if not failed:
+            return None
+
+        # 从 raw_params 提取 locator 引用
+        raw_params = failed.raw_params or {}
+        locator_ref = raw_params.get('locator', '')
+
+        # 解析 ${group.field} 格式
+        match = re.match(r'\$\{([^}]+)\}', locator_ref)
+        if not match:
+            return None
+
+        ref_path = match.group(1)  # "project_page.query_btn"
+        parts = ref_path.split('.')
+        if len(parts) != 2:
+            return None
+
+        return {
+            'group': parts[0],
+            'field': parts[1],
+            'locator_ref': locator_ref,
+            'desc': failed.desc,
+            'keyword': failed.keyword,
+        }
+
+    def _get_current_module(self):
+        """从命令行参数或当前 suite 推断模块名"""
+        # 优先从 sys.argv 获取
+        if '--module' in sys.argv:
+            try:
+                idx = sys.argv.index('--module')
+                if idx + 1 < len(sys.argv):
+                    return sys.argv[idx + 1]
+            except (ValueError, IndexError):
+                pass
+
+        # 从 _current_suite_name 推断（suite 目录名即模块名）
+        if hasattr(self, '_current_suite_name') and self._current_suite_name:
+            return self._current_suite_name
+
+        return None
+
+    def _run_xpath_picker(self, case_name):
+        """启动 XPath Picker 交互式拾取并自动修复"""
+        failed_info = self._get_failed_step_info()
+        module = self._get_current_module()
+
+        if not failed_info or not module:
+            print("\n❌ 错误：无法获取失败步骤信息或当前模块")
+            print("   请检查调试报告中的执行树")
+            return
+
+        try:
+            from tools.verification.debug_picker import launch_xpath_picker
+        except ImportError:
+            _tools_dir = os.path.join(os.path.dirname(__file__), '..', '..', '.claude', 'skills', 'generate-ui-test', 'tools')
+            sys.path.insert(0, os.path.abspath(_tools_dir))
+            from verification.debug_picker import launch_xpath_picker
+
+        framework = self.config.get('ui_framework', 'element-ui')
+        pages_dir = os.path.join(get_project_dir(self.config), 'pages')
+
+        launch_xpath_picker(
+            self.base_case.page,
+            framework,
+            pages_dir,
+            target_locator=failed_info,
+            module=module,
+            config=self.config
+        )
 
 # 注册认证关键字（Cookie/Token/localStorage 注入）
 # 如果项目中没有 lib/auth_keywords.py 则静默跳过（兼容旧工程）

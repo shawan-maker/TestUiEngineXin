@@ -159,7 +159,7 @@ def build_context(files_by_cat: Dict[str, List[str]]) -> dict:
                     for field, val in fields.items():
                         if isinstance(val, str):
                             pages_locators[f"{group}.{field}"] = val
-                            if '_option' in field:
+                            if '_option' in field and 'el-select-dropdown__item' in val:
                                 m = _contains_re.search(val)
                                 if m:
                                     pages_option_texts.setdefault(f, []).append(

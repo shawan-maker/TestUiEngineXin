@@ -26,7 +26,7 @@ class IFrameMixin(BaseBrowser):
         self.page.frame_locator(frame).locator(locator).fill(value, timeout=timeout)
 
     @KeyWordManager.register("frame_click_element", "框架点击")
-    def frame_click_element(self, frame, locator, button='left', timeout=3000):
+    def frame_click_element(self, frame, locator, button='left', timeout=10000):
         """
         点击 iframe 内元素（Phase 6 兼容版本）
 
@@ -111,8 +111,14 @@ class IFrameMixin(BaseBrowser):
         # ── 执行点击 ──
         if target_frame:
             element = target_frame.locator(locator)
+            # 等待元素实际可见（解决 iframe 内后端响应慢、空白页、骨架屏等场景）
             try:
-                element.click(button=button, timeout=5000)
+                element.wait_for(state='visible', timeout=timeout)
+            except Exception as wait_err:
+                self.log.debug_log(f"iframe 内等待元素可见超时: {str(wait_err)[:120]}")
+                raise
+            try:
+                element.click(button=button, timeout=timeout)
                 self.log.debug_log(f"iframe 内点击成功: {locator[:80]}")
             except Exception as click_err:
                 err_msg = str(click_err)
@@ -120,7 +126,7 @@ class IFrameMixin(BaseBrowser):
                 if 'intercepts pointer events' in err_msg:
                     mask_handled = self._wait_for_visible_mask(timeout=10000)
                     if mask_handled:
-                        element.click(button=button, timeout=5000)  # 重试
+                        element.click(button=button, timeout=timeout)  # 重试
                         self.log.debug_log(f"iframe 内点击成功（mask 重试后）: {locator[:80]}")
                     else:
                         raise  # 没有 mask，抛出原始异常

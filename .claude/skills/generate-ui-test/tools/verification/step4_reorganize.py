@@ -95,10 +95,24 @@ def _reorganize_pages_by_case(project_dir, module_slug):
         steps = case.get('steps', [])
         case_field_order = {}
         for step_idx, step in enumerate(walk_all_steps(steps)):
-            locator = step.get('params', {}).get('locator', '')
+            params = step.get('params', {})
+
+            # 扫描 params.locator
+            locator = params.get('locator', '')
             ref_tuple = extract_pages_ref(locator)
             if ref_tuple:
                 old_group, old_field = ref_tuple
+                old_ref = f"{old_group}.{old_field}"
+                field_usage.setdefault(old_ref, []).append(case_id)
+                # 记录首次出现位置
+                if old_field not in case_field_order:
+                    case_field_order[old_field] = step_idx
+
+            # 扫描 params.frame（iframe 定位器引用）
+            frame = params.get('frame', '')
+            frame_ref_tuple = extract_pages_ref(frame)
+            if frame_ref_tuple:
+                old_group, old_field = frame_ref_tuple
                 old_ref = f"{old_group}.{old_field}"
                 field_usage.setdefault(old_ref, []).append(case_id)
                 # 记录首次出现位置
@@ -326,18 +340,32 @@ def _update_case_references(project_dir, module_slug, ref_mapping):
         case_updated = False
 
         for step in walk_all_steps(steps):
-            locator = step.get('params', {}).get('locator', '')
-            if not locator or '${' not in locator:
-                continue
+            params = step.get('params', {})
+            step_updated = False
 
-            # 替换引用
-            new_locator = locator
-            for old_ref, new_ref in ref_mapping.items():
-                if old_ref in new_locator:
-                    new_locator = new_locator.replace(old_ref, new_ref)
+            # 替换 params.locator 中的引用
+            locator = params.get('locator', '')
+            if locator and '${' in locator:
+                new_locator = locator
+                for old_ref, new_ref in ref_mapping.items():
+                    if old_ref in new_locator:
+                        new_locator = new_locator.replace(old_ref, new_ref)
+                if new_locator != locator:
+                    params['locator'] = new_locator
+                    step_updated = True
 
-            if new_locator != locator:
-                step['params']['locator'] = new_locator
+            # 替换 params.frame 中的引用（iframe 定位器）
+            frame = params.get('frame', '')
+            if frame and '${' in frame:
+                new_frame = frame
+                for old_ref, new_ref in ref_mapping.items():
+                    if old_ref in new_frame:
+                        new_frame = new_frame.replace(old_ref, new_ref)
+                if new_frame != frame:
+                    params['frame'] = new_frame
+                    step_updated = True
+
+            if step_updated:
                 case_updated = True
                 updated_count += 1
 

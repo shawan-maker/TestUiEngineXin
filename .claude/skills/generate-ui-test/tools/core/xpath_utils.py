@@ -32,6 +32,16 @@ def get_hidden_filter(framework=None):
 # 按钮类型集合（保留供外部引用，disabled 过滤已合并到 HIDDEN_FILTERS）
 BUTTON_TYPES = {'button', 'search-button', 'table-action-button', 'close-button', 'download-button'}
 
+# 表格相关元素类型集合：这些元素在 el-table 固定列中会出现 is-hidden 标记
+# 需要移除 is-hidden 过滤，避免定位失败（只影响 Element UI）
+# 注意：'table-action-button' 同时属于 BUTTON_TYPES 和 TABLE_RELATED_ELEMENT_TYPES
+TABLE_RELATED_ELEMENT_TYPES = {
+    'checkbox',
+    'table-action-button',
+    'row-checkbox',
+    'table-row-button',
+}
+
 # 新建 predicate 时，去掉开头的 " and "
 HIDDEN_FILTER_NEW_PRED = re.sub(r'^\s*and\s+', '', HIDDEN_FILTER.strip())
 
@@ -265,6 +275,38 @@ def detect_container_type(locator):
     return None
 
 
+def get_hidden_filter_for_type(framework: str, elem_type: str) -> str:
+    """根据元素类型获取 hidden filter
+
+    对于表格相关元素，移除 is-hidden 过滤（避免固定列定位失败），
+    但保留 display:none 和 disabled 过滤。
+
+    Args:
+        framework: UI 框架名称（'element-ui' 或 'ant-design'）
+        elem_type: 元素类型（如 'checkbox', 'table-action-button'）
+
+    Returns:
+        适用于该元素类型的 hidden filter 字符串
+    """
+    base_filter = get_hidden_filter(framework)
+
+    # 非表格相关元素，返回完整 filter
+    if elem_type not in TABLE_RELATED_ELEMENT_TYPES:
+        return base_filter
+
+    # 表格相关元素：移除 is-hidden 过滤，保留其他过滤条件
+    # Element UI: 移除 " and not(ancestor-or-self::*[contains(@class,'is-hidden')])"
+    # Ant Design: 无需特殊处理（没有 is-hidden 问题）
+    if framework == 'element-ui':
+        return re.sub(
+            r"\s*and\s*not\(ancestor-or-self::\*\[contains\(@class,'is-hidden'\)\]\)",
+            '',
+            base_filter
+        )
+
+    return base_filter
+
+
 def inject_hidden_filter(locator: str, framework=None, in_iframe: bool = False, elem_type: str = None) -> str:
     """在 XPath 最终元素标签上注入隐藏过滤属性（R4.11）
 
@@ -301,8 +343,9 @@ def inject_hidden_filter(locator: str, framework=None, in_iframe: bool = False, 
     if _is_exempt(v):
         return locator
 
-    # 根据框架获取对应的过滤表达式（已包含 disabled 过滤）
-    hidden_filter = get_hidden_filter(framework)
+    # 根据框架和元素类型获取过滤表达式（已包含 disabled 过滤）
+    # 表格相关元素会移除 is-hidden 过滤，其他元素保持完整过滤
+    hidden_filter = get_hidden_filter_for_type(framework or 'element-ui', elem_type) if elem_type else get_hidden_filter(framework)
     hidden_filter_new = re.sub(r'^\s*and\s+', '', hidden_filter.strip())
 
     # 所有元素类型统一使用完整的 hidden filter

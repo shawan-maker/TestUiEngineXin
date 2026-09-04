@@ -314,6 +314,10 @@ class ExcelValidator:
             content = self._r36_find_to_click(content, sheet, case_name, step_num)
             # R32: 返回页面 → 返回
             content = self._r32_go_back_normalize(content, sheet, case_name, step_num)
+            # R42: 自然语言随机名称输入（在 R23 之前执行）
+            content = self._r42_nl_random_input(content, sheet, case_name, step_num)
+            # R43: 自然语言验证步骤（在 R23 之前执行）
+            content = self._r43_nl_verify_to_assert(content, sheet, case_name, step_num)
             # R23: 断言格式统一
             content = self._r23_assertion_format(content, sheet, case_name, step_num)
             # R24: 自定义关键词转换
@@ -1598,6 +1602,68 @@ class ExcelValidator:
                     severity='error',
                     suggestion=suggestion,
                 )
+
+
+    def _r42_nl_random_input(self, content: str, sheet: str,
+                              case_name: str, step_num: int) -> str:
+        """R42: 自然语言随机名称输入 → 标准格式
+
+        触发条件：包含 【】 或 "格式"
+        模式：在【XX】输入框中，填写格式为 PREFIX + ... → 在"XX"输入框中输入随机名称（PREFIX）
+        """
+        if '【' not in content and '格式' not in content:
+            return content
+
+        # 提取前缀：匹配 "PREFIX +" 或 "PREFIX＋"（\w+ 匹配字母数字下划线）
+        prefix_match = re.search(r'(\w+)\s*[+＋]', content)
+        if not prefix_match:
+            return content
+
+        # 提取字段名：【XX】
+        field_match = re.search(r'[【\[]([^】\]]+)[】\]]', content)
+        if not field_match:
+            field_match = re.search(r'[""""]([^""""]+)["""""]', content)
+        if not field_match:
+            return content
+
+        field = field_match.group(1)
+        prefix = prefix_match.group(1)
+
+        new = f'在"{field}"输入框中输入随机名称（{prefix}）'
+        self._record_fix('L1', 'R42', sheet, case_name, step_num,
+                         content, new)
+        return new
+
+    def _r43_nl_verify_to_assert(self, content: str, sheet: str,
+                                  case_name: str, step_num: int) -> str:
+        """R43: 自然语言验证步骤 → 标准断言
+
+        触发条件：以 "验证" 开头
+        模式1：验证：...第一行包含...（含 PREFIX 前缀）... → 断言：第一行包含"PREFIX"
+        模式2：验证：...包含"XX"... → 断言：包含"XX"
+        """
+        if not content.startswith('验证'):
+            return content
+
+        # 模式1：第一行包含...（含 PREFIX 前缀）
+        m = re.search(r'第一行.*?包含.*?[（(]含\s*(\w+)\s*前缀[）)]', content)
+        if m:
+            prefix = m.group(1)
+            new = f'断言：第一行包含"{prefix}"'
+            self._record_fix('L1', 'R43', sheet, case_name, step_num,
+                             content, new)
+            return new
+
+        # 模式2：包含"XX"
+        m = re.search(r'包含[""""](.+?)["""""]', content)
+        if m:
+            value = m.group(1)
+            new = f'断言：包含"{value}"'
+            self._record_fix('L1', 'R43', sheet, case_name, step_num,
+                             content, new)
+            return new
+
+        return content
 
     # ─── L3: 关键字白名单 + 参数校验 ───
 

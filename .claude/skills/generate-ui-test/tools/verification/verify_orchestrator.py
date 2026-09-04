@@ -654,9 +654,12 @@ def verify_project(project_dir, cookie, base_url, discovery_path=None, module=No
 
     # Load project files
     # F5: pass module for scoped page loading (prevents cross-module collisions)
+    print(f"[DEBUG] project_dir={project_dir}, module={module}")
+    print(f"[DEBUG] cases_dir exists: {os.path.isdir(os.path.join(project_dir, 'cases'))}")
     pages_dict = load_pages(project_dir, module=module)
     data_dict = load_data(project_dir)
     cases = load_cases(project_dir, module)
+    print(f"[DEBUG] load_cases returned {len(cases)} cases")
 
     # Load discovery data
     discovery_data = None

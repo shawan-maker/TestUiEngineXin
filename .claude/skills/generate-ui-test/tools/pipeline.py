@@ -74,7 +74,8 @@ class PipelineContext:
                  browser_type: str = "chromium",
                  run_smoke: bool = False,
                  headed: bool = False,
-                 cases_input_path: Optional[str] = None):
+                 cases_input_path: Optional[str] = None,
+                 nlp_module_name: Optional[str] = None):
         self.project_dir = project_dir
         self.excel_path = excel_path
         self.cases_input_path = cases_input_path  # 自然语言输入文本文件路径
@@ -91,6 +92,7 @@ class PipelineContext:
         self.discovery_path = None  # 当前处理的 discovery 文件路径
         self.module_map_str = ""    # 自动构建的 cn_name=slug 映射（传递给 run_phase4.py）
         self._restored_params = set()  # 从 pipeline_state.json 恢复的参数名
+        self.nlp_module_name = nlp_module_name  # NL 路径用户指定的模块名
 
     def update_from_config(self, skip_module_rebuild=False):
         """从 config.yaml 加载配置并构建模块映射
@@ -345,11 +347,40 @@ class PipelineContext:
         if probe_dir.exists():
             for f in probe_dir.glob("discovery_*.json"):
                 slug = f.stem.replace("discovery_", "")
-                # N1: 过滤 merged 文件，N3: 归一化 slug 为下划线格式
-                if slug.endswith("_merged"):
+                # 过滤 merged 文件
+                if slug.endswith("_merged") or slug.endswith("-merged"):
                     continue
-                slug = slug.replace('-', '_')
+                # 统一使用下划线格式
+                slug = slug.replace("-", "_")
                 self.modules.append({"slug": slug, "cn_name": slug, "urls": []})
+
+        # Phase 4 回退：无 discovery 文件时，从 module_urls.json 获取模块列表
+        if not self.modules and probe_dir.exists():
+            module_urls_path = probe_dir / "module_urls.json"
+            if module_urls_path.exists():
+                try:
+                    import json
+                    with open(module_urls_path, encoding='utf-8') as f:
+                        module_urls = json.load(f)
+                    # 读取 module_map.json 获取 slug 映射（如果有）
+                    module_map_path = probe_dir / "module_map.json"
+                    module_map = {}
+                    if module_map_path.exists():
+                        with open(module_map_path, encoding='utf-8') as f:
+                            module_map = json.load(f)
+
+                    for cn_name, data in module_urls.items():
+                        slug = module_map.get(cn_name, cn_name)
+                        # 统一使用下划线格式
+                        slug = slug.replace("-", "_")
+                        self.modules.append({
+                            "slug": slug,
+                            "cn_name": cn_name,
+                            "urls": data.get('urls', [])
+                        })
+                except Exception as e:
+                    # 静默失败，不影响现有逻辑
+                    pass
 
         return self.modules
 
@@ -666,11 +697,15 @@ class PipelineExecutor:
 
                                 cn_to_slug = {}
                                 for cn_name, urls in module_urls.items():
-                                    # 构建 module_urls.json 格式供 _extract_slug_from_url 使用
-                                    module_urls_json = {cn_name: {'urls': list(urls)}}
-                                    slug = _extract_slug_from_url(cn_name, module_urls_json)
-                                    if not slug:
-                                        slug = _auto_generate_slug(cn_name)
+                                    # 优先级：1. 用户指定 NL 模块名  2. URL 提取  3. 自动生成
+                                    if self.context.nlp_module_name:
+                                        slug = self.context.nlp_module_name
+                                    else:
+                                        # 构建 module_urls.json 格式供 _extract_slug_from_url 使用
+                                        module_urls_json = {cn_name: {'urls': list(urls)}}
+                                        slug = _extract_slug_from_url(cn_name, module_urls_json)
+                                        if not slug:
+                                            slug = _auto_generate_slug(cn_name)
                                     cn_to_slug[cn_name] = slug
 
                                 # 合并 page_urls（保留已有配置，使用英文 slug 作为 key）
@@ -688,13 +723,28 @@ class PipelineExecutor:
                                 module_urls_json_path.parent.mkdir(parents=True, exist_ok=True)
                                 module_urls_json = {}
                                 for cn_name, urls in module_urls.items():
-                                    slug = cn_to_slug[cn_name]
-                                    module_urls_json[slug] = {"urls": list(urls)}
+                                    # 用 cn_name 做 key（与 Excel 路径一致）
+                                    # Phase 4 通过 module_map.json 做 cn_name→slug 转换
+                                    module_urls_json[cn_name] = {"urls": list(urls)}
                                 with open(module_urls_json_path, 'w', encoding='utf-8') as f:
                                     json.dump(module_urls_json, f, ensure_ascii=False, indent=2)
 
                                 print(f"  ✅ page_urls 已更新: {len(module_urls)} 个模块")
                                 print(f"  ✅ module_urls.json 已生成: {module_urls_json_path}")
+
+                                # NL 路径修复: 自动写入 module_map.json（common→slug）
+                                # Phase 5 依赖此映射查找 discovery_{slug}.json
+                                # Excel 路径由 build_module_map.py 处理，此处不覆盖
+                                if self.context.cases_input_path:  # NL 路径
+                                    module_map_path = Path(self.project_dir) / "_probe" / "module_map.json"
+                                    try:
+                                        with open(module_map_path, 'w', encoding='utf-8') as f:
+                                            json.dump(cn_to_slug, f, ensure_ascii=False, indent=2)
+                                        print(f"  ✅ module_map.json 已生成 (NL): {module_map_path}")
+                                        for cn, slug in cn_to_slug.items():
+                                            print(f"    {cn} → {slug}")
+                                    except Exception as e:
+                                        print(f"  ⚠️  module_map.json 写入失败: {e}")
                     except Exception as e:
                         print(f"  ⚠️  page_urls/module_urls 更新失败: {e}")
 
@@ -721,6 +771,24 @@ class PipelineExecutor:
                     print(f'   {{"key": "重写后的标准步骤描述", ...}}')
                     print(f"4. 重新运行 Phase 1:")
                     print(f"   python pipeline.py run --project {self.project_dir} --only-phase phase_1")
+                    print(f"{'='*70}\n")
+
+            # Phase 1_nl FAILED: 提示用户编辑修正版 TXT 后重跑
+            if phase_id == "phase_1_nl" and result.status == PhaseStatus.FAILED:
+                # 查找修正版文件（项目目录 + 输入文件目录）
+                corrected_files = list(Path(self.project_dir).glob("*-修正版.txt"))
+                if self.context.cases_input_path:
+                    input_dir = Path(self.context.cases_input_path).parent
+                    corrected_files.extend(input_dir.glob("*-修正版.txt"))
+                if corrected_files:
+                    corrected_path = corrected_files[0]
+                    print(f"\n{'='*70}")
+                    print(f"📋 Phase 1_nl L3 验证失败 - 修正版已生成")
+                    print(f"{'='*70}")
+                    print(f"修正版文件: {corrected_path}")
+                    print(f"请手动编辑该文件，修改标注为 [L3:需修改] 的步骤")
+                    print(f"然后使用修正版重跑管线:")
+                    print(f"   python pipeline.py run --project {self.project_dir} --nl-input {corrected_path}")
                     print(f"{'='*70}\n")
 
             # X-3 修复: phase_4 成功后填充 module_urls_path
@@ -943,10 +1011,20 @@ class PipelineExecutor:
                 # 构建命令行
                 args = self._resolve_args(defn.get("tool_args", []))
 
-                if defn.get("multi_module"):
-                    # 多模块：对每个模块执行一次
+                is_multi = defn.get("multi_module", False)
+                if is_multi:
+                    # 多模块：_execute_multi_module 逐模块替换 {module_slug}
                     result = self._execute_multi_module(phase_id, tool, args)
                 else:
+                    # 单模块：手动替换残留的 {module_slug}（NL 路径需要）
+                    # 优先级：1. 用户指定 NL 模块名  2. 当前模块列表  3. "common"
+                    if self.context.nlp_module_name:
+                        slug = self.context.nlp_module_name
+                    elif len(self.context.modules) == 1:
+                        slug = self.context.modules[0]["slug"]
+                    else:
+                        slug = "common"
+                    args = [a.replace("{module_slug}", slug) for a in args]
                     result = self._run_tool(phase_id, tool, args)
 
             result.duration_seconds = time.time() - start_time
@@ -1567,18 +1645,14 @@ class PipelineExecutor:
     def _resolve_args(self, args: list[str]) -> list[str]:
         """解析参数模板
 
-        BUG-FIX: module_slug 在 Phase 1 NL 时尚未被 resolve（单模块场景）
-        当 modules 列表恰好有 1 个时，使用该模块的 slug；
-        否则回退到 'common'（与 normalize_steps.py 的 --module 默认值一致）。
+        设计：module_slug 故意不传给 format()，
+        触发 KeyError → except 保留占位符 → 由 _execute_multi_module 替换。
         """
         resolved = []
         import json
-        ls_str = json.dumps(self.context.local_storage, ensure_ascii=False) if self.context.local_storage else ""
-        # 推断 module_slug 回退值：单模块场景用该 slug，否则用 'common'
-        _fallback_module_slug = (
-            self.context.modules[0]["slug"] if len(self.context.modules) == 1
-            else "common"
-        )
+        ls_str = json.dumps(self.context.local_storage, ensure_ascii=False) \
+                if self.context.local_storage else ""
+
         for arg in args:
             try:
                 resolved_arg = arg.format(
@@ -1591,13 +1665,25 @@ class PipelineExecutor:
                     excel_json_path=self.context.excel_json_path or "",
                     module_urls_path=self.context.module_urls_path or "",
                     cases_input_path=self.context.cases_input_path or "",
-                    module_slug=_fallback_module_slug,
+                    # 不传 module_slug → KeyError → 保留占位符
                 )
                 resolved.append(resolved_arg)
-            except KeyError as e:
-                # 其他缺失变量（discovery_path 等）保留原始占位符
+            except KeyError:
+                # 保留占位符（供 _execute_multi_module 逐模块替换）
                 resolved.append(arg)
-        return resolved
+
+        # 过滤空值 flag-value 对：如 --excel "" → 跳过两个参数
+        filtered = []
+        i = 0
+        while i < len(resolved):
+            if (resolved[i].startswith('--') and i + 1 < len(resolved)
+                    and resolved[i + 1] == ""):
+                i += 2  # 跳过 flag 和空值
+                continue
+            filtered.append(resolved[i])
+            i += 1
+
+        return filtered
 
     def _cascade_skip(self, failed_phase: str):
         """阶段失败后，级联跳过所有依赖它的阶段
@@ -1735,7 +1821,8 @@ def cmd_run(args):
         target_url=args.target_url,
         browser_type=args.browser_type,
         run_smoke=args.run_smoke,
-        headed=args.headed
+        headed=args.headed,
+        nlp_module_name=getattr(args, "module", None)
     )
 
     executor = PipelineExecutor(context)
@@ -1802,6 +1889,7 @@ def main():
     run_parser.add_argument("--project", required=True, help="项目目录")
     run_parser.add_argument("--excel", help="Excel 文件路径")
     run_parser.add_argument("--nl-input", help="自然语言用例文本文件路径（与 --excel 互斥）")
+    run_parser.add_argument("--module", help="NL 路径模块名（slug），Excel 路径忽略此项")
     run_parser.add_argument("--cookie", help="Cookie 字符串")
     run_parser.add_argument("--target-url", help="目标系统 URL（用于自动生成 config.yaml）")
     run_parser.add_argument("--browser-type", default="chromium",

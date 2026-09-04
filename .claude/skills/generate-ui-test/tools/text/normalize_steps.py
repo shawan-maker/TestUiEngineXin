@@ -364,12 +364,13 @@ def _run_non_interactive(
     case_name: str,
     module: str,
     output_path: str,
-    extracted_url: str
+    extracted_url: str,
+    input_path: Path
 ):
     """非交互模式（管线调用）
 
     - 全部步骤解析成功 → 输出 JSON + exit 0
-    - 有 unknown 步骤 → 输出报告 + exit 1（让用户修改后重跑）
+    - 有 unknown 步骤 → 输出修正版 + exit 1（让用户修改后重跑）
     - 格式/环境错误 → exit 2
     """
     # L1/L2/L3 清洗
@@ -388,12 +389,47 @@ def _run_non_interactive(
     unknown_nums = {s['step_num'] for s in unknown_steps}
 
     if unknown_nums:
-        # 有无法解析的步骤 → 输出报告，exit 1
-        print(f"\n[WARN] {len(unknown_nums)} 条步骤无法解析：", file=sys.stderr)
-        for s in unknown_steps:
-            print(f"  步骤 {s['step_num']}: {s.get('before', '')}", file=sys.stderr)
-            if s.get('suggestion'):
-                print(f"    建议: {s['suggestion']}", file=sys.stderr)
+        # 有无法解析的步骤 → 生成修正版 TXT + exit 1（对齐 Excel 路径行为）
+        corrected_path = input_path.parent / f"{input_path.stem}-修正版.txt"
+
+        # 生成修正版 TXT（含 L1/L2 修复 + L3 标注）
+        corrected_lines = []
+        l1_l2_fix_count = len([f for f in fix_records if f['level'] in ('L1', 'L2')])
+
+        for step_num, content in final_steps:
+            if step_num in unknown_nums:
+                # L3 unknown 步骤：标注 + 建议
+                corrected_lines.append(f"{step_num}. {content}       ← [L3:需修改]")
+                suggestion = next((s.get('suggestion') for s in unknown_steps if s['step_num'] == step_num), None)
+                if suggestion:
+                    corrected_lines.append(f"   # 建议: {suggestion}")
+            else:
+                # L1/L2 已修复的步骤
+                corrected_lines.append(f"{step_num}. {content}")
+
+        corrected_path.write_text('\n'.join(corrected_lines), encoding='utf-8')
+
+        # 保存 module_urls.json（URL 提取不能丢失）
+        output_dir = Path(output_path).parent if output_path else Path(input_path.parent / '_probe')
+        if not output_dir.exists():
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+        if extracted_url:
+            module_urls_path = output_dir / 'module_urls.json'
+            module_urls_data = {module: [extracted_url]}
+            with open(module_urls_path, 'w', encoding='utf-8') as f:
+                json.dump(module_urls_data, f, ensure_ascii=False, indent=2)
+
+        # 不生成 cases_raw.json（步骤不完整，下游不应使用）
+
+        # 输出摘要（对齐 Excel 格式）
+        print(f"\n{'=' * 60}")
+        print(f"L3 PARSE VALIDATION FAILED - {len(unknown_nums)} unparseable steps")
+        print(f"  L1/L2 auto-fixed: {l1_l2_fix_count}")
+        print(f"  L3 errors:        {len(unknown_nums)}")
+        print(f"{'=' * 60}")
+        print(f"Corrected NL (L1/L2 fixes applied): {corrected_path}")
+        print(f"请修改 L3 步骤后重跑管线。")
         sys.exit(1)
 
     # 全部解析成功 → 输出 JSON
@@ -503,7 +539,8 @@ def main():
 
     # ─── 非交互模式（管线调用）───
     if args.non_interactive:
-        _run_non_interactive(steps, case_name, args.module, args.output, extracted_url)
+        input_path = Path(args.input) if args.input != '-' else Path('_stdin.txt')
+        _run_non_interactive(steps, case_name, args.module, args.output, extracted_url, input_path)
         return  # _run_non_interactive 内部 sys.exit
 
     # ─── 交互模式 ───

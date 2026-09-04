@@ -288,6 +288,10 @@ class ExcelValidator:
             content = self._r01_assertion_keyword(content, sheet, case_name, step_num)
             # R05: 引号统一（所有引号变体 → ASCII ""）[B1] [v3-audit: 必须在 R02 之前]
             content = self._r05_quote_normalize(content, sheet, case_name, step_num)
+            # R44: 句尾标点清理（。等）— 与 step_patterns 对齐
+            content = self._r44_strip_trailing_punct(content, sheet, case_name, step_num)
+            # R45: 动词前逗号清理（中，选择 → 中选择）— 与 step_patterns 对齐
+            content = self._r45_strip_verb_comma(content, sheet, case_name, step_num)
             # R02: 数据清洗（\t \n 多余空格）[依赖 R05 先统一引号]
             content = self._r02_data_clean(content, sheet, case_name, step_num)
             # R07: 查询步骤标准化
@@ -408,8 +412,10 @@ class ExcelValidator:
 
     def _r05_quote_normalize(self, content: str, sheet: str,
                              case_name: str, step_num: int) -> str:
-        """R05: 引号统一 — '' → ""，'' → ""，「」 → "" """
+        """R05: 引号统一 — '' → ""，'' → ""，「」 → ""，【】 → "" """
         new = content
+        # [v3-audit] 【】方括号 → ASCII 双引号 ""
+        new = new.replace('【', '"').replace('】', '"')
         # ASCII 单引号 'XX' → "XX"（仅在步骤指令上下文中）
         new = re.sub(r"(?<!\w)'([^']+)'(?!\w)", r'"\1"', new)
         # [v3] 弯单引号 '' → ASCII 双引号 ""
@@ -421,6 +427,31 @@ class ExcelValidator:
 
         if new != content:
             self._record_fix('L1', 'R05', sheet, case_name, step_num,
+                             content, new)
+        return new
+
+    def _r44_strip_trailing_punct(self, content: str, sheet: str,
+                                  case_name: str, step_num: int) -> str:
+        """R44: 句尾标点清理 — 删除句尾的 。. 等标点
+
+        与 step_patterns 对齐：正则不支持句尾标点，预清洗应提前移除。
+        """
+        new = re.sub(r'[。.，,]+$', '', content.rstrip())
+        if new != content:
+            self._record_fix('L1', 'R44', sheet, case_name, step_num,
+                             content, new)
+        return new
+
+    def _r45_strip_verb_comma(self, content: str, sheet: str,
+                              case_name: str, step_num: int) -> str:
+        """R45: 动词前逗号清理 — 中，选择 → 中选择
+
+        与 step_patterns 对齐：正则中 "中?选择" 不含逗号。
+        仅处理 "中，" + 动词 的模式，不影响其他逗号（如 "点击"确定"按钮，等待..."）。
+        """
+        new = re.sub(r'中，(依次选择|选择|点击|输入|勾选|取消|填写|填入)', r'中\1', content)
+        if new != content:
+            self._record_fix('L1', 'R45', sheet, case_name, step_num,
                              content, new)
         return new
 

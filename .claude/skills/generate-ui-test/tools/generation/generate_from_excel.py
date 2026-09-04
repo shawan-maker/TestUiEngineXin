@@ -649,6 +649,21 @@ def main():
     print("[STEP 1] 解析 Excel JSON + 构建模块映射")
     print('='*60)
 
+    # 前置校验：确保输入文件存在（OR 逻辑：excel_parsed.json 或 cases_raw.json）
+    from pathlib import Path
+    if not excel_json_path or not Path(excel_json_path).is_file():
+        # 尝试 NL 路径的回退：cases_raw.json
+        cases_raw_fallback = Path(output_dir) / '_probe' / 'cases_raw.json'
+        if cases_raw_fallback.is_file():
+            excel_json_path = str(cases_raw_fallback)
+            print(f"[INFO] 使用 NL 路径输出: {excel_json_path}")
+        else:
+            print("[ERROR] 输入文件不存在或不是有效文件", file=sys.stderr)
+            print(f"  检查的路径: {excel_json_path}", file=sys.stderr)
+            print(f"  回退路径: {cases_raw_fallback}", file=sys.stderr)
+            print("提示: 请先确保 phase_1（Excel预检）或 phase_1_nl（NL预检）通过", file=sys.stderr)
+            sys.exit(1)
+
     with open(excel_json_path, encoding='utf-8') as f:
         excel_data = json.load(f)
 

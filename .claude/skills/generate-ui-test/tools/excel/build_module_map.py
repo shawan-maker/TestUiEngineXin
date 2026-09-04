@@ -182,7 +182,7 @@ def _extract_slug_from_url(cn_name, module_urls):
 
     def _validate_segment(seg):
         """校验 segment 是否为合法 slug"""
-        return seg and re.match(r'^[a-z][a-z0-9-]{1,29}$', seg)
+        return seg and re.match(r'^[a-z][a-z0-9_-]{1,29}$', seg)
 
     def _is_generic_segment(seg):
         """判断 segment 是否为通用名称（不适合作为模块名）"""
@@ -192,7 +192,7 @@ def _extract_slug_from_url(cn_name, module_urls):
     # 策略 1: 优先匹配 #/path 格式（hash 路由）
     match = re.search(r'#/([^/]+)', url)
     if match:
-        segment = match.group(1)
+        segment = match.group(1).replace('-', '_')  # 连字符转下划线
         if _validate_segment(segment):
             return segment
 

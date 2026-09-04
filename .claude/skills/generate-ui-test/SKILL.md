@@ -1,3 +1,12 @@
+---
+name: generate-ui-test
+description: >-
+  UI 自动化测试工程生成技能，通过 11 阶段管线（Phase 0-9 + 1b）将 Excel
+  测试用例转换为可运行工程。支持 Element UI / Ant Design / 原生 HTML 框架。
+user-invocable: true
+invocation-trigger: /generate-ui-test
+---
+
 # generate-ui-test
 
 UI 自动化测试工程生成技能，通过 11 阶段管线（Phase 0-9 + 1b）将 Excel 测试用例转换为可运行工程。
@@ -40,8 +49,12 @@ UI 自动化测试工程生成技能，通过 11 阶段管线（Phase 0-9 + 1b�
 ## 执行命令
 
 ```bash
-# 完整执行（必须后台 + tee）
+# Excel 输入执行（必须后台 + tee）
 python -u tools/pipeline.py run --project {目录} --excel {文件} --target-url "{URL}" --cookie "{cookie}" 2>&1 | tee {目录}/_probe/pipeline.log
+
+# 自然语言输入执行（必须后台 + tee）
+# --module 参数：指定模块名称（slug 格式，如 "user_manage"），不传则默认为 "common"
+python -u tools/pipeline.py run --project {目录} --nl-input {文件} --module {模块名} --target-url "{URL}" --cookie "{cookie}" 2>&1 | tee {目录}/_probe/pipeline.log
 
 # 从指定阶段恢复
 python -u tools/pipeline.py run --project {目录} --from-phase phase_4_discovery 2>&1 | tee {目录}/_probe/pipeline.log
@@ -73,7 +86,12 @@ python tools/pipeline.py validate-refs --project {目录}
 5. **浏览器**（默认 chromium）
 6. **认证方式**（none / cookie / header / localStorage）
 
-**Excel 输入**：自动从"模块"列或 Sheet 名提取模块名，展示确认。
+**自然语言输入**：必须询问模块名称，并通过 `--module` 参数传递给管线。模块名用于：
+- 生成目录结构：`cases/{module}/`, `pages/{module}/`, `data/{module}/`, `suites/{module}/`
+- 生成 `module_map.json`：`{module_cn_name: module_slug}`
+- Phase 1 NL 的 `{module_slug}` 占位符替换
+
+**Excel 输入**：自动从"模块"列或 Sheet 名提取模块名，展示确认。不需要 `--module` 参数。
 
 **Cookie 收集**：提示用户从 F12 → Network → Cookie 复制。
 

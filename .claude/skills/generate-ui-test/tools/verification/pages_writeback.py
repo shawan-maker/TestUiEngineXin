@@ -270,8 +270,13 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
         # Find which YAML file contains this group
         # F8: track all matching files to detect cross-module group name collisions
         # BUG-5: restrict search to module-scoped directory when module is specified
+        # Fix-4: common_elements group 需要搜索整个 pages/ 目录（跨模块共享）
+        if group == 'common_elements':
+            search_for_group = pages_dir  # common_elements 跨模块，搜索全目录
+        else:
+            search_for_group = search_root
         matching_files = []
-        for root, dirs, files in os.walk(search_root):
+        for root, dirs, files in os.walk(search_for_group):
             for f in files:
                 if f.endswith(('.yaml', '.yml')):
                     path = os.path.join(root, f)
@@ -285,7 +290,7 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
 
         if not matching_files:
             print(f"  [DEBUG-WB-BUILD] SKIP {ref}: group '{group}' not found in any YAML file")
-            print(f"                   search_root={search_root}")
+            print(f"                   search_root={search_for_group}")
             continue
 
         if len(matching_files) > 1:

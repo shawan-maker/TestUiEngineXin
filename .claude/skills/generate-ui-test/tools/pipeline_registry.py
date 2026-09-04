@@ -145,7 +145,6 @@ PHASE_DEFINITIONS: dict[str, dict[str, Any]] = {
             "--project", "{project_dir}",
             "--cookie", "{cookie}",
             "--local-storage", "{local_storage}",
-            "--module", "{module_slug}",
         ],
         "validator": "validate_04_probe.py",
         "validator_args": ["{project_dir}"],
@@ -156,7 +155,7 @@ PHASE_DEFINITIONS: dict[str, dict[str, Any]] = {
             "{project_dir}/_probe/discovery_*.json",
         ],
         "optional": False,
-        "multi_module": True,
+        "multi_module": False,  # run_phase4.py 内部处理所有模块，不需要逐模块调用
         "fatal_on_auth_failure": True,
         "tolerate_tool_failure": True,  # 非 Cookie 的探测失败降级为 warning，不阻断管线
     },

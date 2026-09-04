@@ -1685,6 +1685,9 @@ class CaseGenerator:
             if action.endswith(suffix) and len(action) > len(suffix):
                 action = action[:-len(suffix)]
                 break
+        # 将非 \w 字符（如全角冒号：）替换为下划线，确保字段名可被正则 \w+ 匹配
+        action = re.sub(r'[^\w]', '_', action)
+        action = re.sub(r'_+', '_', action).strip('_')
         return action or '通用'
 
     def _find_in_discovery(self, field_name):
@@ -2713,7 +2716,8 @@ class CaseGenerator:
             if _chk_xpath:
                 # 动态替换行号: tr[1] → tr[N]
                 _chk_xpath = re.sub(r'tr\[1\]', f'tr[{row_idx}]', _chk_xpath)
-                _chk_xpath = _inject_hidden_filter(_chk_xpath)
+                # 传递 elem_type='checkbox'，触发表格元素特殊处理（移除 is-hidden 过滤）
+                _chk_xpath = _inject_hidden_filter(_chk_xpath, elem_type='checkbox')
                 steps.append({
                     'desc': full_desc,
                     'keyword': 'click_element',

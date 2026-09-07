@@ -230,6 +230,39 @@ def step_filter_pages(output_dir):
     if not os.path.isdir(pages_dir):
         return
 
+    # === 构建字段反向索引（处理 case-scoped group 重映射） ===
+    # 场景：pages 中是 question_manage_elements.detail_link_05
+    #      case 中是 case_交付问题-问题详情.detail_link_05
+    # 需要知道 detail_link_05 对应哪个原始 group
+    field_to_original_group = {}  # {field_name: set(original_group1, ...)}
+
+    for root, _, files in os.walk(pages_dir):
+        for fname in files:
+            if not fname.endswith('.yaml'):
+                continue
+            fpath = os.path.join(root, fname)
+            try:
+                with open(fpath, encoding='utf-8') as f:
+                    lines = f.readlines()
+            except Exception:
+                continue
+
+            current_group = None
+            for line in lines:
+                stripped = line.rstrip()
+                # 识别 group 定义行（非缩进，以冒号结尾）
+                if stripped and not line[0].isspace() and stripped.endswith(':') and not stripped.startswith('#'):
+                    current_group = stripped[:-1].strip()
+                    continue
+
+                # 识别字段定义行（2 空格缩进，包含冒号）
+                if current_group and line[0:2] == '  ' and ':' in line and not line.startswith('    '):
+                    field_key = line.strip().split(':')[0].strip()
+                    if field_key and not field_key.startswith('_'):
+                        if field_key not in field_to_original_group:
+                            field_to_original_group[field_key] = set()
+                        field_to_original_group[field_key].add(current_group)
+
     # 扫描所有 cases/data YAML，提取 ${group.field} 引用
     used_refs = set()
     ref_pattern = re.compile(r'\$\{([^}]+)\}')
@@ -249,6 +282,19 @@ def step_filter_pages(output_dir):
                         ref = match.group(1)
                         if '.' in ref and not ref.startswith('common_data.'):
                             used_refs.add(ref)
+
+                            # 处理 case-scoped group 的反向映射
+                            # 如果 group 名称以 "case_" 开头，尝试映射回原始 group
+                            parts = ref.split('.', 1)
+                            if len(parts) == 2:
+                                group, field = parts
+                                if group.startswith('case_'):
+                                    # 查找该字段在 pages YAML 中的原始 group
+                                    if field in field_to_original_group:
+                                        for original_group in field_to_original_group[field]:
+                                            # 添加原始引用到 used_refs
+                                            original_ref = f"{original_group}.{field}"
+                                            used_refs.add(original_ref)
                 except Exception:
                     continue
 

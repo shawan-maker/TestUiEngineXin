@@ -523,6 +523,7 @@ def check_r4_31_scope(filepath: str, data: dict, lines: List[str],
         module_prefix,           # project_manage_xxx
         'common',                # common_elements, common_data
         'dropdown_menu',         # dropdown_menu_elements
+        'case',                  # Step ④ 重组生成的 case-scoped groups (case_{case_id})
     )
 
     # R4.31s: 同模块 pages YAML 中定义的 group 也允许引用

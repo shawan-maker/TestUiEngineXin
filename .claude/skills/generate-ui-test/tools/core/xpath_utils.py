@@ -34,12 +34,11 @@ BUTTON_TYPES = {'button', 'search-button', 'table-action-button', 'close-button'
 
 # 表格相关元素类型集合：这些元素在 el-table 固定列中会出现 is-hidden 标记
 # 需要移除 is-hidden 过滤，避免定位失败（只影响 Element UI）
-# 注意：'table-action-button' 同时属于 BUTTON_TYPES 和 TABLE_RELATED_ELEMENT_TYPES
+# 注意：table-action-button 和 table-row-button 不在此集合中，
+# 因为它们需要 is-hidden 过滤来避免误匹配固定列中的隐藏元素
 TABLE_RELATED_ELEMENT_TYPES = {
     'checkbox',
-    'table-action-button',
     'row-checkbox',
-    'table-row-button',
 }
 
 # 新建 predicate 时，去掉开头的 " and "

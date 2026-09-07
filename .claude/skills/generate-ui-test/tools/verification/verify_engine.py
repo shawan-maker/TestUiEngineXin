@@ -2600,22 +2600,29 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
                         page.locator(verified_locator).click(timeout=5000)
                         print(f"    [WARN] click retry succeeded: '{desc}'")
                     except Exception:
-                        # 层 3: dispatch_event 绕过可操作性检查
+                        # 层 3: dispatch_event 绕过 actionability check
                         try:
                             page.locator(verified_locator).first.dispatch_event('click')
-                            print(f"    [WARN] dispatch_event fallback: '{desc}'")
+                            print(f"    [WARN] dispatch_event fallback succeeded: '{desc}'")
                         except Exception as _final_err:
+                            # Click 失败 = 验证失败（与 Phase 9 行为一致）
+                            # 不存储此 locator，保留 Phase 5 的原始 locator
                             ref_suffix = _format_locator_ref(step)
-                            print(f"    [ERROR] '{desc}'{ref_suffix}: all click attempts failed. "
-                                  f"Last error: {str(_final_err)[:80]}")
-                            # 即使全部失败，也做最终容器探测
+                            print(f"    [ERROR] '{desc}'{ref_suffix}: click failed (actionability check), "
+                                  f"locator not usable at runtime. Error: {str(_final_err)[:80]}")
+                            print(f"    [INFO] Locator will not be written back, Phase 5 original preserved.")
+
+                            # 仍然检测容器弹出（即使 click 失败，容器可能通过其他方式弹出）
                             _fail_ct = detect_visible_containers(page)
                             if _fail_ct:
                                 for _fct in CONTAINER_TYPES:
                                     if _fct in _fail_ct:
                                         print(f"    [TRACE-P6]   container detected despite click failure: {_fct}")
-                                        return verified_locator, _fct, False, is_best_guess, hit_source
-                            return verified_locator, matched_prefix or current_ct, False, is_best_guess, hit_source
+                                        # v_loc=None: 不存储 locator; v_ct=_fct: 更新容器上下文
+                                        return None, _fct, False, is_best_guess, hit_source
+
+                            # v_loc=None: 不存储 locator; v_ct=None: 没有容器上下文变化
+                            return None, None, False, is_best_guess, hit_source
             # [TRACE-P6] click 成功后：记录页面 URL
             try:
                 _post_click_url = page.url

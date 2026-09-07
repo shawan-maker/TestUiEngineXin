@@ -1394,14 +1394,8 @@ def main():
 
     result = verify_project(args.project_dir, args.cookie, args.url, args.discovery, args.module, args.local_storage, headed=args.headed)
 
-    # P3f-2: 回写验证结果到 pages YAML + 生成 verify_result.json
+    # P3f-2: 生成 verify_result.json
     if result and not result.get('auth_error'):
-        verified_locators = result.get('verified_locators', {})
-
-        if verified_locators:
-            print(f"\n[Writeback] Updating {len(verified_locators)} locators in pages YAML...")
-            update_pages_yaml(args.project_dir, verified_locators, module=args.module)
-
         # 写入 verify_result.json（供阶段门禁检查）
         _write_verify_result(args.project_dir, result)
 

@@ -267,14 +267,8 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
             print(f"  [DEBUG-WB-BUILD] SKIP {ref}: protected field")
             continue
 
-        # Find which YAML file contains this group
-        # F8: track all matching files to detect cross-module group name collisions
-        # BUG-5: restrict search to module-scoped directory when module is specified
-        # Fix-4: common_elements group 需要搜索整个 pages/ 目录（跨模块共享）
-        if group == 'common_elements':
-            search_for_group = pages_dir  # common_elements 跨模块，搜索全目录
-        else:
-            search_for_group = search_root
+        # Find which YAML file contains this group (always scoped to current module)
+        search_for_group = search_root
         matching_files = []
         for root, dirs, files in os.walk(search_for_group):
             for f in files:
@@ -294,11 +288,11 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
             continue
 
         if len(matching_files) > 1:
-            # H6: 排序确保非 _ 前缀文件优先（elements.yaml > _fallback.yaml）
+            # 同模块目录下多个文件（如 elements.yaml 和 _fallback.yaml）
             matching_files.sort(key=lambda p: (0 if not os.path.basename(p).startswith('_') else 1, p))
-            print(f"  [WARN] F8: group '{group}' found in {len(matching_files)} files: "
+            print(f"  [WARN] group '{group}' found in {len(matching_files)} files in module '{module}': "
                   f"{[os.path.basename(p) for p in matching_files]}")
-            print(f"         Using: {matching_files[0]} (non-underscore preferred)")
+            print(f"         Using: {os.path.basename(matching_files[0])}")
 
         print(f"  [DEBUG-WB-BUILD] ADD {ref}: file={os.path.basename(matching_files[0])}, is_new={is_new_field}")
         for path in matching_files[:1]:  # use first match only
@@ -469,9 +463,6 @@ def update_pages_yaml(project_dir, verified_locators, module=None):
     # Post-processing: Apply hidden filters and strip not(ancestor::) exclusions
     # These functions were migrated from probe_from_pages.py and need to be called here
     print("\n[Post-processing] Applying hidden filters and cleaning up exclusions...")
-
-    # [DEBUG-WB] 后处理前：打印 common_elements 当前状态
-    print("\n  [DEBUG-WB] --- 后处理前: 读取 YAML 文件中的 common_elements ---")
 
     # Build pages_data and source_files for batch processing
     pages_data = load_pages(project_dir, module)

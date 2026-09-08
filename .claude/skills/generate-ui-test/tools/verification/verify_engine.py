@@ -1681,7 +1681,7 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         print(f"    [TRACE-P6] [CONTEXT-FALLBACK] detect_visible_containers 返回空，使用上次容器上下文: {container_context}")
 
     # ── 统一兜底前缀计算（M11/R5 共用）──
-    # 规则：确认类按钮 → el-dialog | 新页面 → 无前缀 | 其他 → current_ct 优先，默认 drawer
+    # 规则：新页面 → 无前缀 | 确认类按钮 → el-dialog | 其他 → current_ct > _before_first_click > 框架默认
     if is_new_page_context:
         _fallback_prefix = 'none'
         _fallback_prefix_str = ''
@@ -1689,7 +1689,20 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
         _fallback_prefix = 'dialog'
         _fallback_prefix_str = CONTAINER_XPATH.get('dialog', '')
     else:
-        _fallback_prefix = current_ct if current_ct else 'drawer'
+        # current_ct 非空 → 用探测到的容器（第1679行已处理 container_context fallback）
+        # current_ct 为空 → 检查 _before_first_click 标记
+        # _before_first_click=True → 首个按钮前，列表页操作，不加前缀
+        # _before_first_click=False → 容器内操作但探测失败，根据框架选择默认容器
+        if current_ct:
+            _fallback_prefix = current_ct
+        elif step.get('_before_first_click'):
+            _fallback_prefix = 'none'
+        else:
+            # 容器内操作但探测失败 → 根据框架选择默认容器
+            if _framework == 'ant-design':
+                _fallback_prefix = 'ant-drawer'
+            else:
+                _fallback_prefix = 'drawer'
         _fallback_prefix_str = CONTAINER_XPATH.get(_fallback_prefix, '')
 
     # Build candidate locators

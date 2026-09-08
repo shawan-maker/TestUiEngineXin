@@ -566,6 +566,13 @@ def generate_case_file(case_data, generator, seq, output_dir, module='', project
         steps = generator.generate_step(parsed)
         generator._update_container_context_post(parsed)
 
+        # _before_first_click 标记：首个按钮操作之前的所有步骤
+        if not generator._has_emitted_click:
+            for s in steps:
+                s['_before_first_click'] = True
+        if generator._is_button_action(parsed):
+            generator._has_emitted_click = True
+
         # [DEBUG-TEMP] 临时调试日志：追踪 auto-add wait_for_loading_complete 逻辑
         is_btn = generator._is_button_action(parsed)
         no_wait = generator._next_needs_no_wait(raw_steps, i)

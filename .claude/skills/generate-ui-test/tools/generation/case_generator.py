@@ -142,6 +142,7 @@ class CaseGenerator:
         self.required_fields = {}  # {(group, field): {locator, label, comment}}
         self._compat_groups_cache = None  # H2: _compat_groups() 内存缓存
         self._compat_groups_mtime = 0  # M5: pages 目录 mtime 缓存
+        self._has_emitted_click = False  # _before_first_click 标记追踪
 
         # common_elements 语义化命名 + Phase 4 精确 locator
         self._current_case_name = None       # 当前正在生成的用例名
@@ -1502,6 +1503,7 @@ class CaseGenerator:
         self._random_name_counter = 0
         self._current_context = 'list_page'  # 防止上一个 case 的容器上下文泄漏
         self._current_case_name = case_name  # 用于语义化命名 common_elements
+        self._has_emitted_click = False
 
     def add_data(self, field, value):
         """添加数据字段，同 case 内同 field 自动添加 _2, _3 后缀避免覆盖"""
@@ -3353,15 +3355,18 @@ class CaseGenerator:
                 'desc': '访问页面',
                 'keyword': 'open_url',
                 'params': {'url': url_ref},
+                '_before_first_click': True,  # 首个按钮操作前的步骤
             },
             {
                 'desc': '刷新页面确保环境干净',
                 'keyword': 'refresh',
+                '_before_first_click': True,  # 首个按钮操作前的步骤
             },
             {
                 'desc': '等待加载完成',
                 'keyword': 'wait_for_loading_complete',
                 'params': {},
+                '_before_first_click': True,  # 首个按钮操作前的步骤
             },
         ]
         return steps

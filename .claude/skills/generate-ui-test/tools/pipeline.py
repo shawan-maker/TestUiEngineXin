@@ -159,6 +159,103 @@ class PipelineContext:
         if not skip_module_rebuild and not self.module_map_str and self.excel_json_path:
             self._build_module_aliases()
 
+        # 改动1: 用 module_map.json 校验并修正 self.modules 中的 slug
+        # 确保 Phase 6 与 Phase 4/5 使用一致的模块命名
+        self._validate_modules_against_module_map()
+
+    def _normalize_url_for_match(self, url: str) -> str:
+        """URL 归一化（用于模块匹配，去除 query/fragment/尾部斜杠，统一小写 host）"""
+        if not url:
+            return ""
+        from urllib.parse import urlparse
+        try:
+            p = urlparse(url)
+            # 小写 scheme + host，保留 path 原始大小写（部分系统 path 敏感）
+            norm = f"{p.scheme}://{p.netloc.lower()}{p.path.rstrip('/')}"
+            return norm
+        except Exception:
+            return url.strip().rstrip('/').lower()
+
+    def _validate_modules_against_module_map(self):
+        """用 module_map.json + module_urls.json 校验并修正 self.modules 的 slug。
+
+        解决 config.yaml page_urls key 与 module_map.json slug 不一致导致
+        Phase 6 找不到 cases 目录的问题（如 key='vpc' 但 slug='vpc-console'）。
+
+        匹配策略：通过 URL 交集将 config.yaml 的 module 关联到中文名，
+        再用 module_map.json 获取权威 slug。
+        """
+        if not self.modules:
+            return
+
+        probe_dir = Path(self.project_dir) / "_probe"
+        module_map_path = probe_dir / "module_map.json"
+        module_urls_path = probe_dir / "module_urls.json"
+
+        # 两个文件都必须存在才能校验
+        if not module_map_path.is_file() or not module_urls_path.is_file():
+            return
+
+        try:
+            with open(module_map_path, encoding='utf-8') as f:
+                cn_to_slug = json.load(f)
+            with open(module_urls_path, encoding='utf-8') as f:
+                cn_urls = json.load(f)
+        except Exception:
+            return  # 读取失败静默跳过，不影响现有流程
+
+        if not cn_to_slug or not cn_urls:
+            return
+
+        # 构建 cn_name → normalized urls 集合
+        cn_url_sets = {}
+        for cn_name, data in cn_urls.items():
+            urls = data.get('urls', []) if isinstance(data, dict) else data
+            if isinstance(urls, list):
+                cn_url_sets[cn_name] = {self._normalize_url_for_match(u) for u in urls if u}
+
+        corrected = 0
+        for mod_info in self.modules:
+            mod_urls = mod_info.get('urls', [])
+            if not mod_urls:
+                continue
+
+            mod_url_set = {self._normalize_url_for_match(u) for u in mod_urls if u}
+            if not mod_url_set:
+                continue
+
+            # 找 URL 交集最大的中文名
+            best_cn = None
+            best_overlap = 0
+            for cn_name, cn_set in cn_url_sets.items():
+                overlap = len(mod_url_set & cn_set)
+                if overlap > best_overlap:
+                    best_overlap = overlap
+                    best_cn = cn_name
+
+            if not best_cn or best_overlap == 0:
+                continue  # 无匹配，保持原 slug
+
+            correct_slug = cn_to_slug.get(best_cn)
+            if not correct_slug:
+                continue
+
+            # 归一化比较：hyphen vs underscore
+            old_slug = mod_info['slug']
+            if old_slug.replace('-', '_') == correct_slug.replace('-', '_'):
+                # 实质相同，统一为 module_map.json 的格式
+                if old_slug != correct_slug:
+                    mod_info['slug'] = correct_slug
+                    corrected += 1
+                    print(f"  [slug-align] '{old_slug}' → '{correct_slug}' (格式统一)")
+            elif old_slug != correct_slug:
+                mod_info['slug'] = correct_slug
+                corrected += 1
+                print(f"  [slug-fix] config.yaml key '{old_slug}' → module_map.json slug '{correct_slug}' (自动修正)")
+
+        if corrected > 0:
+            print(f"  ⚠️  已修正 {corrected} 个模块的 slug（与 module_map.json 对齐）")
+
     def _build_module_aliases(self):
         """从 excel_parsed.json + page_urls 自动构建 cn_name→slug 映射。
 
@@ -340,6 +437,8 @@ class PipelineContext:
     def get_modules(self) -> list[dict]:
         """获取模块列表"""
         if self.modules:
+            # 改动2: 防御性校验，确保 slug 与 module_map.json 一致
+            self._validate_modules_against_module_map()
             return self.modules
 
         # 从 _probe/ 目录推断模块
@@ -1379,14 +1478,30 @@ class PipelineExecutor:
             # BUG-7 fix: Phase 6 需要 --discovery 参数（直接追加，不用字符串替换）
             if phase_id == "phase_6_verify":
                 # N2: 优先使用 merged 版本（与 Phase 5 保持一致）
-                discovery_file_merged = Path(self.project_dir) / "_probe" / f"discovery_{slug}_merged.json"
-                discovery_file = Path(self.project_dir) / "_probe" / f"discovery_{slug}.json"
-                if discovery_file_merged.exists():
-                    self.context.discovery_path = str(discovery_file_merged)
-                    module_args.extend(["--discovery", str(discovery_file_merged)])
-                elif discovery_file.exists():
-                    self.context.discovery_path = str(discovery_file)
-                    module_args.extend(["--discovery", str(discovery_file)])
+                # 改动3: 兼容 hyphen 和 underscore 两种格式（Phase 4 产出可能用 URL 路径的 hyphen）
+                probe_dir = Path(self.project_dir) / "_probe"
+                slug_hyphen = slug.replace('_', '-')
+                slug_underscore = slug.replace('-', '_')
+
+                # 尝试 4 种可能的文件名
+                candidates = [
+                    probe_dir / f"discovery_{slug}_merged.json",
+                    probe_dir / f"discovery_{slug_hyphen}_merged.json",
+                    probe_dir / f"discovery_{slug_underscore}_merged.json",
+                    probe_dir / f"discovery_{slug}.json",
+                    probe_dir / f"discovery_{slug_hyphen}.json",
+                    probe_dir / f"discovery_{slug_underscore}.json",
+                ]
+
+                discovery_path = None
+                for candidate in candidates:
+                    if candidate.exists():
+                        discovery_path = str(candidate)
+                        break
+
+                if discovery_path:
+                    self.context.discovery_path = discovery_path
+                    module_args.extend(["--discovery", discovery_path])
 
                 # R6: 传递 AI probe 配置到 verify_locators.py
                 config_path = Path(self.project_dir) / 'config.yaml'

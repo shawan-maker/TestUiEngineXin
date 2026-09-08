@@ -669,6 +669,98 @@ def check_r4_33(filepath: str, data: dict, lines: List[str], ctx: dict) -> List[
 
 
 # ============================================================================
+# R4.39 模块 slug 一致性检查（config.yaml key vs module_map.json vs 目录）
+# ============================================================================
+
+def check_r4_39_slug_consistency(project_dir: str, files_by_cat: dict, ctx: dict) -> List[Violation]:
+    """R4.39: config.yaml page_urls key、module_map.json slug、cases/pages 目录名三者一致。
+
+    检查项：
+    1. config.yaml key 是否在 module_map.json 的 slug 集合中（归一化后）
+    2. cases/ 目录名是否在 module_map.json 的 slug 集合中
+    3. module_map.json 的 slug 是否都有对应的 cases/ 目录
+    """
+    violations = []
+    probe_dir = os.path.join(project_dir, '_probe')
+    module_map_path = os.path.join(probe_dir, 'module_map.json')
+
+    # 读取 module_map.json
+    module_map = {}
+    if os.path.isfile(module_map_path):
+        try:
+            with open(module_map_path, encoding='utf-8') as f:
+                module_map = json.load(f)
+        except Exception:
+            pass
+
+    if not module_map:
+        return violations  # module_map.json 不存在或为空，跳过校验
+
+    # 构建权威 slug 集合（归一化为 underscore）
+    expected_slugs_norm = {v.replace('-', '_') for v in module_map.values()}
+    # 保留原始 slug 用于显示
+    slug_original = {v.replace('-', '_'): v for v in module_map.values()}
+
+    # 1. 检查 config.yaml page_urls key
+    config_path = os.path.join(project_dir, 'config.yaml')
+    if os.path.isfile(config_path):
+        try:
+            with open(config_path, encoding='utf-8') as f:
+                config = yaml.safe_load(f) or {}
+            page_urls = config.get('page_urls', {})
+            if isinstance(page_urls, dict):
+                for key in page_urls.keys():
+                    key_norm = key.replace('-', '_')
+                    if key_norm not in expected_slugs_norm:
+                        violations.append(Violation(
+                            file=rel_path(config_path, project_dir), line=0,
+                            rule='R4.39', severity='warning',
+                            message=f"config.yaml page_urls key '{key}' 不在 module_map.json 的 slug 集合中 "
+                                    f"(期望: {sorted(expected_slugs_norm)})",
+                            suggestion="确保 config.yaml 的 page_urls key 与 module_map.json 中定义的 slug 一致",
+                        ))
+        except Exception:
+            pass
+
+    # 2. 检查 cases/ 目录名
+    module_dirs = ctx.get('module_dirs', {})
+    case_dirs = module_dirs.get('cases', set())
+    for d in sorted(case_dirs):
+        if d == 'common' or d.startswith('_'):
+            continue
+        d_norm = d.replace('-', '_')
+        if d_norm not in expected_slugs_norm:
+            violations.append(Violation(
+                file=f"cases/{d}/", line=0,
+                rule='R4.39', severity='warning',
+                message=f"cases/{d} 目录名不在 module_map.json 的 slug 集合中 "
+                        f"(期望: {sorted(expected_slugs_norm)})",
+                suggestion="cases 子目录名应与 module_map.json 中的 slug 一致",
+            ))
+
+    # 3. 检查 module_map.json slug 是否都有 cases/ 目录
+    for cn_name, slug in module_map.items():
+        slug_norm = slug.replace('-', '_')
+        # 检查 cases/ 和 pages/ 目录
+        cases_exist = any(
+            d.replace('-', '_') == slug_norm for d in case_dirs
+        )
+        page_dirs = module_dirs.get('pages', set())
+        pages_exist = any(
+            d.replace('-', '_') == slug_norm for d in page_dirs
+        )
+        if not cases_exist and not pages_exist:
+            violations.append(Violation(
+                file=rel_path(module_map_path, project_dir), line=0,
+                rule='R4.39', severity='warning',
+                message=f"module_map.json 中的 '{cn_name}' → '{slug}' 未生成 cases/ 或 pages/ 目录",
+                suggestion="确认该模块的 Phase 5 生成是否成功，或检查 slug 映射是否正确",
+            ))
+
+    return violations
+
+
+# ============================================================================
 # R4.37 case ID 全局唯一性检查（跨文件）
 # ============================================================================
 
@@ -1346,6 +1438,9 @@ def main():
     r437_violations = check_r4_37_cross_file(files_by_cat, ctx)
     all_violations.extend(r437_violations)
 
+    # R4.39: module slug consistency (config.yaml key vs module_map.json vs directories)
+    all_violations.extend(check_r4_39_slug_consistency(project_dir, files_by_cat, ctx))
+
     # R4.20 + EXCEL_COMPLETE (cross-file, execute once)
     all_violations.extend(check_r4_20('', {}, [], ctx))
     all_violations.extend(check_excel_completeness('', {}, [], ctx))
@@ -1355,7 +1450,7 @@ def main():
 
     # ── Stage-based filtering ──
     # EARLY rules: 结构一致性（不依赖 Phase 6 结果）
-    EARLY_RULES = {'R4.1', 'R4.31', 'R4.31s', 'R4.37', 'PREREQUISITE'}
+    EARLY_RULES = {'R4.1', 'R4.31', 'R4.31s', 'R4.37', 'R4.39', 'PREREQUISITE'}
     # FINAL rules: 语义一致性（依赖 Phase 6 结果）
     FINAL_RULES = {'R4.3', 'R4.7', 'R4.20', 'R4.33', 'R4.41', 'R4.42', 'R4.43',
                    'SUITE_REF', 'EXCEL_COMPLETE', 'PREREQUISITE'}

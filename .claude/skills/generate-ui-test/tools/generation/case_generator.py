@@ -1245,6 +1245,15 @@ class CaseGenerator:
         if not cn_name:
             return False
 
+        # 前置检查：cn_name 包含"加载完成"时，用精确 key 查找
+        # 解决"等待页面加载完成"等变体无法精确匹配的问题
+        if '加载完成' in cn_name:
+            wf_def = self._find_workflow('等待加载完成')
+            if wf_def:
+                wf_name = wf_def.get('name')
+                if wf_name in {'wait_for_loading_complete', 'check_page_loaded'}:
+                    return True
+
         # 通过 workflow 解析获取英文 name
         wf_def = self._find_workflow(cn_name)
         if not wf_def:

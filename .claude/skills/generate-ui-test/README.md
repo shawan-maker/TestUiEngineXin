@@ -861,17 +861,29 @@ python -c "from UIEngine.keywords.keyword_manager import KeyWordManager; [print(
 
 ### C.16 L3 Workflow 直调
 
-| 编号 | 格式 | 示例 |
+| 编号 | 格式 | 说明 |
 |------|------|------|
-| 16a | `WorkflowName` | `列表查询` |
-| 16b | `WorkflowName(params)` | `列表查询(项目名称, 测试项目)` |
-| 16c | `中文关键字名(参数)` | `Tab页签搜索(点击任务提醒tab)` |
+| 16a | `关键字名` | 无参数调用 |
+| 16b | `关键字名(参数1, 参数2)` | 有参数调用 |
+| 16c | `中文关键字名(参数)` | 中文名 + 参数 |
+
+**当前可用的 L3 关键字**（定义在 `lib/system_workflows.yaml` 和 `lib/_knowledge/*.yaml`）：
+
+| 英文名 | 中文名 | 参数 | 说明 | 示例写法 |
+|--------|--------|------|------|----------|
+| `wait_for_loading_complete` | 等待加载完成 | 无 | 浏览器 readyState → 网络空闲 → 8 种 loading 元素消失 + 1s 稳定等待 | `等待加载完成` |
+| `list_search` | 列表查询 | search_field, search_value | 在搜索框输入关键词 → 点击查询 → 等待加载完成 | `列表查询(项目名称, 测试项目)` |
+| `export_verify` | 导出验证 | 无 | 点击导出按钮 → 等待下载 → 提示检查下载目录 | `导出验证` |
+| `set_random_variable` | 生成随机变量 | name, prefix | 生成 prefix+时间戳格式的随机名称，存入运行时变量 | `生成随机变量(vm_name, test-vm-)` |
+| `check_homepage_list` | 首页列表校验 | region_name | 获取指定区域列表行数量 → 数量>0 则点击第一条链接 | `首页列表校验(待处理工单)` |
+| `check_inbox_display` | 检查站内信显示 | tab_name | 点击 tab → 获取消息数量 → 数量>0 则查看详情并断言标题一致 | `检查站内信显示(任务提醒)` |
 
 **关键约束**：
 - 关键字名必须 2-8 个字符（中文/英文/数字/下划线，首字符不能是数字）
-- 括号内参数可选
-- 关键字必须在 system_workflows.yaml 或项目 _knowledge/*.yaml 中定义
+- 括号内参数可选，参数数量必须与定义一致
+- 关键字必须在 `lib/system_workflows.yaml` 或项目 `lib/_knowledge/*.yaml` 中定义，否则运行时不可用
 - 如果关键字未找到，系统会回退到后续模式重新匹配（如 `返回`、`刷新` 会先被尝试为 L3，找不到后回退为导航操作）
+- 新增 L3 关键字需要在对应 YAML 中添加 workflow 定义，然后重新运行 Phase 3 编译
 
 ### C.17 导航与杂项
 

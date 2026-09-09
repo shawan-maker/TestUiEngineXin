@@ -541,11 +541,11 @@ my-system/
 ### 运行测试
 
 ```bash
-# 运行所有套件（一个报告）
-python run.py --all
-
-# 运行所有套件（每个套件一个报告）
+# 运行所有用例（一个报告，读取 suites/master.yaml）
 python run.py
+
+# 等同于无参数模式
+python run.py --all
 
 # 运行指定模块
 python run.py --module question-manage

@@ -140,32 +140,23 @@ def _scan_discovery_json(discovery_dir):
 
 
 def _auto_generate_slug(cn_name):
-    """从中文模块名自动生成英文 slug（首次运行兜底）。
+    """自动生成 slug（委托给统一入口 resolve_module_slug._auto_generate_slug）。
 
-    策略链（与 generate_from_excel.py _auto_generate_slug_inline 完全一致）:
+    策略链（与 resolve_module_slug.py 完全一致）:
       1. 提取 ASCII 部分（如 "PMO管理" → "pmo"），长度 >= 3 才采用
       2. MD5 hash 兜底（mod_ 前缀 + 8 位 hex）
 
     Returns: 合法 slug 字符串（永不为 None/空，确保首次运行不阻断）。
     """
-    # 策略 1: ASCII 部分
-    ascii_part = re.sub(r'[^a-zA-Z0-9]', '', cn_name).lower()
-    if len(ascii_part) >= 3:
-        return ascii_part
-
-    # 策略 2: MD5 hash 兜底
-    import hashlib
-    return 'mod_' + hashlib.md5(cn_name.encode('utf-8')).hexdigest()[:8]
+    from excel.resolve_module_slug import _auto_generate_slug as _unified_auto
+    return _unified_auto(cn_name)
 
 
 def _extract_slug_from_url(cn_name, module_urls):
-    """从 module_urls.json 的 URL 路径提取 slug。
+    """从 module_urls.json 的 URL 路径提取 slug（委托给统一入口）。
 
-    提取策略（按优先级）:
-    1. Hash 路由 #/path 的第一个段
-    2. 普通路径的第三个段（如果前两个段是通用名称如 /estack/web/）
-    3. 普通路径的第二个段（如果第一个段是通用名称）
-    4. 普通路径的第一个段
+    使用 resolve_module_slug 的启发式规则（位置+语义双重过滤），
+    替代原来写死的 generic_names 列表。
 
     Args:
         cn_name: 中文模块名
@@ -173,56 +164,19 @@ def _extract_slug_from_url(cn_name, module_urls):
 
     Returns: slug 字符串或 None
     """
-    if not module_urls or cn_name not in module_urls:
-        return None
-    urls = module_urls[cn_name].get('urls', [])
-    if not urls:
-        return None
-    url = urls[0]
+    from excel.resolve_module_slug import (
+        _extract_from_single_url,
+        _extract_by_comparison,
+    )
 
-    def _validate_segment(seg):
-        """校验 segment 是否为合法 slug"""
-        return seg and re.match(r'^[a-z][a-z0-9_-]{1,29}$', seg)
+    # 多 URL 对比优先（≥2 个模块时更精确）
+    if module_urls and len(module_urls) >= 2:
+        slug = _extract_by_comparison(cn_name, module_urls)
+        if slug:
+            return slug
 
-    def _is_generic_segment(seg):
-        """判断 segment 是否为通用名称（不适合作为模块名）"""
-        generic_names = {'estack', 'web', 'api', 'static', 'app', 'console'}
-        return seg.lower() in generic_names
-
-    # 策略 1: 优先匹配 #/path 格式（hash 路由）
-    match = re.search(r'#/([^/]+)', url)
-    if match:
-        segment = match.group(1).replace('-', '_')  # 连字符转下划线
-        if _validate_segment(segment):
-            return segment
-
-    # 提取普通路径的所有段
-    match = re.search(r'https?://[^/]+(/[^?#]*)', url)
-    if match:
-        path = match.group(1)
-        segments = [s for s in path.split('/') if s]
-
-        # 策略 2: 尝试第三个段（如果前两个是通用名称）
-        if len(segments) >= 3:
-            if _is_generic_segment(segments[0]) and _is_generic_segment(segments[1]):
-                segment = segments[2]
-                if _validate_segment(segment) and not _is_generic_segment(segment):
-                    return segment
-
-        # 策略 3: 尝试第二个段（如果第一个是通用名称）
-        if len(segments) >= 2:
-            if _is_generic_segment(segments[0]):
-                segment = segments[1]
-                if _validate_segment(segment) and not _is_generic_segment(segment):
-                    return segment
-
-        # 策略 4: 第一个段（兜底）
-        if segments:
-            segment = segments[0]
-            if _validate_segment(segment):
-                return segment
-
-    return None
+    # 单 URL 启发式
+    return _extract_from_single_url(cn_name, module_urls)
 
 
 def _build_mapping(cn_modules, en_slugs, yaml_comments, discovery_map, cli_overrides, module_urls=None):

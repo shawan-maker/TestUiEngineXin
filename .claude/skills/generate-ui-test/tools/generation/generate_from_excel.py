@@ -23,7 +23,6 @@ import json
 import os
 import re
 import sys
-import hashlib
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(SCRIPT_DIR))  # Add tools/ for core, generation modules
@@ -41,16 +40,6 @@ from generation.pages_writer import PagesWriter
 # ═══════════════════════════════════════════════════════════════
 # 模块映射
 # ═══════════════════════════════════════════════════════════════
-
-def _auto_generate_slug_inline(cn_name):
-    """自动生成 slug（与 build_module_map.py 保持一致）。"""
-    # 策略1: ASCII提取
-    ascii_part = re.sub(r'[^a-zA-Z0-9]', '', cn_name).lower()
-    if len(ascii_part) >= 3:
-        return ascii_part
-    # 策略2: MD5兜底
-    return 'mod_' + hashlib.md5(cn_name.encode()).hexdigest()[:8]
-
 
 def load_module_map(discovery_dir, module_map_str=''):
     """加载中文→英文模块映射。
@@ -138,8 +127,9 @@ def group_cases_by_module(excel_data, module_map_str, discovery_dir):
                     slug = disc_slug
                     break
         if not slug:
-            # 自动生成 slug 作为后备（与 build_module_map.py 保持一致）
-            slug = _auto_generate_slug_inline(cn)
+            # 自动生成 slug 作为后备（委托给统一入口 resolve_module_slug）
+            from excel.resolve_module_slug import _auto_generate_slug
+            slug = _auto_generate_slug(cn)
             # 碰撞检测：如果 slug 已存在（不同 cn 生成相同 hash），追加后缀
             if slug in mapping.values():
                 original = slug

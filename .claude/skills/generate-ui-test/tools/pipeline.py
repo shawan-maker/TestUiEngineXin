@@ -879,19 +879,22 @@ class PipelineExecutor:
                                 _tools_dir = Path(__file__).parent
                                 if str(_tools_dir) not in _sys.path:
                                     _sys.path.insert(0, str(_tools_dir))
-                                from excel.build_module_map import _extract_slug_from_url, _auto_generate_slug
+                                from excel.resolve_module_slug import resolve_module_slug
 
                                 cn_to_slug = {}
                                 for cn_name, urls in module_urls.items():
-                                    # 优先级：1. 用户指定 NL 模块名  2. URL 提取  3. 自动生成
+                                    # 优先级：1. 用户指定 NL 模块名  2. 统一解析入口
                                     if self.context.nlp_module_name:
                                         slug = self.context.nlp_module_name
                                     else:
-                                        # 构建 module_urls.json 格式供 _extract_slug_from_url 使用
+                                        # 构建 module_urls.json 格式供统一入口使用
                                         module_urls_json = {cn_name: {'urls': list(urls)}}
-                                        slug = _extract_slug_from_url(cn_name, module_urls_json)
-                                        if not slug:
-                                            slug = _auto_generate_slug(cn_name)
+                                        slug = resolve_module_slug(
+                                            cn_name,
+                                            module_urls_json,
+                                            module_map=None,
+                                            cli_overrides={}
+                                        )
                                     cn_to_slug[cn_name] = slug
 
                                 # 合并 page_urls（保留已有配置，使用英文 slug 作为 key）

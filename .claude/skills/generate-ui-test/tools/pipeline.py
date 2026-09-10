@@ -89,6 +89,7 @@ class PipelineContext:
         self.run_smoke = run_smoke
         self.headed = headed
         self.modules: list[dict] = modules or []  # [{"slug": "xxx", "cn_name": "xxx", "urls": [...]}]
+        self.excel_modules: list[dict] = []  # 本次 Excel 包含的模块（增量场景）
         self.discovery_path = None  # 当前处理的 discovery 文件路径
         self.module_map_str = ""    # 自动构建的 cn_name=slug 映射（传递给 run_phase4.py）
         self._restored_params = set()  # 从 pipeline_state.json 恢复的参数名
@@ -126,12 +127,10 @@ class PipelineContext:
                     # 方案2: 保护已恢复的 target_url，不被 config.yaml 覆盖
                     if 'target_url' not in self._restored_params:
                         self.target_url = config.get('target_url')
-                    # Cookie: 以 config.yaml 为真相源（用户可能手动更新 Cookie）
-                    # 只有 config.yaml 无 cookie 时才用 state 的 cookie 作为 fallback
+                    # Cookie: CLI 参数优先（用户传入新值），config.yaml 作为 fallback
                     _config_cookie = config.get('cookie')
-                    if _config_cookie:
+                    if not self.cookie and _config_cookie:
                         self.cookie = _config_cookie
-                    # else: 保留 self.cookie（来自 state 或 --cookie 参数）
 
                     # H1: 从 config.yaml 加载 local_storage
                     ls = config.get('local_storage')
@@ -483,6 +482,77 @@ class PipelineContext:
 
         return self.modules
 
+    def get_excel_modules(self) -> list[dict]:
+        """获取本次 Excel 中的模块列表（增量场景）
+
+        返回本次 Excel 包含的模块，用于 Phase 6/7/9 限定范围。
+        如果 excel_modules 为空，返回空列表（调用方应回退到 get_modules()）。
+        """
+        if self.excel_modules:
+            return self.excel_modules
+
+        # 从 excel_parsed.json 读取模块列表
+        if not self.excel_json_path:
+            return []
+
+        try:
+            with open(self.excel_json_path, encoding='utf-8') as f:
+                data = json.load(f)
+
+            if not isinstance(data, list):
+                return []
+
+            # 加载 module_map.json（cn_name → slug 映射）
+            module_map = {}
+            probe_dir = Path(self.project_dir) / "_probe"
+            module_map_path = probe_dir / "module_map.json"
+            if module_map_path.is_file():
+                try:
+                    with open(module_map_path, encoding='utf-8') as f:
+                        module_map = json.load(f)
+                except Exception:
+                    pass
+
+            # 提取所有唯一的 module cn_name（处理嵌套结构）
+            cn_names = set()
+            for item in data:
+                if isinstance(item, dict):
+                    # 嵌套结构：{sheet, cases: [{module, ...}]}
+                    cases = item.get('cases', [])
+                    if isinstance(cases, list):
+                        for case in cases:
+                            if isinstance(case, dict):
+                                module = case.get('module', '')
+                                if module:
+                                    cn_names.add(module)
+                    # 兼容扁平结构：[{module, ...}]
+                    module = item.get('module', '')
+                    if module:
+                        cn_names.add(module)
+
+            if not cn_names:
+                return []
+
+            # cn_name → slug 映射
+            slugs = set()
+            for cn_name in cn_names:
+                slug = module_map.get(cn_name, cn_name)
+                # 归一化：下划线格式
+                slug = slug.replace('-', '_')
+                slugs.add(slug)
+
+            # 构建 excel_modules 列表
+            for slug in sorted(slugs):
+                self.excel_modules.append({
+                    "slug": slug,
+                    "cn_name": slug,
+                    "urls": []
+                })
+
+            return self.excel_modules
+        except Exception:
+            return []
+
 
 class PipelineExecutor:
     """管线执行引擎"""
@@ -539,6 +609,23 @@ class PipelineExecutor:
                         print(f"  [恢复] target_url = {self.context.target_url}")
                 except Exception as e:
                     print(f"  ⚠️  恢复 CLI 参数失败: {e}")
+
+            # 恢复 excel_modules（增量模式关键数据）
+            if state_file.exists() and not self.context.excel_modules:
+                try:
+                    with open(state_file, 'r', encoding='utf-8') as f:
+                        prev_state = json.load(f)
+                    saved_slugs = prev_state.get('excel_modules', [])
+                    if saved_slugs:
+                        for slug in saved_slugs:
+                            self.context.excel_modules.append({
+                                "slug": slug,
+                                "cn_name": slug,
+                                "urls": []
+                            })
+                        print(f"  [恢复] excel_modules = {saved_slugs}")
+                except Exception:
+                    pass  # 恢复失败不影响主流程
 
         # 加载配置 - 恢复模式下跳过模块映射重建，避免基于陈旧的 excel_parsed.json 污染
         is_resume = bool(from_phase or only_phase)
@@ -1110,6 +1197,17 @@ class PipelineExecutor:
                 # 构建命令行
                 args = self._resolve_args(defn.get("tool_args", []))
 
+                # Phase 7 特殊处理：增量模式时使用 --modules 而非 --all-modules
+                if phase_id == "phase_7":
+                    excel_mods = self.context.get_excel_modules()
+                    if excel_mods:
+                        slugs = [m['slug'] for m in excel_mods]
+                        # 替换 --all-modules 为 --modules slug1 slug2 ...
+                        if "--all-modules" in args:
+                            args = [a for a in args if a != "--all-modules"]
+                            args.extend(["--modules"] + slugs)
+                            print(f"  [增量模式] Phase 7 仅生成 suite: {', '.join(slugs)}")
+
                 is_multi = defn.get("multi_module", False)
                 if is_multi:
                     # 多模块：_execute_multi_module 逐模块替换 {module_slug}
@@ -1408,31 +1506,73 @@ class PipelineExecutor:
             existing = env.get("PYTHONPATH", "")
             env["PYTHONPATH"] = repo_root + (os.pathsep + existing if existing else "")
 
-            # 修复：cwd 已设置为 project_dir，所以 run.py 用文件名即可
-            result = subprocess.run(
-                [sys.executable, "run.py"],
-                cwd=self.project_dir,
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                timeout=3600,  # 测试运行可能需要较长时间
-                env=env,
-            )
+            # 检查是否增量模式
+            excel_mods = self.context.get_excel_modules()
 
-            if result.returncode == 0:
-                print(f"  ✅ 测试执行成功")
-                return PhaseResult("phase_9", PhaseStatus.PASSED)
+            if excel_mods:
+                # 增量模式：逐模块运行
+                slugs = [m['slug'] for m in excel_mods]
+                print(f"  [增量模式] Phase 9 仅运行模块: {', '.join(slugs)}")
+
+                all_passed = True
+                all_warnings = []
+
+                for slug in slugs:
+                    print(f"\n  → 运行模块: {slug}")
+                    result = subprocess.run(
+                        [sys.executable, "run.py", "--module", slug],
+                        cwd=self.project_dir,
+                        capture_output=True,
+                        text=True,
+                        encoding='utf-8',
+                        errors='replace',
+                        timeout=3600,
+                        env=env,
+                    )
+
+                    if result.returncode == 0:
+                        print(f"  ✅ 模块 {slug} 执行成功")
+                    else:
+                        all_passed = False
+                        stdout_preview = (result.stdout or "")[-500:]
+                        stderr_preview = (result.stderr or "")[-500:]
+                        print(f"  ⚠️  模块 {slug} 执行完成，退出码: {result.returncode}")
+                        if stdout_preview:
+                            print(f"  输出预览: {stdout_preview[:200]}...")
+                        all_warnings.append(f"模块 {slug} 退出码: {result.returncode}")
+
+                if all_passed:
+                    print(f"\n  ✅ 所有模块执行成功")
+                    return PhaseResult("phase_9", PhaseStatus.PASSED)
+                else:
+                    return PhaseResult("phase_9", PhaseStatus.PASSED,
+                                     warnings=all_warnings)
             else:
-                # 测试失败不一定是错误，可能只是部分用例失败
-                stdout_preview = (result.stdout or "")[-500:]
-                stderr_preview = (result.stderr or "")[-500:]
-                print(f"  ⚠️  测试执行完成，退出码: {result.returncode}")
-                if stdout_preview:
-                    print(f"  输出预览: {stdout_preview[:200]}...")
-                # 测试失败不阻断管线，记录为警告
-                return PhaseResult("phase_9", PhaseStatus.PASSED,
-                                 warnings=[f"测试执行完成，退出码: {result.returncode}"])
+                # 全量模式：运行所有用例
+                result = subprocess.run(
+                    [sys.executable, "run.py"],
+                    cwd=self.project_dir,
+                    capture_output=True,
+                    text=True,
+                    encoding='utf-8',
+                    errors='replace',
+                    timeout=3600,
+                    env=env,
+                )
+
+                if result.returncode == 0:
+                    print(f"  ✅ 测试执行成功")
+                    return PhaseResult("phase_9", PhaseStatus.PASSED)
+                else:
+                    # 测试失败不一定是错误，可能只是部分用例失败
+                    stdout_preview = (result.stdout or "")[-500:]
+                    stderr_preview = (result.stderr or "")[-500:]
+                    print(f"  ⚠️  测试执行完成，退出码: {result.returncode}")
+                    if stdout_preview:
+                        print(f"  输出预览: {stdout_preview[:200]}...")
+                    # 测试失败不阻断管线，记录为警告
+                    return PhaseResult("phase_9", PhaseStatus.PASSED,
+                                     warnings=[f"测试执行完成，退出码: {result.returncode}"])
 
         except subprocess.TimeoutExpired:
             print(f"  ⚠️  测试执行超时 (3600s)")
@@ -1447,7 +1587,16 @@ class PipelineExecutor:
                               args: list[str]) -> PhaseResult:
         """多模块执行（Phase 4/6）— 逐模块运行，Cookie 失败全局阻断"""
         defn = self.registry[phase_id]
-        modules = self.context.get_modules()
+
+        # Phase 6: 优先使用本次 Excel 的模块（增量场景，避免覆盖老模块已修正的定位器）
+        # Phase 4: 始终使用全量模块（探测所有配置的 URL）
+        if phase_id == "phase_6_verify":
+            excel_mods = self.context.get_excel_modules()
+            modules = excel_mods if excel_mods else self.context.get_modules()
+            if excel_mods:
+                print(f"  [增量模式] 仅验证 Excel 模块: {[m['slug'] for m in excel_mods]}")
+        else:
+            modules = self.context.get_modules()
 
         if not modules:
             if defn.get("tolerate_tool_failure"):
@@ -1839,6 +1988,9 @@ class PipelineExecutor:
             is_intermediate: True 表示增量保存（阶段间），final_status 设为 "running"
                            False 表示最终保存（管线结束），动态计算 final_status
         """
+        # 提取 excel_modules 的 slug 列表用于持久化
+        excel_module_slugs = [m['slug'] for m in self.context.excel_modules]
+
         state = {
             "run_id": self.start_time.strftime("%Y%m%d_%H%M%S"),
             "started_at": self.start_time.isoformat(),
@@ -1849,6 +2001,7 @@ class PipelineExecutor:
                 "cookie": self.context.cookie or "",
                 "target_url": self.context.target_url or "",
             },
+            "excel_modules": excel_module_slugs,
             "phases": {},
         }
 

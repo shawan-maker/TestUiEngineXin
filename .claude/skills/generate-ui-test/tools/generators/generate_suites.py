@@ -358,6 +358,7 @@ def main():
     group.add_argument('--module', default='common', help='目标模块名')
     group.add_argument('--all-modules', action='store_true',
                        help='自动扫描 cases/ 下所有模块目录')
+    group.add_argument('--modules', nargs='+', help='指定多个模块名（增量模式）')
     parser.add_argument('--sort-by', default='filename',
                         choices=['filename', 'dependency'],
                         help='排序方式: filename(默认,按文件编号) 或 dependency(按操作类型)')
@@ -386,12 +387,18 @@ def main():
     cases_dir = os.path.join(project_dir, 'cases')
 
     # 确定要处理的模块列表
+    incremental_mode = False
     if args.all_modules:
         modules = _discover_modules(cases_dir)
         if not modules:
             print("[WARN] cases/ 下未找到任何模块目录")
             sys.exit(0)
         print(f"[INFO] --all-modules: 发现 {len(modules)} 个模块: {', '.join(modules)}")
+    elif args.modules:
+        # 增量模式：只处理指定的模块列表
+        modules = args.modules
+        incremental_mode = True
+        print(f"[INFO] --modules (增量模式): 处理 {len(modules)} 个模块: {', '.join(modules)}")
     else:
         modules = [args.module]
 
@@ -404,10 +411,15 @@ def main():
     if args.all_modules:
         print(f"\n[DONE] 共生成 {generated}/{len(modules)} 个 suite 文件")
 
-    # 生成 suites/master.yaml（仅 --all-modules 时，且多模块时）
-    if args.all_modules and generated > 0:
-        _write_master_suite(project_dir, config, cases_dir, modules,
-                           sort_by=args.sort_by)
+    # 生成 suites/master.yaml
+    # - --all-modules 时：生成 master.yaml（全量扫描所有模块）
+    # - --modules 增量模式时：也生成 master.yaml（全量扫描，确保 run.py --all 可用）
+    if (args.all_modules or incremental_mode) and generated > 0:
+        # 全量扫描所有模块（不仅是本次处理的 modules）
+        all_modules = _discover_modules(cases_dir)
+        if all_modules:
+            _write_master_suite(project_dir, config, cases_dir, all_modules,
+                               sort_by=args.sort_by)
 
     if generated == 0:
         sys.exit(0)

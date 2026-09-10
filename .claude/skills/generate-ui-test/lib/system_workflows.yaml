@@ -138,3 +138,26 @@ workflows:
         desc: "生成随机名称（实际由编译器生成 Python 代码）"
         params:
           message: "随机名称已生成"
+
+  # ── 关键字五：生成随机手机号（1 参数）──
+  # 由 compile_module_keywords.py 特殊编译为 Python 代码（含 random.choice）
+  - name: set_random_phone
+    chinese_name: 生成随机手机号
+    params: [name]
+    description: "生成随机11位手机号（真实运营商前缀），存入运行时变量"
+    steps:
+      - keyword: log
+        desc: "生成随机手机号（实际由编译器生成 Python 代码）"
+        params:
+          message: "随机手机号已生成"
+
+  # ── 关键字六：生成随机邮箱（1 参数）──
+  - name: set_random_email
+    chinese_name: 生成随机邮箱
+    params: [name]
+    description: "生成随机邮箱地址（8位随机字符@example.com），存入运行时变量"
+    steps:
+      - keyword: log
+        desc: "生成随机邮箱（实际由编译器生成 Python 代码）"
+        params:
+          message: "随机邮箱已生成"

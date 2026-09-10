@@ -20,10 +20,11 @@ import hashlib
 
 
 # 页面级关键词（从后往前跳过，这些通常是页面名而非模块名）
+# 注意：不要加入 log/logs/order 等常见业务模块名
 PAGE_KEYWORDS = {
     'list', 'detail', 'view', 'edit', 'add', 'create',
     'basic', 'info', 'message', 'manage', 'index', 'home',
-    'log', 'logs', 'query', 'search', 'result', 'config',
+    'query', 'search', 'result', 'config',
     'setting', 'settings', 'overview', 'dashboard',
 }
 

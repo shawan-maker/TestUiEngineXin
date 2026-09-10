@@ -115,6 +115,8 @@ class CaseGenerator:
         'l3_call',
     })
     _RANDOM_NAME_RE = re.compile(r'随机名称[(（](.*?)[)）]')
+    _RANDOM_PHONE_RE = re.compile(r'随机手机号')
+    _RANDOM_EMAIL_RE  = re.compile(r'随机邮箱')
     _CT_HASH_RE = re.compile(r'_([0-9a-f]{4})$')  # BUG-14: 容器哈希后缀检测
 
     def __init__(self, resolver, module_name, project_dir='', framework=None):
@@ -588,6 +590,10 @@ class CaseGenerator:
         # 6. 数据引用
         resolved_value, is_random = self._try_expand_random_name(
             value, field, steps)
+        if not is_random:
+            resolved_value, is_random = self._try_expand_random_phone(field, steps)
+        if not is_random:
+            resolved_value, is_random = self._try_expand_random_email(field, steps)
         if is_random:
             option_ref = resolved_value
         else:
@@ -1666,6 +1672,34 @@ class CaseGenerator:
 
         return f'${{{var_name}}}', True
 
+    def _try_expand_random_phone(self, field, steps):
+        """展开 '随机手机号' → set_random_phone L3 调用"""
+        self._random_name_counter += 1
+        var_name = f"random_{field}"
+        if self._random_name_counter > 1:
+            var_name = f"{var_name}_{self._random_name_counter}"
+
+        steps.append({
+            'desc': f'生成随机手机号({field})',
+            'keyword': 'set_random_phone',
+            'params': {'name': var_name},
+        })
+        return f'${{{var_name}}}', True
+
+    def _try_expand_random_email(self, field, steps):
+        """展开 '随机邮箱' → set_random_email L3 调用"""
+        self._random_name_counter += 1
+        var_name = f"random_{field}"
+        if self._random_name_counter > 1:
+            var_name = f"{var_name}_{self._random_name_counter}"
+
+        steps.append({
+            'desc': f'生成随机邮箱({field})',
+            'keyword': 'set_random_email',
+            'params': {'name': var_name},
+        })
+        return f'${{{var_name}}}', True
+
     # ─── Page context ────────────────────────────────────────
 
     def set_page_context(self, url):
@@ -2119,6 +2153,10 @@ class CaseGenerator:
 
                 resolved_value, is_random = self._try_expand_random_name(
                     value, field, steps)
+                if not is_random:
+                    resolved_value, is_random = self._try_expand_random_phone(field, steps)
+                if not is_random:
+                    resolved_value, is_random = self._try_expand_random_email(field, steps)
                 if is_random:
                     data_ref = resolved_value
                 else:
@@ -3297,13 +3335,13 @@ class CaseGenerator:
             wf_def = self._find_workflow(cn_name)
 
             if not wf_def:
-                if cn_name == '随机名称':
+                if cn_name in ('随机名称', '随机手机号', '随机邮箱'):
                     steps.append({
                         'desc': f"[待确认] {parsed['raw']}",
                         'keyword': 'log',
                         'params': {'message': (
-                            "'随机名称(前缀)' 是值表达式，必须在输入框上下文中使用，"
-                            "如: 在\"XX\"输入框中输入随机名称(前缀)")},
+                            f"'{cn_name}' 是值表达式，必须在输入框上下文中使用，"
+                            f"如: 在\"XX\"输入框中输入{cn_name}")},
                     })
                     return steps
 

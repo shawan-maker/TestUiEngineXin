@@ -63,7 +63,7 @@ SKIP_KEYWORDS = {
     'inject_local_storage', 'inject_cookies', 'inject_token_header',
     'set_viewport_size',
     'log',
-    'if_variable', 'set_random_variable',
+    'if_variable', 'set_random_variable', 'set_random_phone', 'set_random_email',
 }
 
 # 必须执行的关键字 — 影响页面状态，不执行会导致后续 locator 验证失败
@@ -1337,6 +1337,22 @@ def execute_step(page, step, pages_dict, data_dict, steps_so_far, discovery_data
             simulated_value = f"{prefix}_phase6_test"
             data_dict[var_name] = simulated_value
             print(f"    [SIMULATE] set_random_variable: {var_name} = '{simulated_value}'")
+        return None, None, True, False, 'skip'
+
+    if keyword == 'set_random_phone':
+        var_name = params.get('name', '') if isinstance(params, dict) else ''
+        if var_name:
+            simulated_value = "13800138000"
+            data_dict[var_name] = simulated_value
+            print(f"    [SIMULATE] set_random_phone: {var_name} = '{simulated_value}'")
+        return None, None, True, False, 'skip'
+
+    if keyword == 'set_random_email':
+        var_name = params.get('name', '') if isinstance(params, dict) else ''
+        if var_name:
+            simulated_value = "test_phase6@example.com"
+            data_dict[var_name] = simulated_value
+            print(f"    [SIMULATE] set_random_email: {var_name} = '{simulated_value}'")
         return None, None, True, False, 'skip'
 
     if keyword in SKIP_KEYWORDS:

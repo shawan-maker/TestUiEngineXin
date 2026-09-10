@@ -670,6 +670,7 @@ def generate_module(workflows_with_sources, project_dir):
     skill_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # generate-ui-test/
 
     needs_datetime = False
+    needs_random = False
 
     for source, wf in workflows_with_sources:
         name = wf.get('name', '')
@@ -695,6 +696,47 @@ def generate_module(workflows_with_sources, project_dir):
                     "{})[name] = _gen_value\n"
                     "    self.log.debug_log(f'[L3] 随机变量: "
                     "{name}={_gen_value}')"
+                ),
+            })
+            continue
+
+        # ── 特殊编译: set_random_phone（生成随机手机号）──
+        if name == 'set_random_phone':
+            needs_random = True
+            functions.append({
+                'name': 'set_random_phone',
+                'chinese_name': wf.get('chinese_name', '生成随机手机号'),
+                'params_str': 'name',
+                'description': wf.get('description', ''),
+                'source': source,
+                'code': (
+                    "    self.log.debug_log(f'[L3] set_random_phone: name={name}')\n"
+                    "    _prefixes = ['130','131','132','133','134','135','136','137','138','139',"
+                    "'150','151','152','153','155','156','157','158','159',"
+                    "'170','176','177','178','180','181','182','183','184','185','186','187','188','189',"
+                    "'190','191','193','195','196','197','198','199']\n"
+                    "    _phone = random.choice(_prefixes) + ''.join(random.choices('0123456789', k=8))\n"
+                    "    self.config.setdefault('runtime_variables', {})[name] = _phone\n"
+                    "    self.log.debug_log(f'[L3] 随机手机号: {name}={_phone}')"
+                ),
+            })
+            continue
+
+        # ── 特殊编译: set_random_email（生成随机邮箱）──
+        if name == 'set_random_email':
+            needs_random = True
+            functions.append({
+                'name': 'set_random_email',
+                'chinese_name': wf.get('chinese_name', '生成随机邮箱'),
+                'params_str': 'name',
+                'description': wf.get('description', ''),
+                'source': source,
+                'code': (
+                    "    self.log.debug_log(f'[L3] set_random_email: name={name}')\n"
+                    "    _rand = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))\n"
+                    "    _email = f'{_rand}@example.com'\n"
+                    "    self.config.setdefault('runtime_variables', {})[name] = _email\n"
+                    "    self.log.debug_log(f'[L3] 随机邮箱: {name}={_email}')"
                 ),
             })
             continue
@@ -740,6 +782,9 @@ def generate_module(workflows_with_sources, project_dir):
     module_lines.append('from UIEngine.basecase import BaseCase')
     if needs_datetime:
         module_lines.append('from datetime import datetime')
+    if needs_random:
+        module_lines.append('import random')
+        module_lines.append('import string')
     module_lines.append('')
 
     for func in functions:

@@ -44,7 +44,7 @@ _SC_ENGINE_KEYWORDS = {
     'frame_long_click_element', 'frame_drag_and_drop',
     'mouse_click', 'move_mouse', 'mouse_down', 'mouse_up',
     'press_key', 'press_type',
-    'set_random_variable', 'except_element_count',
+    'set_random_variable', 'set_random_phone', 'set_random_email', 'except_element_count',
 }
 
 _SC_KEYWORD_MISTAKES = {

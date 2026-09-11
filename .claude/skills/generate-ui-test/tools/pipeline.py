@@ -874,32 +874,59 @@ class PipelineExecutor:
                                 with open(config_path, 'r', encoding='utf-8') as f:
                                     config = yaml.safe_load(f) or {}
 
-                                # 从 URL 路径提取英文 slug（避免中文目录名）
+                                # 统一入口：AI 翻译模块名
                                 import sys as _sys
                                 _tools_dir = Path(__file__).parent
                                 if str(_tools_dir) not in _sys.path:
                                     _sys.path.insert(0, str(_tools_dir))
-                                from excel.resolve_module_slug import resolve_module_slug
+                                from excel.translate_module_name import resolve_and_translate
 
-                                cn_to_slug = {}
-                                for cn_name, urls in module_urls.items():
-                                    # 优先级：1. 用户指定 NL 模块名  2. 统一解析入口
-                                    if self.context.nlp_module_name:
-                                        slug = self.context.nlp_module_name
-                                    else:
-                                        # 构建 module_urls.json 格式供统一入口使用
-                                        module_urls_json = {cn_name: {'urls': list(urls)}}
-                                        slug = resolve_module_slug(
-                                            cn_name,
-                                            module_urls_json,
-                                            module_map=None,
-                                            cli_overrides={}
-                                        )
-                                    cn_to_slug[cn_name] = slug
+                                # 读取已有的 module_map.json（如果有）
+                                module_map_path = Path(self.project_dir) / "_probe" / "module_map.json"
+                                existing_map = {}
+                                if module_map_path.is_file():
+                                    try:
+                                        with open(module_map_path, encoding='utf-8') as f:
+                                            existing_map = json.load(f)
+                                    except Exception:
+                                        pass
 
-                                # 合并 page_urls（保留已有配置，使用英文 slug 作为 key）
+                                # 统一翻译所有模块名
+                                cn_names = list(module_urls.keys())
+                                if self.context.nlp_module_name:
+                                    # NL 路径：用户指定的模块名优先
+                                    cn_names = [self.context.nlp_module_name]
+
+                                cn_to_slug = resolve_and_translate(
+                                    cn_names,
+                                    module_map=existing_map
+                                )
+
+                                # 合并 page_urls（清理同 URL 不同 slug 的旧条目，再写入新条目）
                                 if 'page_urls' not in config:
                                     config['page_urls'] = {}
+
+                                # Step 1: 收集当前 Excel 模块的所有 URL（用于匹配旧条目）
+                                new_url_set = set()
+                                for urls in module_urls.values():
+                                    for u in urls:
+                                        new_url_set.add(self.context._normalize_url(u))
+
+                                # Step 2: 删除与当前模块 URL 重叠但 slug 不同的旧条目
+                                #   例如旧条目 user_center 和新条目 log 指向同一 URL → 删 user_center
+                                new_slugs = set(cn_to_slug.values())
+                                stale_keys = []
+                                for existing_slug, existing_urls in config['page_urls'].items():
+                                    if existing_slug in new_slugs:
+                                        continue  # 同名 slug 保留（会被覆盖）
+                                    existing_url_set = {self.context._normalize_url(u) for u in (existing_urls or [])}
+                                    if existing_url_set & new_url_set:
+                                        stale_keys.append(existing_slug)
+                                for key in stale_keys:
+                                    del config['page_urls'][key]
+                                    print(f"  [page_urls] 清理旧条目: '{key}' (与新 slug URL 重叠)")
+
+                                # Step 3: 写入新条目
                                 for cn_name, urls in module_urls.items():
                                     slug = cn_to_slug[cn_name]
                                     config['page_urls'][slug] = list(urls)

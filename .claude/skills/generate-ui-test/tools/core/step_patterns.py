@@ -62,6 +62,19 @@ _RAW_PATTERNS = [
     (r'点击关闭按钮',
      'close_btn', ()),
 
+    # ── 引号版 Tab 点击（必须在 l3_call 之前，防止被拦截）──
+    # 点击"XX"标签/标签页/tab页/Tab标签（引号 + 明确后缀，^ 锚点防止子串匹配 conditional）
+    (rf'^(?:点击|单击|点){Q}(.+?){Q}\s*(?:标签页?|tab页|[Tt]ab标签)',
+     'click_tab', ('label',)),
+
+    # ── 无引号 Tab 点击（必须在 l3_call 之前）──
+    # 点击 XX Tab/Tab页（无引号 + 英文后缀）
+    (rf'(?:点击|单击|点)\s*(.+?)\s*[Tt]ab(?:页)?',
+     'click_tab', ('label',)),
+    # 点击/切换 XX Tab标签/标签页（无引号 + 中文后缀）
+    (rf'(?:点击|单击|点|切换)\s*(.+?)\s*(?:[Tt]ab)?标签页?',
+     'click_tab', ('label',)),
+
     # ── L3 中文关键字直调（最高优先级，必须在所有其他模式之前）──
     # Excel 中直接使用关键字名称 + 括号说明，如 "Tab页签搜索(点击任务提醒tab)"
     # 关键字名限制 2-8 字符（\w 含 Unicode word chars + digits，实际仅中英文+数字+下划线）
@@ -76,6 +89,9 @@ _RAW_PATTERNS = [
      'conditional_click_btn', ('tab_or_section', 'label')),
     # 条件 + "XX"tab
     (rf'如果{Q}(.+?){Q}.*?中.*?(?:数量|条数).*?(?:大于|>)\s*0.*?则点击{Q}(.+?){Q}\s*tab',
+     'conditional_click_tab', ('tab_or_section', 'tab_label')),
+    # 条件 + "XX"标签/标签页/tab页（中文后缀，不含选项卡）
+    (rf'如果{Q}(.+?){Q}.*?中.*?(?:数量|条数).*?(?:大于|>)\s*0.*?则点击{Q}(.+?){Q}\s*(?:标签页?|tab页)',
      'conditional_click_tab', ('tab_or_section', 'tab_label')),
     # 条件 + 第N条记录
     (rf'如果{Q}(.+?){Q}.*?中.*?(?:数量|条数).*?(?:大于|>)\s*0.*?则点击第.+?条',
@@ -183,8 +199,8 @@ _RAW_PATTERNS = [
     # 点击"XX"可以跳转
     (rf'(?:点击|单击|点){Q}(.+?){Q}可以跳转',
      'click_navigate', ('label',)),
-    # 点击"XX" tab（必须在通用 click 之前）
-    (rf'(?:点击|单击|点){Q}(.+?){Q}\s*tab',
+    # 点击"XX"标签/标签页/tab页/Tab标签（引号 + 明确后缀，^ 锚点防止子串匹配 conditional）
+    (rf'^(?:点击|单击|点){Q}(.+?){Q}\s*(?:标签页?|tab页|[Tt]ab标签)',
      'click_tab', ('label',)),
     # 点击侧边/左侧/菜单"XX"（menu_item 类型，必须在通用 click_btn 之前）
     (rf'点击(?:侧边|左侧|菜单)(?:的)?(?:目录)?{Q}(.+?){Q}',
@@ -363,7 +379,12 @@ def list_patterns_for_prompt():
         'click_detail_link': ['点击第一条记录的"项目名称"链接'],
         'click_first_in_list': ['点击列表中第一个"详情"按钮'],
         'click_navigate': ['点击"项目管理"可以跳转'],
-        'click_tab': ['点击"任务提醒"tab'],
+        'click_tab': [
+            '点击"任务提醒"tab',
+            '点击"登录日志"标签页',
+            '切换到"登录日志"',
+            '点击登录日志Tab',
+        ],
         'click_section': ['点击"基本信息"区域'],
         'click_btn': ['点击"确定"按钮', '点击"提交"'],
         'click': ['点击"项目名称"'],
@@ -438,6 +459,23 @@ if __name__ == '__main__':
         ('在"项目类型"级联选择框中依次选择"小站"、"EIS"', 'el_cascader'),
         ('在"项目类型"级联选择器中选择"小站"', 'el_cascader'),
         ('在"区域"级联框中勾选"北京"', 'el_cascader'),
+        # === Tab 点击扩展模式（只支持明确的格式）===
+        # 无引号 + Tab/标签后缀
+        ('点击登录日志Tab', 'click_tab'),
+        ('点击任务提醒tab页', 'click_tab'),
+        ('单击用户管理Tab', 'click_tab'),
+        ('点击登录日志标签', 'click_tab'),
+        ('点击登录日志标签页', 'click_tab'),
+        ('点击登录日志Tab标签', 'click_tab'),
+        # 引号 + 标签/标签页/tab页/Tab标签后缀
+        ('点击"登录日志"标签', 'click_tab'),
+        ('点击"登录日志"标签页', 'click_tab'),
+        ('点击"登录日志"tab页', 'click_tab'),
+        ('点击"登录日志"Tab标签', 'click_tab'),
+        # === 负面用例（不应匹配 click_tab）===
+        ('在"项目"下拉框中选择"登录日志"', 'el_select'),
+        ('点击"确定"按钮', 'click_btn'),
+        ('在"状态"选项卡中选择"进行中"', 'option_card'),
     ]
 
     passed = 0

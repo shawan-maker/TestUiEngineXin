@@ -78,12 +78,15 @@ def validate_file_paths(config):
 
 
 def validate_module_name(module_name):
-    """验证模块名命名规范"""
+    """验证模块名命名规范（支持中文 + 英文）"""
     if not module_name:
         return True, "OK"
-    # 允许小写字母、数字、连字符和下划线
-    if not re.match(r'^[a-z][a-z0-9_-]*$', module_name):
-        return False, f"模块名 '{module_name}' 必须使用小写字母、数字、连字符和下划线"
+    # 跳过隐藏目录和特殊目录
+    if module_name.startswith('.') or module_name.startswith('_'):
+        return True, "OK"
+    # 允许中文、小写字母、数字、连字符和下划线
+    if not re.match(r'^[\w一-鿿][\w一-鿿-]*$', module_name):
+        return False, f"模块名 '{module_name}' 只能使用中文字符、小写字母、数字、连字符和下划线"
     return True, "OK"
 
 

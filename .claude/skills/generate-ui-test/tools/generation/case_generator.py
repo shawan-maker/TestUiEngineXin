@@ -591,9 +591,9 @@ class CaseGenerator:
         resolved_value, is_random = self._try_expand_random_name(
             value, field, steps)
         if not is_random:
-            resolved_value, is_random = self._try_expand_random_phone(field, steps)
+            resolved_value, is_random = self._try_expand_random_phone(value, field, steps)
         if not is_random:
-            resolved_value, is_random = self._try_expand_random_email(field, steps)
+            resolved_value, is_random = self._try_expand_random_email(value, field, steps)
         if is_random:
             option_ref = resolved_value
         else:
@@ -1672,8 +1672,11 @@ class CaseGenerator:
 
         return f'${{{var_name}}}', True
 
-    def _try_expand_random_phone(self, field, steps):
+    def _try_expand_random_phone(self, value, field, steps):
         """展开 '随机手机号' → set_random_phone L3 调用"""
+        if not self._RANDOM_PHONE_RE.search(str(value)):
+            return value, False
+
         self._random_name_counter += 1
         var_name = f"random_{field}"
         if self._random_name_counter > 1:
@@ -1686,8 +1689,11 @@ class CaseGenerator:
         })
         return f'${{{var_name}}}', True
 
-    def _try_expand_random_email(self, field, steps):
+    def _try_expand_random_email(self, value, field, steps):
         """展开 '随机邮箱' → set_random_email L3 调用"""
+        if not self._RANDOM_EMAIL_RE.search(str(value)):
+            return value, False
+
         self._random_name_counter += 1
         var_name = f"random_{field}"
         if self._random_name_counter > 1:
@@ -2154,9 +2160,9 @@ class CaseGenerator:
                 resolved_value, is_random = self._try_expand_random_name(
                     value, field, steps)
                 if not is_random:
-                    resolved_value, is_random = self._try_expand_random_phone(field, steps)
+                    resolved_value, is_random = self._try_expand_random_phone(value, field, steps)
                 if not is_random:
-                    resolved_value, is_random = self._try_expand_random_email(field, steps)
+                    resolved_value, is_random = self._try_expand_random_email(value, field, steps)
                 if is_random:
                     data_ref = resolved_value
                 else:

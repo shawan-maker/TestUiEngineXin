@@ -17,7 +17,6 @@ import json
 import os
 import re
 import sys
-from collections import OrderedDict
 
 try:
     import openpyxl
@@ -139,150 +138,30 @@ def _scan_discovery_json(discovery_dir):
     return mapping
 
 
-def _auto_generate_slug(cn_name):
-    """自动生成 slug（委托给统一入口 resolve_module_slug._auto_generate_slug）。
-
-    策略链（与 resolve_module_slug.py 完全一致）:
-      1. 提取 ASCII 部分（如 "PMO管理" → "pmo"），长度 >= 3 才采用
-      2. MD5 hash 兜底（mod_ 前缀 + 8 位 hex）
-
-    Returns: 合法 slug 字符串（永不为 None/空，确保首次运行不阻断）。
-    """
-    from excel.resolve_module_slug import _auto_generate_slug as _unified_auto
-    return _unified_auto(cn_name)
-
-
-def _extract_slug_from_url(cn_name, module_urls):
-    """从 module_urls.json 的 URL 路径提取 slug（委托给统一入口）。
-
-    使用 resolve_module_slug 的启发式规则（位置+语义双重过滤），
-    替代原来写死的 generic_names 列表。
-
-    Args:
-        cn_name: 中文模块名
-        module_urls: module_urls.json 内容 {中文名: {urls: [...]}}
-
-    Returns: slug 字符串或 None
-    """
-    from excel.resolve_module_slug import (
-        _extract_from_single_url,
-        _extract_by_comparison,
-    )
-
-    # 多 URL 对比优先（≥2 个模块时更精确）
-    if module_urls and len(module_urls) >= 2:
-        slug = _extract_by_comparison(cn_name, module_urls)
-        if slug:
-            return slug
-
-    # 单 URL 启发式
-    return _extract_from_single_url(cn_name, module_urls)
-
-
 def _build_mapping(cn_modules, en_slugs, yaml_comments, discovery_map, cli_overrides, module_urls=None):
     """构建中文模块名→英文 slug 映射。
 
-    匹配优先级:
+    匹配优先级（简化为 3 级）:
     1. CLI --module-map 显式覆盖
-    2. discovery JSON 的 cn_name 字段（历史兼容）
-    3. YAML 注释精确匹配 (cn_name == comment)
-    4. YAML 注释子串匹配 (cn_name ⊂ comment 或 comment ⊂ cn_name)
-    5. 中文名本身是英文 slug (cn_name in en_slugs)
-    6. URL 路径第一段提取（如 #/instation-mail/... → instation-mail）
-    7. 自动 slug 生成（ASCII提取/MD5兜底）
+    2. 已有映射（discovery JSON / YAML 注释 / en_slugs）— 向后兼容
+    3. AI 翻译（translate_module_names）— 首次运行的主要路径
     """
-    result = OrderedDict()
-    unmatched = []
+    from excel.translate_module_name import resolve_and_translate
 
+    # 合并所有已有映射源
+    existing_map = {}
+    existing_map.update(discovery_map)
+    existing_map.update(yaml_comments)
     for cn in cn_modules:
-        # Priority 1: CLI override
-        if cn in cli_overrides:
-            result[cn] = cli_overrides[cn]
-            continue
-
-        # Priority 2: discovery JSON cn_name
-        if cn in discovery_map:
-            result[cn] = discovery_map[cn]
-            continue
-
-        # Priority 3: YAML comment exact match
-        if cn in yaml_comments:
-            result[cn] = yaml_comments[cn]
-            continue
-
-        # Priority 4: YAML comment substring match
-        matched = False
-        sorted_comments = sorted(yaml_comments.items(),
-                                 key=lambda x: len(x[0]), reverse=True)
-        for comment, slug in sorted_comments:
-            if cn in comment or comment in cn:
-                result[cn] = slug
-                matched = True
-                break
-        if matched:
-            continue
-
-        # Priority 5: cn_name is already an en_slug
         if cn in en_slugs:
-            result[cn] = cn
-            continue
+            existing_map.setdefault(cn, cn)
 
-        # Priority 6: URL path segment extraction
-        if module_urls:
-            url_slug = _extract_slug_from_url(cn, module_urls)
-            if url_slug:
-                # 碰撞检测
-                if url_slug in result.values():
-                    original = url_slug
-                    for suffix in range(2, 100):
-                        candidate = f'{original}-{suffix}'
-                        if candidate not in result.values():
-                            url_slug = candidate
-                            break
-                    print(f"[URL-SLUG] 碰撞检测: {cn} → {url_slug} (原值 {original} 与已有模块冲突)",
-                          file=sys.stderr)
-                result[cn] = url_slug
-                print(f"[URL-SLUG] {cn} → {url_slug}（从 URL 路径提取）",
-                      file=sys.stderr)
-                continue
-
-        # Priority 7: 自动 slug 生成（首次运行兜底，永不阻断）
-        auto_slug = _auto_generate_slug(cn)
-        if auto_slug:
-            # 碰撞检测：如果 auto_slug 已存在（不同 cn 生成相同 hash），追加后缀
-            if auto_slug in result.values():
-                original = auto_slug
-                for suffix in range(2, 100):
-                    candidate = f'{original}_{suffix}'
-                    if candidate not in result.values():
-                        auto_slug = candidate
-                        break
-                print(f"[AUTO-SLUG] 碰撞检测: {cn} → {auto_slug} (原值 {original} 与已有模块冲突)",
-                      file=sys.stderr)
-            result[cn] = auto_slug
-            print(f"[AUTO-SLUG] {cn} → {auto_slug}（自动生成，建议用 --module-map 确认）",
-                  file=sys.stderr)
-            continue
-
-        # Priority 7: unmatched
-        unmatched.append(cn)
-
-    if unmatched:
-        print(f"[ERROR] 以下中文模块名无法匹配到英文 slug:", file=sys.stderr)
-        for name in unmatched:
-            print(f"  - {name}", file=sys.stderr)
-        print(f"\n已匹配的模块:", file=sys.stderr)
-        for cn, slug in result.items():
-            print(f"  {cn} → {slug}", file=sys.stderr)
-        print(f"\n可用的英文 slug: {sorted(en_slugs)}", file=sys.stderr)
-        print(f"可用的 YAML 注释: {list(yaml_comments.keys())}", file=sys.stderr)
-        print(f"可用的 discovery cn_name: {list(discovery_map.keys())}", file=sys.stderr)
-        print(f"\n请使用 --module-map 参数手动指定未匹配的模块映射:", file=sys.stderr)
-        mapping_str = ','.join(f'{name}=slug' for name in unmatched)
-        print(f'  --module-map "{mapping_str}"', file=sys.stderr)
-        sys.exit(1)
-
-    return result
+    # 调用统一入口
+    return resolve_and_translate(
+        cn_modules,
+        cli_overrides=cli_overrides,
+        module_map=existing_map,
+    )
 
 
 def main():
@@ -334,18 +213,8 @@ def main():
         discovery_map = _scan_discovery_json(args.discovery_dir)
         print(f"[INFO] discovery JSON cn_name 映射: {discovery_map}")
 
-    # Step 4.5: 加载 module_urls.json（可选，用于 URL 路径提取）
-    module_urls = None
-    if args.module_urls and os.path.isfile(args.module_urls):
-        try:
-            with open(args.module_urls, encoding='utf-8') as f:
-                module_urls = json.load(f)
-            print(f"[INFO] 已加载 module_urls.json: {len(module_urls)} 个模块")
-        except Exception as e:
-            print(f"[WARN] 无法加载 module_urls.json: {e}", file=sys.stderr)
-
-    # Step 5: 构建映射
-    mapping = _build_mapping(cn_modules, en_slugs, yaml_comments, discovery_map, cli_overrides, module_urls)
+    # Step 5: 构建映射（AI 翻译替代 URL 提取）
+    mapping = _build_mapping(cn_modules, en_slugs, yaml_comments, discovery_map, cli_overrides)
 
     # Step 6: 输出
     os.makedirs(os.path.dirname(args.output) or '.', exist_ok=True)

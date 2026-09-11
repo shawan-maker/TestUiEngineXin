@@ -761,7 +761,11 @@ class ElementResolver:
 
         # GAP-2 fix: register tab buttons + tab panel elements
         for tab in section.get('tabs', []):
-            tab_name = tab.get('label', tab.get('text', ''))
+            # discovery JSON 中 tab 使用 "name" 字段（而非 "label"/"text"），
+            # 需要兼容三种字段名
+            tab_name = tab.get('name', '') or tab.get('label', '') or tab.get('text', '')
+            if not tab.get('label'):
+                tab['label'] = tab_name  # 回写 label，供 _register_element 使用
             if tab_name and tab.get('locator'):
                 self._register_element(tab, context_key, page_slug)
 

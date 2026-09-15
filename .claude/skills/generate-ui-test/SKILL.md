@@ -9,6 +9,8 @@ invocation-trigger: /generate-ui-test
 
 # generate-ui-test
 
+> v2.0.2 (2026-09-15)
+
 UI 自动化测试工程生成技能，通过 11 阶段管线（Phase 0-9 + 1b）将 Excel 测试用例转换为可运行工程。
 
 **触发**：`/generate-ui-test` 或 "生成UI测试" / "创建自动化测试"

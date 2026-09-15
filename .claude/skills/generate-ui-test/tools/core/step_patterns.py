@@ -69,11 +69,19 @@ _RAW_PATTERNS = [
 
     # ── 无引号 Tab 点击（必须在 l3_call 之前）──
     # 点击 XX Tab/Tab页（无引号 + 英文后缀）
-    (rf'(?:点击|单击|点)\s*(.+?)\s*[Tt]ab(?:页)?',
+    (rf'^(?:点击|单击|点)\s*(.+?)\s*[Tt]ab(?:页)?',
      'click_tab', ('label',)),
     # 点击/切换 XX Tab标签/标签页（无引号 + 中文后缀）
-    (rf'(?:点击|单击|点|切换)\s*(.+?)\s*(?:[Tt]ab)?标签页?',
+    (rf'^(?:点击|单击|点|切换)\s*(.+?)\s*(?:[Tt]ab)?标签页?',
      'click_tab', ('label',)),
+
+    # ── 键盘按键（必须在 l3_call 之前，"按回车键"4字符会被 l3_call 拦截）──
+    # 按(下)回车键 / 按(下)确认键 / 按(下)Enter键（支持可选引号包裹）
+    (rf'(?i)按(?:下)?\s*{Q}?(回车|确认|Enter){Q}?\s*键',
+     'press_key', ('key_name',)),
+    # 按(下)ESC键 / 按(下)退出键 / 按(下)取消键（支持可选引号包裹）
+    (rf'(?i)按(?:下)?\s*{Q}?(ESC|退出|取消){Q}?\s*键',
+     'press_key', ('key_name',)),
 
     # ── L3 中文关键字直调（最高优先级，必须在所有其他模式之前）──
     # Excel 中直接使用关键字名称 + 括号说明，如 "Tab页签搜索(点击任务提醒tab)"
@@ -476,6 +484,18 @@ if __name__ == '__main__':
         ('在"项目"下拉框中选择"登录日志"', 'el_select'),
         ('点击"确定"按钮', 'click_btn'),
         ('在"状态"选项卡中选择"进行中"', 'option_card'),
+        # 键盘按键
+        ('按回车键', 'press_key'),
+        ('按下回车键', 'press_key'),
+        ('按Enter键', 'press_key'),
+        ('按enter键', 'press_key'),
+        ('按ENTER键', 'press_key'),
+        ('按ESC键', 'press_key'),
+        ('按Esc键', 'press_key'),
+        ('按esc键', 'press_key'),
+        ('按下ESC键', 'press_key'),
+        ('按下Esc键', 'press_key'),
+        ('按退出键', 'press_key'),
     ]
 
     passed = 0

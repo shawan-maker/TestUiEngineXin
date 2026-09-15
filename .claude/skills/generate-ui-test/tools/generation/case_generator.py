@@ -1852,6 +1852,26 @@ class CaseGenerator:
             })
             self.set_page_context(url)
 
+        elif ptype == 'press_key':
+            key_cn = args[0]
+            _KEY_MAP = {
+                '回车': 'Enter', '确认': 'Enter', 'Enter': 'Enter',
+                'ESC': 'Escape', '退出': 'Escape', '取消': 'Escape',
+            }
+            playwright_key = _KEY_MAP.get(key_cn) or _KEY_MAP.get(key_cn.upper()) or _KEY_MAP.get(key_cn.title())
+            if playwright_key:
+                steps.append({
+                    'desc': parsed['raw'],
+                    'keyword': 'press_key',
+                    'params': {'key': playwright_key},
+                })
+            else:
+                steps.append({
+                    'desc': f"[待确认] {parsed['raw']}",
+                    'keyword': 'log',
+                    'params': {'message': f"未识别的按键: '{key_cn}'，支持: 回车/ESC"},
+                })
+
         elif ptype == 'el_select':
             if len(args) == 3:
                 # 带序号: label, nth, value

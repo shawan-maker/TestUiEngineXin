@@ -1,19 +1,68 @@
 """断言截图功能一键升级脚本
 
 使用方法：
-  1. 将此脚本复制到测试工程根目录（run.py 同级目录）
-  2. 运行: python upgrade_assertion_screenshot.py
-  3. 运行: python run.py 验证
+  方式1（本地 whl）: python upgrade_assertion_screenshot.py --whl path/to/ui_engine_xin-0.0.13-py3-none-any.whl
+  方式2（pip 在线）: python upgrade_assertion_screenshot.py
+  方式3（指定项目）: python upgrade_assertion_screenshot.py D:\\path\\to\\project
 
-适用条件：
-  - 引擎（UIEngine）已升级到 v12.0+（basecase.py 含 ASSERTION_KEYWORDS）
-  - 项目由脚手架生成，run.py 包含 DebugRunner 类
+功能：
+  1. 卸载旧版 ui_engine_xin，安装新版（支持本地 whl 或 pip 在线）
+  2. 检查引擎是否包含 ASSERTION_KEYWORDS
+  3. config.yaml 追加断言截图配置
+  4. run.py 的 DebugRunner 添加上下文传递代码
 
 幂等：重复运行不会重复修改。
 """
 import os
 import re
+import subprocess
 import sys
+
+
+def install_engine(whl_path=None):
+    """卸载旧版并安装新版 ui_engine_xin"""
+    print(f"  正在卸载旧版 ui_engine_xin...")
+    subprocess.run([sys.executable, '-m', 'pip', 'uninstall', '-y', 'ui_engine_xin'],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    if whl_path:
+        if not os.path.isfile(whl_path):
+            print(f"  [FAIL] whl 文件不存在: {whl_path}")
+            return False
+        print(f"  正在从本地 whl 安装: {os.path.basename(whl_path)}")
+        result = subprocess.run([sys.executable, '-m', 'pip', 'install', whl_path, '--force-reinstall'],
+                                capture_output=True, text=True)
+    else:
+        print(f"  正在从 pip 安装最新版 ui_engine_xin...")
+        result = subprocess.run([sys.executable, '-m', 'pip', 'install', 'ui_engine_xin', '--upgrade'],
+                                capture_output=True, text=True)
+
+    if result.returncode == 0:
+        print(f"  [OK] ui_engine_xin 安装成功")
+        return True
+    else:
+        print(f"  [FAIL] 安装失败: {result.stderr}")
+        return False
+
+
+def verify_engine(project_dir):
+    """检查引擎是否已升级"""
+    # 强制重新导入
+    if 'UIEngine.basecase' in sys.modules:
+        del sys.modules['UIEngine.basecase']
+
+    try:
+        import UIEngine.basecase as bc
+        has_keywords = hasattr(bc, 'ASSERTION_KEYWORDS')
+        if has_keywords:
+            print(f"  [OK] UIEngine 引擎已包含 ASSERTION_KEYWORDS ({len(bc.ASSERTION_KEYWORDS)} 项)")
+            return True
+        else:
+            print(f"  [FAIL] UIEngine 引擎缺少 ASSERTION_KEYWORDS")
+            return False
+    except ImportError:
+        print(f"  [FAIL] 无法导入 UIEngine，请检查安装")
+        return False
 
 
 def upgrade_config(project_dir):
@@ -165,75 +214,108 @@ def upgrade_run_py(project_dir):
     return True
 
 
-def verify_engine(project_dir):
-    """检查引擎是否已升级"""
-    # 尝试找到 UIEngine 包
-    try:
-        import UIEngine.basecase as bc
-        has_keywords = hasattr(bc, 'ASSERTION_KEYWORDS')
-        if has_keywords:
-            print(f"  [OK] UIEngine 引擎已包含 ASSERTION_KEYWORDS ({len(bc.ASSERTION_KEYWORDS)} 项)")
-            return True
-        else:
-            print(f"  [FAIL] UIEngine 引擎缺少 ASSERTION_KEYWORDS，请先升级引擎")
-            return False
-    except ImportError:
-        # 尝试从项目本地查找
-        basecase_path = None
-        for root, dirs, files in os.walk(project_dir):
-            if 'basecase.py' in files and 'UIEngine' in root:
-                basecase_path = os.path.join(root, 'basecase.py')
-                break
+def print_help():
+    """打印帮助信息"""
+    print("""
+断言截图功能升级工具
+==================
 
-        if basecase_path:
-            with open(basecase_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            if 'ASSERTION_KEYWORDS' in content:
-                print(f"  [OK] 本地 UIEngine 已包含 ASSERTION_KEYWORDS")
-                return True
-            else:
-                print(f"  [FAIL] 本地 UIEngine 缺少 ASSERTION_KEYWORDS，请先升级引擎")
-                return False
+用法:
+  python upgrade_assertion_screenshot.py [选项] [项目目录]
 
-        print(f"  [WARN] 未找到 UIEngine 包，请确认已安装 v12.0+")
-        return False
+选项:
+  --whl <path>     使用本地 whl 文件安装引擎（默认从 pip 在线安装）
+  --skip-engine    跳过引擎安装步骤（仅升级项目配置）
+  --help, -h       显示此帮助信息
+
+示例:
+  # 在项目目录下运行（自动从 pip 安装最新版引擎）
+  python upgrade_assertion_screenshot.py
+
+  # 使用本地 whl 文件
+  python upgrade_assertion_screenshot.py --whl ui_engine_xin-0.0.13-py3-none-any.whl
+
+  # 指定项目目录
+  python upgrade_assertion_screenshot.py D:\\path\\to\\project
+
+  # 仅升级配置，不安装引擎
+  python upgrade_assertion_screenshot.py --skip-engine
+""")
 
 
 def main():
-    # 项目目录：优先用命令行参数，否则用当前工作目录
-    if len(sys.argv) > 1:
-        project_dir = os.path.abspath(sys.argv[1])
-    else:
-        project_dir = os.getcwd()
+    # 解析参数
+    whl_path = None
+    project_dir = os.getcwd()
+    skip_engine = False
+
+    i = 1
+    while i < len(sys.argv):
+        arg = sys.argv[i]
+        if arg in ('--help', '-h'):
+            print_help()
+            return
+        elif arg == '--whl' and i + 1 < len(sys.argv):
+            whl_path = os.path.abspath(sys.argv[i + 1])
+            i += 2
+        elif arg == '--skip-engine':
+            skip_engine = True
+            i += 1
+        elif not arg.startswith('--'):
+            project_dir = os.path.abspath(arg)
+            i += 1
+        else:
+            print(f"[ERROR] 未知参数: {arg}")
+            print("使用 --help 查看帮助信息")
+            sys.exit(1)
+
     print(f"{'=' * 50}")
     print(f"断言截图功能升级工具")
     print(f"项目目录: {project_dir}")
+    if whl_path:
+        print(f"本地 whl: {whl_path}")
+    if skip_engine:
+        print(f"跳过引擎安装: 是")
     print(f"{'=' * 50}")
 
-    # Step 1: 检查引擎
-    print(f"\n[1/3] 检查引擎版本...")
-    engine_ok = verify_engine(project_dir)
+    # Step 1: 安装/升级引擎
+    if not skip_engine:
+        print(f"\n[1/4] 安装 UIEngine...")
+        install_ok = install_engine(whl_path)
+        if not install_ok:
+            print(f"  [FAIL] 引擎安装失败，终止升级")
+            sys.exit(1)
+    else:
+        print(f"\n[1/4] 跳过引擎安装（--skip-engine）")
 
-    # Step 2: 升级 config.yaml
-    print(f"\n[2/3] 升级 config.yaml...")
+    # Step 2: 验证引擎
+    print(f"\n[2/4] 验证引擎版本...")
+    engine_ok = verify_engine(project_dir)
+    if not engine_ok:
+        print(f"  [FAIL] 引擎验证失败")
+        if not skip_engine:
+            print(f"  请检查安装日志")
+            sys.exit(1)
+        else:
+            print(f"  当前使用 --skip-engine，请确保引擎已包含断言截图功能")
+            sys.exit(1)
+
+    # Step 3: 升级 config.yaml
+    print(f"\n[3/4] 升级 config.yaml...")
     upgrade_config(project_dir)
 
-    # Step 3: 升级 run.py
-    print(f"\n[3/3] 升级 run.py (DebugRunner)...")
+    # Step 4: 升级 run.py
+    print(f"\n[4/4] 升级 run.py (DebugRunner)...")
     upgrade_run_py(project_dir)
 
     # 完成
     print(f"\n{'=' * 50}")
-    if engine_ok:
-        print(f"[OK] 升级完成！运行以下命令验证：")
-        print(f"   python run.py --module <模块名>")
-        print(f"")
-        print(f"验证项：")
-        print(f"  - report/screenshots/ 目录下生成截图文件")
-        print(f"  - HTML 报告中显示内嵌截图（可点击放大）")
-    else:
-        print(f"[WARN] 配置已更新，但引擎未升级。")
-        print(f"   请先升级 UIEngine 到 v12.0+ 再运行测试。")
+    print(f"[OK] 升级完成！运行以下命令验证：")
+    print(f"   python run.py --module <模块名>")
+    print(f"")
+    print(f"验证项：")
+    print(f"  - report/screenshots/ 目录下生成截图文件")
+    print(f"  - HTML 报告中显示内嵌截图（可点击放大）")
     print(f"{'=' * 50}")
 
 

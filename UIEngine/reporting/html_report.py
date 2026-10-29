@@ -9,12 +9,29 @@
 """
 import os
 import time
+import base64 as _base64
 from collections import OrderedDict
 
 try:
     import yaml
 except ImportError:
     yaml = None
+
+
+def _image_to_base64_uri(image_path):
+    """将图片文件读取并编码为 base64 data URI
+
+    :param image_path: 图片文件绝对路径
+    :return: data:image/png;base64,... 格式字符串，文件不存在时返回空字符串
+    """
+    if not image_path or not os.path.isfile(image_path):
+        return ''
+    try:
+        with open(image_path, 'rb') as f:
+            data = _base64.b64encode(f.read()).decode('ascii')
+        return f'data:image/png;base64,{data}'
+    except Exception:
+        return ''
 
 
 def generate_html_report(suite, result, report_path):
@@ -58,6 +75,10 @@ def generate_html_report(suite, result, report_path):
     </style>
 </head>
 <body>
+    <div id="screenshot-lightbox" class="lightbox-overlay" onclick="closeLightbox()">
+        <span class="lightbox-close">&times;</span>
+        <img id="lightbox-img" class="lightbox-img" />
+    </div>
     <div class="report-container">
         <div class="report-header">
             <h1>{suite_name}</h1>
@@ -429,6 +450,20 @@ def _render_step_node(node, parent_id, node_idx=None, case_context=None):
     if screenshot:
         screenshot_html = f'<div class="step-screenshot">📷 <a href="{_escape_html(screenshot)}" target="_blank">查看失败截图</a></div>'
 
+    # ★ 断言截图（base64 内嵌，嵌入报告中）
+    assertion_screenshot_html = ''
+    assertion_screenshot = node.get('assertion_screenshot')
+    if assertion_screenshot:
+        b64_uri = _image_to_base64_uri(assertion_screenshot)
+        if b64_uri:
+            # 从文件名提取截图标签（如 "01-添加用户成功-01"）
+            fname = os.path.splitext(os.path.basename(assertion_screenshot))[0]
+            assertion_screenshot_html = f'''<div class="assertion-screenshot">
+                <div class="screenshot-label">📸 断言截图: {_escape_html(fname)}</div>
+                <img src="{b64_uri}" class="screenshot-thumb"
+                     onclick="openLightbox(this, event)" alt="断言截图" loading="lazy" />
+            </div>'''
+
     # 源文件检查提示（仅失败步骤）
     source_hint_html = ''
     if status in ('fail', 'error'):
@@ -466,6 +501,7 @@ def _render_step_node(node, parent_id, node_idx=None, case_context=None):
         {params_html}
         {error_html}
         {screenshot_html}
+        {assertion_screenshot_html}
         {source_hint_html}
         {logs_html}
         {children_html}
@@ -995,6 +1031,61 @@ def _get_css_styles():
         }
         .step-screenshot a:hover { text-decoration: underline; }
 
+        /* 断言截图（base64 内嵌） */
+        .assertion-screenshot {
+            margin: 8px 0 8px 24px;
+            padding: 8px;
+            background: #f8f9fa;
+            border: 1px solid #e1e4e8;
+            border-radius: 4px;
+            max-width: 520px;
+        }
+        .screenshot-label {
+            font-size: 12px;
+            color: #555;
+            margin-bottom: 6px;
+            font-weight: 500;
+        }
+        .screenshot-thumb {
+            max-width: 100%;
+            height: auto;
+            border: 1px solid #d1d5da;
+            border-radius: 3px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .screenshot-thumb:hover {
+            transform: scale(1.02);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        /* Lightbox 全屏查看器 */
+        .lightbox-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.9);
+            z-index: 10000;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+        }
+        .lightbox-overlay.active { display: flex; }
+        .lightbox-close {
+            position: absolute;
+            top: 20px; right: 30px;
+            font-size: 36px;
+            color: #fff;
+            cursor: pointer;
+            z-index: 10001;
+        }
+        .lightbox-img {
+            max-width: 95vw;
+            max-height: 95vh;
+            border-radius: 4px;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+        }
+
         /* 日志 */
         .step-logs-toggle { margin: 4px 0 4px 26px; }
         .log-toggle-btn {
@@ -1220,5 +1311,25 @@ def _get_javascript():
                     if (content) content.style.display = 'block';
                 }
             });
+        });
+
+        // Lightbox 全屏查看器
+        function openLightbox(imgElement, evt) {
+            var overlay = document.getElementById('screenshot-lightbox');
+            var lightboxImg = document.getElementById('lightbox-img');
+            lightboxImg.src = imgElement.src;
+            overlay.classList.add('active');
+            if (evt) evt.stopPropagation();
+        }
+
+        function closeLightbox() {
+            document.getElementById('screenshot-lightbox').classList.remove('active');
+        }
+
+        // ESC 键关闭 lightbox
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                closeLightbox();
+            }
         });
     '''

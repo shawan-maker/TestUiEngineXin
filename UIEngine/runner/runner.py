@@ -76,6 +76,17 @@ class Runner:
             max_dirs=self.config.get("max_suite_screenshot_dirs", 10)
         )
 
+        # ── 断言截图目录（P3 修正：读取配置项控制开关）──
+        self._assertion_screenshot_dir = None
+        if self.config.get('assertion_screenshot', True):
+            project_name = self.config.get('project_name', os.path.basename(project_dir))
+            self._assertion_screenshot_dir = os.path.join(
+                project_dir, 'report', 'screenshots', project_name
+            )
+            os.makedirs(self._assertion_screenshot_dir, exist_ok=True)
+            # P5 修正：清理旧截图（与报告清理策略一致，保留 3 天）
+            self._cleanup_old_screenshots(self._assertion_screenshot_dir, max_days=3)
+
         # 配置日志文件输出到项目目录
         log_dir = os.path.join(files_dir, 'logs')
         os.makedirs(log_dir, exist_ok=True)
@@ -142,6 +153,26 @@ class Runner:
                 except OSError:
                     pass
 
+    @staticmethod
+    def _cleanup_old_screenshots(screenshot_dir, max_days=3):
+        """清理旧的断言截图文件，保留最近 max_days 天
+
+        :param screenshot_dir: 截图目录路径
+        :param max_days: 保留天数（默认 3 天）
+        """
+        if not os.path.isdir(screenshot_dir):
+            return
+        cutoff = time.time() - max_days * 86400
+        for root, dirs, files in os.walk(screenshot_dir):
+            for filename in files:
+                if filename.endswith('.png'):
+                    filepath = os.path.join(root, filename)
+                    try:
+                        if os.path.getmtime(filepath) < cutoff:
+                            os.remove(filepath)
+                    except OSError:
+                        pass
+
     def _relative_screenshot_path(self, img_full_path, project_dir):
         """计算截图相对于报告目录的路径
 
@@ -187,6 +218,13 @@ class Runner:
                 self.log.info_log(f"==============第{idx + 1}个测试用例 -【{case_name}】跳过执行==============")
                 self.result.add_skip(case)
                 continue
+
+            # ── 设置断言截图上下文 ──
+            self.base_case._assertion_screenshot_dir = self._assertion_screenshot_dir
+            self.base_case._current_module = case.get('_module', 'default')
+            self.base_case._current_case_name = case_name
+            self.base_case._current_seq = case.get('_seq', idx + 1)
+            self.base_case._assertion_counter = 0  # 每个用例重置
 
             # 重置执行树，为当前用例构建独立的执行记录
             self.tree_builder.reset()

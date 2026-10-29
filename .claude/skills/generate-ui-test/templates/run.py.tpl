@@ -83,6 +83,13 @@ class DebugRunner(Runner):
         for idx, case in enumerate(cases):
             case_name = case.get('name') or case.get('id') or f"case_{idx + 1}"
 
+            # ── 设置断言截图上下文（与 Runner 一致）──
+            self.base_case._assertion_screenshot_dir = self._assertion_screenshot_dir
+            self.base_case._current_module = case.get('_module', 'default')
+            self.base_case._current_case_name = case_name
+            self.base_case._current_seq = case.get('_seq', idx + 1)
+            self.base_case._assertion_counter = 0
+
             if case.get("skip"):
                 self.log.info_log(f"==============第{idx + 1}个测试用例 -【{case_name}】跳过执行==============")
                 self.result.add_skip(case)
@@ -97,6 +104,7 @@ class DebugRunner(Runner):
 
             while attempt <= self.max_retries:
                 self.tree_builder.reset()
+                self.base_case._assertion_counter = 0  # ★ 重试时重置断言计数器
 
                 try:
                     if attempt == 0:

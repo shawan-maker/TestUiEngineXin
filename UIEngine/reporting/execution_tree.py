@@ -34,6 +34,7 @@ class StepNode:
         'screenshot', 'start_time', 'end_time', 'duration_ms',
         'children', 'log_entries', 'depth', 'hide_in_report',
         'raw_params',
+        'assertion_screenshot',
     )
 
     def __init__(self, keyword, desc, params, depth):
@@ -51,6 +52,7 @@ class StepNode:
         self.depth = depth
         self.hide_in_report = False
         self.raw_params = {}
+        self.assertion_screenshot = None
 
     def to_dict(self):
         """转换为字典，便于序列化或报告生成"""
@@ -67,6 +69,7 @@ class StepNode:
             'children': [child.to_dict() for child in self.children],
             'hide_in_report': self.hide_in_report,
             'raw_params': self.raw_params,
+            'assertion_screenshot': self.assertion_screenshot,
         }
 
 
@@ -207,6 +210,17 @@ class ExecutionTreeBuilder:
         last_failed = self._find_last_failed(self._roots)
         if last_failed:
             last_failed.screenshot = screenshot_path
+
+    def attach_assertion_screenshot(self, screenshot_path):
+        """为当前栈顶节点附加断言截图路径
+
+        由 BaseCase._capture_assertion_screenshot() 调用，
+        在 push_step 之后、pop_step 之前将截图关联到当前步骤节点。
+
+        :param screenshot_path: 截图的绝对路径
+        """
+        if self._stack:
+            self._stack[-1].assertion_screenshot = screenshot_path
 
     def _find_last_failed(self, nodes):
         """递归查找最后一个失败的节点"""

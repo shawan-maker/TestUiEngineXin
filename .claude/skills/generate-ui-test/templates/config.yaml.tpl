@@ -22,6 +22,14 @@ target_url: "{{target_url}}"
 # 单套件最多保留的截图目录数（超出自动清理旧截图）
 max_suite_screenshot_dirs: 10
 
+# 断言截图（每个断言步骤自动截图并嵌入 HTML 报告）
+# 设为 false 可关闭断言截图功能，减少报告体积
+assertion_screenshot: true
+
+# 项目名称（用于截图目录结构：report/screenshots/{project_name}/{module}/）
+# 不填则自动使用项目目录名
+project_name: "{{project_name}}"
+
 # 全局变量（页面定位器和测试数据会在运行时自动注入）
 global_variable: {}
 
